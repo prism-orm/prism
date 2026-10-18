@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-$finder = (new PhpCsFixer\Finder())
+$finder = new PhpCsFixer\Finder()
     ->in([__DIR__ . '/packages', __DIR__ . '/benchmarks'])
     ->append([__FILE__]);
 
-return (new PhpCsFixer\Config())
+return new PhpCsFixer\Config()
     ->setRiskyAllowed(true)
     ->setCacheFile(__DIR__ . '/var/php-cs-fixer.cache')
     ->setRules([

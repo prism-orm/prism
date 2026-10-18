@@ -68,7 +68,7 @@ final class AttributeContractTest extends TestCase
         ];
 
         foreach ($map as $class => $flags) {
-            yield (new \ReflectionClass($class))->getShortName() => [$class, $flags];
+            yield new \ReflectionClass($class)->getShortName() => [$class, $flags];
         }
     }
 
@@ -95,7 +95,7 @@ final class AttributeContractTest extends TestCase
     #[DataProvider('attributes')]
     public function testAttributeDeclaresExpectedTargets(string $class, int $flags): void
     {
-        $attributes = (new \ReflectionClass($class))->getAttributes(\Attribute::class);
+        $attributes = new \ReflectionClass($class)->getAttributes(\Attribute::class);
 
         self::assertCount(1, $attributes);
         self::assertSame($flags, $attributes[0]->newInstance()->flags);
@@ -107,9 +107,15 @@ final class AttributeContractTest extends TestCase
     #[DataProvider('attributes')]
     public function testEveryPublicPropertyIsReadonly(string $class, int $flags): void
     {
-        foreach ((new \ReflectionClass($class))->getProperties(\ReflectionProperty::IS_PUBLIC) as $property) {
-            self::assertTrue($property->isReadOnly(), \sprintf('%s::$%s must be readonly (RT-07).', $class, $property->getName()));
+        $mutable = [];
+        foreach (new \ReflectionClass($class)->getProperties(\ReflectionProperty::IS_PUBLIC) as $property) {
+            if (!$property->isReadOnly()) {
+                $mutable[] = $property->getName();
+            }
         }
+
+        // un attribut marqueur (sans propriété) passe aussi : l'assertion est toujours exécutée
+        self::assertSame([], $mutable, \sprintf('%s: public properties must be readonly (RT-07).', $class));
     }
 
     /**

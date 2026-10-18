@@ -71,7 +71,7 @@ final class ClassAttributesTest extends TestCase
 
     public function testIndexAcceptsEmbeddedFieldPath(): void
     {
-        self::assertSame(['billingAddress.zip'], (new Index(['billingAddress.zip']))->fields);
+        self::assertSame(['billingAddress.zip'], new Index(['billingAddress.zip'])->fields);
     }
 
     public function testUniqueConstraintRejectsInvalidFieldName(): void
@@ -116,8 +116,8 @@ final class ClassAttributesTest extends TestCase
 
     public function testTimestampableDefaultsAndDisabledUpdate(): void
     {
-        self::assertSame('updatedAt', (new Timestampable())->updatedAt);
-        self::assertNull((new Timestampable(updatedAt: null))->updatedAt);
+        self::assertSame('updatedAt', new Timestampable()->updatedAt);
+        self::assertNull(new Timestampable(updatedAt: null)->updatedAt);
     }
 
     public function testBlameableDefaults(): void
@@ -130,7 +130,7 @@ final class ClassAttributesTest extends TestCase
 
     public function testSoftDeletableDefaultField(): void
     {
-        self::assertSame('deletedAt', (new SoftDeletable())->field);
+        self::assertSame('deletedAt', new SoftDeletable()->field);
     }
 
     public function testFullTextIndex(): void

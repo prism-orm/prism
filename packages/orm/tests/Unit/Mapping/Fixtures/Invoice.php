@@ -78,7 +78,7 @@ final class Invoice
     #[Prism\Embedded(columnPrefix: 'billing_')]
     public ?Address $billingAddress = null;
 
-    #[Prism\OneToOne(targetEntity: Invoice::class, joinColumn: 'credit_note_id', onDelete: Prism\OnDelete::SetNull)]
+    #[Prism\OneToOne(targetEntity: self::class, joinColumn: 'credit_note_id', onDelete: Prism\OnDelete::SetNull)]
     public ?Invoice $creditNote = null;
 
     /** @var iterable<int, InvoiceLine> */
@@ -90,6 +90,13 @@ final class Invoice
     #[Prism\ManyToMany(targetEntity: Tag::class, inversedBy: 'invoices', batch: false)]
     #[Prism\JoinTable(name: 'invoice_tag', onDelete: Prism\OnDelete::Cascade)]
     public iterable $tags = [];
+
+    public function __construct(Client $client, \DateTimeImmutable $issuedAt)
+    {
+        $this->client = $client;
+        $this->issuedAt = $issuedAt;
+        $this->createdAt = $issuedAt;
+    }
 
     #[Prism\PrePersist]
     public function onPrePersist(): void
