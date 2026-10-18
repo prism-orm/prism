@@ -4,17 +4,19 @@ declare(strict_types=1);
 
 namespace Prism\Dbal\Tests\Support;
 
+use Prism\Dbal\Configuration;
+use Prism\Dbal\Connection;
+use Prism\Dbal\ConnectionParameters;
+use Prism\Dbal\Driver;
+use Prism\Dbal\DriverManager;
+
 /**
- * Ouvre une connexion PDO de test à partir de DATABASE_URL.
- *
- * Temporaire : sera remplacé par DriverManager::fromUrl() en phase 1.
+ * Connexion de test à partir de DATABASE_URL.
  *
  * @internal
  */
 final class TestDatabase
 {
-    private const string NAME_PATTERN = '/^[A-Za-z0-9_]+$/';
-
     public static function url(): ?string
     {
         $url = getenv('DATABASE_URL');
@@ -22,38 +24,14 @@ final class TestDatabase
         return \is_string($url) && '' !== $url ? $url : null;
     }
 
-    public static function platform(?string $url = null): string
+    public static function connection(Configuration $configuration = new Configuration()): Connection
     {
-        $url ??= self::url() ?? throw new \LogicException('DATABASE_URL is not set.');
-
-        return match (true) {
-            str_starts_with($url, 'sqlite:') => 'sqlite',
-            str_starts_with($url, 'postgresql:'), str_starts_with($url, 'pgsql:') => 'pgsql',
-            str_contains($url, 'MariaDB') => 'mariadb',
-            str_starts_with($url, 'mysql:') => 'mysql',
-            default => throw new \LogicException(\sprintf('Unsupported DATABASE_URL scheme in "%s".', $url)),
-        };
+        return DriverManager::fromUrl(self::url() ?? throw new \LogicException('DATABASE_URL is not set.'), $configuration);
     }
 
-    public static function connect(?string $url = null): \PDO
+    public static function driver(): Driver
     {
-        $url ??= self::url() ?? throw new \LogicException('DATABASE_URL is not set.');
-        $options = [\PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION];
-
-        if (str_starts_with($url, 'sqlite:')) {
-            return new \PDO('sqlite:' . self::sqlitePath($url), options: $options);
-        }
-
-        $parts = self::parse($url);
-        $user = isset($parts['user']) ? rawurldecode($parts['user']) : null;
-        $password = isset($parts['pass']) ? rawurldecode($parts['pass']) : null;
-
-        $dsn = match (self::platform($url)) {
-            'pgsql' => \sprintf('pgsql:host=%s;port=%d;dbname=%s', $parts['host'], $parts['port'] ?? 5432, self::databaseName($url)),
-            default => \sprintf('mysql:host=%s;port=%d;dbname=%s;charset=utf8mb4', $parts['host'], $parts['port'] ?? 3306, self::databaseName($url)),
-        };
-
-        return new \PDO($dsn, $user, $password, $options);
+        return ConnectionParameters::fromUrl(self::url() ?? throw new \LogicException('DATABASE_URL is not set.'))->driver;
     }
 
     /**
@@ -64,18 +42,18 @@ final class TestDatabase
     public static function isolate(): \Closure
     {
         $url = self::url() ?? throw new \LogicException('DATABASE_URL is not set.');
+        $parameters = ConnectionParameters::fromUrl($url);
         $token = bin2hex(random_bytes(4));
 
-        if ('sqlite' === self::platform($url)) {
-            $path = self::sqlitePath($url);
-            if (':memory:' === $path) {
+        if (Driver::Sqlite === $parameters->driver) {
+            if (':memory:' === $parameters->database) {
                 // une base en mémoire est déjà propre à chaque connexion
                 return static function (): void {
                 };
             }
 
-            $isolated = $path . '.' . $token;
-            self::useUrl('sqlite://' . $isolated);
+            $isolated = $parameters->database . '.' . $token;
+            self::useUrl((string) preg_replace('#^(sqlite:///)[^?]*#', '${1}' . $isolated, $url));
 
             return static function () use ($isolated): void {
                 if (is_file($isolated)) {
@@ -84,55 +62,17 @@ final class TestDatabase
             };
         }
 
-        $name = self::databaseName($url) . '_' . $token;
-        $quoted = self::quoteIdentifier($url, $name);
+        $name = ($parameters->database ?? 'prism_test') . '_' . $token;
+        // provisoire : Platform::quoteIdentifier() arrive à l'étape 2 de la phase 1
+        $quoted = Driver::PostgreSql === $parameters->driver ? '"' . $name . '"' : '`' . $name . '`';
+        $force = Driver::PostgreSql === $parameters->driver ? ' WITH (FORCE)' : '';
 
-        self::connect($url)->exec('CREATE DATABASE ' . $quoted);
+        DriverManager::fromUrl($url)->executeStatement('CREATE DATABASE ' . $quoted);
         self::useUrl((string) preg_replace('#/[^/?]*(\?.*)?$#', '/' . $name . '$1', $url, 1));
 
-        $force = 'pgsql' === self::platform($url) ? ' WITH (FORCE)' : '';
-
         return static function () use ($url, $quoted, $force): void {
-            self::connect($url)->exec('DROP DATABASE IF EXISTS ' . $quoted . $force);
+            DriverManager::fromUrl($url)->executeStatement('DROP DATABASE IF EXISTS ' . $quoted . $force);
         };
-    }
-
-    public static function databaseName(?string $url = null): string
-    {
-        $url ??= self::url() ?? throw new \LogicException('DATABASE_URL is not set.');
-        $name = ltrim(self::parse($url)['path'], '/');
-
-        if (1 !== preg_match(self::NAME_PATTERN, $name)) {
-            throw new \LogicException(\sprintf('Invalid database name "%s" in DATABASE_URL.', $name));
-        }
-
-        return $name;
-    }
-
-    /**
-     * @return array{host: string, path: string, port?: int, user?: string, pass?: string}
-     */
-    private static function parse(string $url): array
-    {
-        $parts = parse_url($url);
-        if (false === $parts || !isset($parts['host'], $parts['path'])) {
-            throw new \LogicException(\sprintf('Invalid DATABASE_URL "%s".', $url));
-        }
-
-        return $parts;
-    }
-
-    private static function sqlitePath(string $url): string
-    {
-        $path = substr($url, \strlen('sqlite://'));
-
-        return '/:memory:' === $path ? ':memory:' : $path;
-    }
-
-    // provisoire : remplacé par Platform::quoteIdentifier() en phase 1
-    private static function quoteIdentifier(string $url, string $name): string
-    {
-        return 'pgsql' === self::platform($url) ? '"' . $name . '"' : '`' . $name . '`';
     }
 
     private static function useUrl(string $url): void
