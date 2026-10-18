@@ -85,6 +85,22 @@ abstract class AbstractPlatform
         return null;
     }
 
+    /** Format date() d'un datetime à la seconde (décision : pas de microsecondes en 1.0). */
+    public function getDateTimeFormat(): string
+    {
+        return 'Y-m-d H:i:s';
+    }
+
+    public function getDateFormat(): string
+    {
+        return 'Y-m-d';
+    }
+
+    public function getTimeFormat(): string
+    {
+        return 'H:i:s';
+    }
+
     /**
      * Requêtes exécutées juste après l'ouverture de la connexion.
      *
