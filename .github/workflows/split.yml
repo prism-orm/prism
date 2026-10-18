@@ -1,0 +1,45 @@
+# ADR 0004 : publie chaque packages/<nom> vers github.com/prism-orm/<nom> (lecture seule, Packagist).
+# Appelé par ci.yml une fois les jobs verts, sur un push vers main ou un tag v*.
+name: Split
+
+on:
+    workflow_call:
+        secrets:
+            SPLIT_TOKEN:
+                required: true
+
+jobs:
+    split:
+        name: Split ${{ matrix.package }}
+        runs-on: ubuntu-latest
+        strategy:
+            fail-fast: false
+            matrix:
+                package: [dbal, orm, migrations, bundle, phpstan]
+        steps:
+            - uses: actions/checkout@v4
+              with:
+                  fetch-depth: 0
+                  # sinon le GITHUB_TOKEN du monorepo remplace SPLIT_TOKEN au push
+                  persist-credentials: false
+
+            - name: Installer splitsh-lite v1.0.1
+              run: |
+                  curl -sSfL -o "$RUNNER_TEMP/lite.tgz" https://github.com/splitsh/lite/releases/download/v1.0.1/lite_linux_amd64.tar.gz
+                  echo "2539301ce5e21d0ca44b689d0dd2c1b20d9f9e996c1fe6c462afb8af4e7141cc  $RUNNER_TEMP/lite.tgz" | sha256sum -c -
+                  tar -xzf "$RUNNER_TEMP/lite.tgz" -C "$RUNNER_TEMP" ./splitsh-lite
+
+            - name: Split et push
+              env:
+                  SPLIT_TOKEN: ${{ secrets.SPLIT_TOKEN }}
+                  PACKAGE: ${{ matrix.package }}
+              run: |
+                  sha=$("$RUNNER_TEMP/splitsh-lite" --prefix="packages/$PACKAGE")
+                  remote="https://x-access-token:${SPLIT_TOKEN}@github.com/prism-orm/${PACKAGE}.git"
+
+                  # pas de --force : le split est déterministe, une divergence doit échouer bruyamment
+                  if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+                      git push "$remote" "$sha:$GITHUB_REF"
+                  else
+                      git push "$remote" "$sha:refs/heads/main"
+                  fi

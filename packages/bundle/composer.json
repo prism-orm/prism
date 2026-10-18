@@ -1,12 +1,12 @@
 {
-    "name": "prism/bundle",
+    "name": "prism-orm/bundle",
     "description": "Intégration Symfony de Prism",
     "type": "symfony-bundle",
     "license": "MIT",
     "require": {
         "php": ">=8.4",
-        "prism/migrations": "self.version",
-        "prism/orm": "self.version",
+        "prism-orm/migrations": "self.version",
+        "prism-orm/orm": "self.version",
         "symfony/framework-bundle": "^7.4 || ^8.0"
     },
     "autoload": {

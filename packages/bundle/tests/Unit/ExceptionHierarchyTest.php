@@ -12,6 +12,6 @@ final class ExceptionHierarchyTest extends TestCase
 {
     public function testPackageExceptionExtendsPrismException(): void
     {
-        self::assertTrue(is_subclass_of(BundleException::class, PrismException::class));
+        self::assertTrue(new \ReflectionClass(BundleException::class)->implementsInterface(PrismException::class));
     }
 }

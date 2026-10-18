@@ -21,4 +21,9 @@ final class InvoiceLine
 
     #[Prism\Column(type: 'decimal', precision: 12, scale: 2)]
     public string $amount = '0.00';
+
+    public function __construct(Invoice $invoice)
+    {
+        $this->invoice = $invoice;
+    }
 }
