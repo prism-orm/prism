@@ -1,0 +1,9 @@
+/vendor/
+/var/*
+!/var/.gitkeep
+/packages/*/vendor/
+/packages/*/composer.lock
+.phpunit.result.cache
+.idea/
+.vscode/
+.DS_Store

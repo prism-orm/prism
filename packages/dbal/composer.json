@@ -1,0 +1,19 @@
+{
+    "name": "prism/dbal",
+    "description": "Couche d'abstraction base de données de Prism (connexion, plateformes, types, schéma)",
+    "type": "library",
+    "license": "MIT",
+    "require": {
+        "php": ">=8.4",
+        "ext-pdo": "*",
+        "psr/cache": "^3.0",
+        "psr/log": "^3.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "Prism\\Exception\\": "exception/",
+            "Prism\\Dbal\\": "src/"
+        }
+    },
+    "minimum-stability": "stable"
+}

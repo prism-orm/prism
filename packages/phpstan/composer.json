@@ -1,0 +1,24 @@
+{
+    "name": "prism/phpstan",
+    "description": "Extension PHPStan pour Prism (QueryBuilder typé, findBy, repositories)",
+    "type": "phpstan-extension",
+    "license": "MIT",
+    "require": {
+        "php": ">=8.4",
+        "phpstan/phpstan": "^2.1",
+        "prism/orm": "self.version"
+    },
+    "autoload": {
+        "psr-4": {
+            "Prism\\PHPStan\\": "src/"
+        }
+    },
+    "minimum-stability": "stable",
+    "extra": {
+        "phpstan": {
+            "includes": [
+                "extension.neon"
+            ]
+        }
+    }
+}

@@ -1,0 +1,21 @@
+{
+    // Règle RT-13 : MSI >= 70 % sur les classes critiques (complété au fil des phases)
+    "$schema": "vendor/infection/infection/resources/schema.json",
+    "source": {
+        "directories": [
+            "packages/dbal/src",
+            "packages/orm/src"
+        ]
+    },
+    "tmpDir": "var/infection",
+    "logs": {
+        "text": "var/infection/infection.log",
+        "summary": "var/infection/summary.log"
+    },
+    "mutators": {
+        "@default": true
+    },
+    "testFrameworkOptions": "--testsuite=unit",
+    "minMsi": 70,
+    "minCoveredMsi": 80
+}

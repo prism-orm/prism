@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:noNamespaceSchemaLocation="vendor/phpunit/phpunit/phpunit.xsd"
+         bootstrap="vendor/autoload.php"
+         cacheDirectory="var/phpunit"
+         colors="true"
+         executionOrder="random"
+         failOnRisky="true"
+         failOnWarning="true"
+         beStrictAboutOutputDuringTests="true">
+    <testsuites>
+        <testsuite name="unit">
+            <directory>packages/dbal/tests/Unit</directory>
+            <directory>packages/orm/tests/Unit</directory>
+            <directory>packages/migrations/tests/Unit</directory>
+            <directory>packages/bundle/tests/Unit</directory>
+        </testsuite>
+        <testsuite name="functional">
+            <directory>packages/dbal/tests/Functional</directory>
+            <directory>packages/orm/tests/Functional</directory>
+            <directory>packages/migrations/tests/Functional</directory>
+            <directory>packages/bundle/tests/Functional</directory>
+        </testsuite>
+    </testsuites>
+    <source>
+        <include>
+            <directory>packages/dbal/src</directory>
+            <directory>packages/dbal/exception</directory>
+            <directory>packages/orm/src</directory>
+            <directory>packages/migrations/src</directory>
+            <directory>packages/bundle/src</directory>
+        </include>
+    </source>
+    <php>
+        <ini name="error_reporting" value="-1"/>
+        <ini name="memory_limit" value="512M"/>
+    </php>
+</phpunit>

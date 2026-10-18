@@ -1,0 +1,84 @@
+name: CI
+
+on:
+    push:
+        branches: [main]
+    pull_request:
+
+concurrency:
+    group: ci-${{ github.ref }}
+    cancel-in-progress: true
+
+jobs:
+    quality:
+        name: Style et analyse statique
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+            - uses: shivammathur/setup-php@v2
+              with:
+                  php-version: '8.4'
+                  extensions: pdo_mysql, pdo_pgsql, pdo_sqlite
+                  coverage: none
+            - uses: ramsey/composer-install@v3
+            - run: vendor/bin/php-cs-fixer fix --dry-run --diff
+            - run: vendor/bin/phpstan analyse --memory-limit=1G --no-progress
+
+    tests:
+        name: PHP ${{ matrix.php }} · ${{ matrix.db }}
+        runs-on: ubuntu-latest
+        strategy:
+            fail-fast: false
+            matrix:
+                php: ['8.4', '8.5']
+                db: [mysql, mariadb, pgsql, sqlite]
+                include:
+                    - db: mysql
+                      url: 'mysql://prism:prism@127.0.0.1:3306/prism_test?serverVersion=8.4'
+                    - db: mariadb
+                      url: 'mysql://prism:prism@127.0.0.1:3307/prism_test?serverVersion=11.8.0-MariaDB'
+                    - db: pgsql
+                      url: 'postgresql://prism:prism@127.0.0.1:5432/prism_test?serverVersion=16'
+                    - db: sqlite
+                      url: 'sqlite:///:memory:'
+        services:
+            mysql:
+                image: mysql:8.4
+                env:
+                    MYSQL_ROOT_PASSWORD: root
+                    MYSQL_DATABASE: prism_test
+                    MYSQL_USER: prism
+                    MYSQL_PASSWORD: prism
+                ports: ['3306:3306']
+                options: --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot" --health-interval=5s --health-retries=20
+            mariadb:
+                image: mariadb:11.8
+                env:
+                    MARIADB_ROOT_PASSWORD: root
+                    MARIADB_DATABASE: prism_test
+                    MARIADB_USER: prism
+                    MARIADB_PASSWORD: prism
+                ports: ['3307:3306']
+                options: --health-cmd="healthcheck.sh --connect --innodb_initialized" --health-interval=5s --health-retries=20
+            postgres:
+                image: pgvector/pgvector:pg16
+                env:
+                    POSTGRES_DB: prism_test
+                    POSTGRES_USER: prism
+                    POSTGRES_PASSWORD: prism
+                ports: ['5432:5432']
+                options: --health-cmd="pg_isready -U prism -d prism_test" --health-interval=5s --health-retries=20
+        steps:
+            - uses: actions/checkout@v4
+            - uses: shivammathur/setup-php@v2
+              with:
+                  php-version: ${{ matrix.php }}
+                  extensions: pdo_mysql, pdo_pgsql, pdo_sqlite
+                  coverage: pcov
+            - uses: ramsey/composer-install@v3
+            - name: Tests unitaires
+              run: vendor/bin/phpunit --testsuite unit
+            - name: Tests fonctionnels
+              run: vendor/bin/phpunit --testsuite functional
+              env:
+                  DATABASE_URL: ${{ matrix.url }}

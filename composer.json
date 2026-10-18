@@ -1,0 +1,60 @@
+{
+    "name": "prism/prism",
+    "description": "Monorepo de Prism, ORM PHP moderne pour les applications métier et l'IA",
+    "type": "project",
+    "license": "MIT",
+    "require": {
+        "php": ">=8.4",
+        "ext-pdo": "*",
+        "psr/cache": "^3.0",
+        "psr/event-dispatcher": "^1.0",
+        "psr/log": "^3.0",
+        "symfony/console": "^7.4 || ^8.0"
+    },
+    "require-dev": {
+        "friendsofphp/php-cs-fixer": "^3.75",
+        "infection/infection": "^0.29",
+        "phpbench/phpbench": "^1.4",
+        "phpstan/extension-installer": "^1.4",
+        "phpstan/phpstan": "^2.1",
+        "phpstan/phpstan-phpunit": "^2.0",
+        "phpstan/phpstan-strict-rules": "^2.0",
+        "phpunit/phpunit": "^11.5",
+        "symfony/framework-bundle": "^7.4 || ^8.0"
+    },
+    "replace": {
+        "prism/bundle": "self.version",
+        "prism/dbal": "self.version",
+        "prism/migrations": "self.version",
+        "prism/orm": "self.version",
+        "prism/phpstan": "self.version"
+    },
+    "autoload": {
+        "psr-4": {
+            "Prism\\Exception\\": "packages/dbal/exception/",
+            "Prism\\Dbal\\": "packages/dbal/src/",
+            "Prism\\Orm\\": "packages/orm/src/",
+            "Prism\\Migrations\\": "packages/migrations/src/",
+            "Prism\\Bundle\\": "packages/bundle/src/",
+            "Prism\\PHPStan\\": "packages/phpstan/src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Prism\\Dbal\\Tests\\": "packages/dbal/tests/",
+            "Prism\\Orm\\Tests\\": "packages/orm/tests/",
+            "Prism\\Migrations\\Tests\\": "packages/migrations/tests/",
+            "Prism\\Bundle\\Tests\\": "packages/bundle/tests/",
+            "Prism\\Benchmarks\\": "benchmarks/"
+        }
+    },
+    "config": {
+        "sort-packages": true,
+        "allow-plugins": {
+            "infection/extension-installer": true,
+            "phpstan/extension-installer": true
+        }
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true
+}

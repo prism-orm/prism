@@ -1,0 +1,17 @@
+{
+    "name": "prism/migrations",
+    "description": "Migrations versionnées et linter de migrations pour Prism",
+    "type": "library",
+    "license": "MIT",
+    "require": {
+        "php": ">=8.4",
+        "prism/orm": "self.version",
+        "symfony/console": "^7.4 || ^8.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "Prism\\Migrations\\": "src/"
+        }
+    },
+    "minimum-stability": "stable"
+}

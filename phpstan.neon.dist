@@ -1,0 +1,17 @@
+# Règle RT-11 : niveau max, strict-rules, aucune baseline sur dbal et orm.
+parameters:
+    level: max
+    tmpDir: var/phpstan
+    paths:
+        - packages/dbal/src
+        - packages/dbal/exception
+        - packages/dbal/tests
+        - packages/orm/src
+        - packages/orm/tests
+        - packages/migrations/src
+        - packages/migrations/tests
+        - packages/bundle/src
+        - packages/bundle/tests
+    checkUninitializedProperties: true
+    checkImplicitMixed: true
+    reportUnmatchedIgnoredErrors: true
