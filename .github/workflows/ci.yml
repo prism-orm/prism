@@ -2,7 +2,8 @@ name: CI
 
 on:
     push:
-        branches: [main]
+        # gitflow : main reçoit les releases, dev les features
+        branches: [main, dev]
     pull_request:
 
 concurrency:
@@ -34,9 +35,9 @@ jobs:
                 db: [mysql, mariadb, pgsql, sqlite]
                 include:
                     - db: mysql
-                      url: 'mysql://prism:prism@127.0.0.1:3306/prism_test?serverVersion=8.4'
+                      url: 'mysql://root:root@127.0.0.1:3306/prism_test?serverVersion=8.4'
                     - db: mariadb
-                      url: 'mysql://prism:prism@127.0.0.1:3307/prism_test?serverVersion=11.8.0-MariaDB'
+                      url: 'mysql://root:root@127.0.0.1:3307/prism_test?serverVersion=11.8.0-MariaDB'
                     - db: pgsql
                       url: 'postgresql://prism:prism@127.0.0.1:5432/prism_test?serverVersion=16'
                     - db: sqlite
