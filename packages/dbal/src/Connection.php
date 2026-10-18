@@ -14,6 +14,7 @@ use Prism\Dbal\Exception\UnknownTypeException;
 use Prism\Dbal\Exception\UnsupportedPlatformException;
 use Prism\Dbal\Platform\AbstractPlatform;
 use Prism\Dbal\Platform\PlatformResolver;
+use Prism\Dbal\Query\QueryBuilder;
 use Prism\Dbal\Type\ConversionContext;
 use Prism\Dbal\Type\TypeRegistry;
 use Psr\Log\LoggerInterface;
@@ -304,6 +305,11 @@ final class Connection
 
             throw $e;
         }
+    }
+
+    public function createQueryBuilder(): QueryBuilder
+    {
+        return new QueryBuilder($this);
     }
 
     public function getTypeRegistry(): TypeRegistry

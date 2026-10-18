@@ -22,13 +22,26 @@ final class DecimalType extends Type
 
     public function toDatabase(mixed $value, ConversionContext $context): ?string
     {
-        return match (true) {
+        $decimal = match (true) {
             null === $value => null,
             \is_int($value) => (string) $value,
             \is_float($value) => throw ConversionException::floatForDecimal(),
             \is_string($value) && 1 === preg_match(self::PATTERN, $value) => $value,
             default => throw ConversionException::invalidPhpValue($this->getName(), $value, 'a numeric string such as "12.50"'),
         };
+
+        $max = $context->platform->getDecimalMaxSignificantDigits();
+        if (null !== $decimal && null !== $max && ($digits = self::significantDigits($decimal)) > $max) {
+            throw ConversionException::tooManySignificantDigits($context->platform->getName(), $digits, $max);
+        }
+
+        return $decimal;
+    }
+
+    // chiffres hors zéros de tête et de queue : ce qu'un flottant doit représenter exactement
+    private static function significantDigits(string $decimal): int
+    {
+        return \strlen(trim(str_replace(['+', '-', '.'], '', $decimal), '0'));
     }
 
     public function toPhp(mixed $value, ConversionContext $context): ?string
@@ -37,7 +50,7 @@ final class DecimalType extends Type
             null === $value => null,
             \is_string($value) && is_numeric($value) => $value,
             \is_int($value) => (string) $value,
-            // colonne mal déclarée (NUMERIC sous SQLite) : l'échelle est déjà perdue côté base
+            // SQLite (NUMERIC) rend un flottant : la valeur reste une string, l'échelle est perdue côté base
             \is_float($value) => var_export($value, true),
             default => throw ConversionException::invalidDatabaseValue($this->getName(), $value, 'a numeric string'),
         };

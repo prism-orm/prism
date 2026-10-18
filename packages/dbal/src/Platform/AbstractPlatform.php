@@ -85,6 +85,39 @@ abstract class AbstractPlatform
         return null;
     }
 
+    /**
+     * Ajoute LIMIT / OFFSET. Les bornes sont des int validés (>= 0) : aucune valeur utilisateur
+     * n'atteint le SQL sous forme de texte.
+     */
+    public function applyLimit(string $sql, ?int $limit, int $offset): string
+    {
+        if (null !== $limit) {
+            $sql .= ' LIMIT ' . $limit;
+        }
+        if ($offset > 0) {
+            $sql .= null === $limit ? $this->getOffsetWithoutLimitSql($offset) : ' OFFSET ' . $offset;
+        }
+
+        return $sql;
+    }
+
+    /**
+     * OFFSET sans LIMIT : PostgreSQL l'accepte tel quel, MySQL et SQLite exigent un LIMIT.
+     */
+    protected function getOffsetWithoutLimitSql(int $offset): string
+    {
+        return ' OFFSET ' . $offset;
+    }
+
+    /**
+     * Nombre maximal de chiffres significatifs qu'un decimal peut garder exactement, null si la
+     * plateforme a un vrai type décimal.
+     */
+    public function getDecimalMaxSignificantDigits(): ?int
+    {
+        return null;
+    }
+
     /** Format date() d'un datetime à la seconde (décision : pas de microsecondes en 1.0). */
     public function getDateTimeFormat(): string
     {

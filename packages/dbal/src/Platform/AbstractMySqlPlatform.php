@@ -32,6 +32,12 @@ abstract class AbstractMySqlPlatform extends AbstractPlatform
         return 64;
     }
 
+    // MySQL n'a pas de « LIMIT ALL » : la documentation recommande le plus grand entier non signé
+    protected function getOffsetWithoutLimitSql(int $offset): string
+    {
+        return ' LIMIT 18446744073709551615 OFFSET ' . $offset;
+    }
+
     protected function getIdentifierQuoteCharacter(): string
     {
         return '`';
