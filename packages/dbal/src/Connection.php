@@ -6,12 +6,16 @@ namespace Prism\Dbal;
 
 use Prism\Dbal\Exception\AbortedTransactionException;
 use Prism\Dbal\Exception\ConnectionFailedException;
+use Prism\Dbal\Exception\ConversionException;
 use Prism\Dbal\Exception\InvalidParameterException;
 use Prism\Dbal\Exception\NoActiveTransactionException;
 use Prism\Dbal\Exception\QueryFailedException;
+use Prism\Dbal\Exception\UnknownTypeException;
 use Prism\Dbal\Exception\UnsupportedPlatformException;
 use Prism\Dbal\Platform\AbstractPlatform;
 use Prism\Dbal\Platform\PlatformResolver;
+use Prism\Dbal\Type\ConversionContext;
+use Prism\Dbal\Type\TypeRegistry;
 use Psr\Log\LoggerInterface;
 
 /**
@@ -32,6 +36,8 @@ final class Connection
     private ?int $abortedAtLevel = null;
 
     private readonly LoggerInterface $logger;
+
+    private ?ConversionContext $conversionContext = null;
 
     /**
      * @internal utiliser DriverManager::fromUrl()
@@ -129,11 +135,14 @@ final class Connection
     }
 
     /**
-     * @param list<mixed>|array<string, mixed> $params valeurs liées, jamais concaténées (RG-01.4)
-     * @param array<int|string, ParameterType> $types  type par clé ; déduit de la valeur sinon
+     * @param list<mixed>|array<string, mixed>        $params valeurs liées, jamais concaténées (RG-01.4)
+     * @param array<int|string, ParameterType|string> $types  type par clé : ParameterType, ou nom d'un Type
+     *                                                        (la valeur est alors convertie) ; déduit sinon
      *
      * @throws ConnectionFailedException
      * @throws InvalidParameterException valeur non scalaire, clés positionnelles et nommées mélangées
+     * @throws UnknownTypeException      nom de type absent du registre
+     * @throws ConversionException       valeur refusée par le Type
      * @throws QueryFailedException
      */
     public function executeQuery(string $sql, array $params = [], array $types = []): Result
@@ -142,13 +151,15 @@ final class Connection
     }
 
     /**
-     * @param list<mixed>|array<string, mixed> $params
-     * @param array<int|string, ParameterType> $types
+     * @param list<mixed>|array<string, mixed>        $params
+     * @param array<int|string, ParameterType|string> $types
      *
      * @return int nombre de lignes concernées
      *
      * @throws ConnectionFailedException
      * @throws InvalidParameterException
+     * @throws UnknownTypeException
+     * @throws ConversionException
      * @throws QueryFailedException
      */
     public function executeStatement(string $sql, array $params = [], array $types = []): int
@@ -295,6 +306,42 @@ final class Connection
         }
     }
 
+    public function getTypeRegistry(): TypeRegistry
+    {
+        return $this->configuration->types;
+    }
+
+    /**
+     * Contexte de conversion des types : plateforme (ouvre la connexion sans serverVersion) et
+     * fuseau de stockage.
+     */
+    public function getConversionContext(): ConversionContext
+    {
+        return $this->conversionContext ??= new ConversionContext($this->getPlatform(), $this->configuration->timezone);
+    }
+
+    /**
+     * Convertit une valeur lue en base selon un type du registre (decimal → string, json → array…).
+     *
+     * @throws UnknownTypeException
+     * @throws ConversionException
+     */
+    public function convertToPhp(mixed $value, string $type): mixed
+    {
+        return $this->configuration->types->get($type)->toPhp($value, $this->getConversionContext());
+    }
+
+    /**
+     * @return scalar|null
+     *
+     * @throws UnknownTypeException
+     * @throws ConversionException
+     */
+    public function convertToDatabase(mixed $value, string $type): mixed
+    {
+        return $this->configuration->types->get($type)->toDatabase($value, $this->getConversionContext());
+    }
+
     public function getTransactionNestingLevel(): int
     {
         return $this->nestingLevel;
@@ -306,8 +353,8 @@ final class Connection
     }
 
     /**
-     * @param list<mixed>|array<string, mixed> $params
-     * @param array<int|string, ParameterType> $types
+     * @param list<mixed>|array<string, mixed>        $params
+     * @param array<int|string, ParameterType|string> $types
      */
     private function run(string $sql, array $params, array $types): \PDOStatement
     {
@@ -382,8 +429,8 @@ final class Connection
     }
 
     /**
-     * @param list<mixed>|array<string, mixed> $params
-     * @param array<int|string, ParameterType> $types
+     * @param list<mixed>|array<string, mixed>        $params
+     * @param array<int|string, ParameterType|string> $types
      *
      * @return list<array{int|string, mixed, ParameterType}> nom PDO, valeur, type
      */
@@ -401,7 +448,14 @@ final class Connection
                 throw InvalidParameterException::mixedKeys();
             }
 
-            $type = $types[$key] ?? ParameterType::infer($value) ?? throw InvalidParameterException::unsupportedValue($key, $value);
+            $type = $types[$key] ?? null;
+            if (\is_string($type)) {
+                $converter = $this->configuration->types->get($type);
+                $value = $converter->toDatabase($value, $this->getConversionContext());
+                $type = null === $value ? ParameterType::Null : $converter->getBindingType();
+            }
+
+            $type ??= ParameterType::infer($value) ?? throw InvalidParameterException::unsupportedValue($key, $value);
             if (null !== $value && !\is_scalar($value)) {
                 throw InvalidParameterException::unsupportedValue($key, $value);
             }
