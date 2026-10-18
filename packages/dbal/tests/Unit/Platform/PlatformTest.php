@@ -71,7 +71,7 @@ final class PlatformTest extends TestCase
     {
         self::assertSame(['PRAGMA foreign_keys = ON'], new SqlitePlatform('3.46')->getSessionInitSql());
         self::assertSame([], new MySqlPlatform('8.4')->getSessionInitSql());
-        self::assertSame([], new PostgreSqlPlatform('16')->getSessionInitSql());
+        self::assertSame([], new MariaDbPlatform('11.8')->getSessionInitSql());
     }
 
     public function testNames(): void
