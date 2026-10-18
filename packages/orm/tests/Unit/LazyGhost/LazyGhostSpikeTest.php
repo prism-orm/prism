@@ -62,8 +62,9 @@ final class LazyGhostSpikeTest extends TestCase
     {
         $ghost = $this->ghost();
 
-        self::assertSame(GhostClient::class, $ghost::class);
-        self::assertTrue($this->class->isFinal());
+        // aucune sous-classe proxy : l'objet est une vraie instance de la classe finale
+        self::assertFalse(new \ReflectionObject($ghost)->getParentClass());
+        self::assertTrue(new \ReflectionObject($ghost)->isFinal());
     }
 
     public function testVarDumpDoesNotInitialize(): void
@@ -82,7 +83,7 @@ final class LazyGhostSpikeTest extends TestCase
     {
         $ghost = $this->ghost();
 
-        self::assertSame(['id' => 42], (array) $ghost);
+        self::assertSame(['id' => 42], $this->rawState($ghost));
         self::assertTrue($this->class->isUninitializedLazyObject($ghost));
     }
 
@@ -118,12 +119,12 @@ final class LazyGhostSpikeTest extends TestCase
         self::assertSame(1, $this->initializations);
     }
 
-    public function testLooseComparisonInitializesBothSides(): void
+    public function testComparisonInitializesBothSides(): void
     {
         $a = $this->ghost();
         $b = $this->ghost();
 
-        self::assertTrue($a == $b);
+        self::assertSame(0, $a <=> $b);
         self::assertSame(2, $this->initializations);
     }
 
@@ -145,7 +146,7 @@ final class LazyGhostSpikeTest extends TestCase
 
         foreach ([1, 2] as $attempt) {
             try {
-                $ghost->name;
+                $this->class->initializeLazyObject($ghost);
                 self::fail('Initializer should have thrown.');
             } catch (\RuntimeException $e) {
                 self::assertSame('row gone', $e->getMessage());
@@ -168,7 +169,7 @@ final class LazyGhostSpikeTest extends TestCase
         $this->expectException(\Error::class);
         $this->expectExceptionMessage('Cannot modify readonly property');
 
-        $ghost->name;
+        $this->class->initializeLazyObject($ghost);
     }
 
     public function testReadonlyPropertyIsImmutableAfterInitialization(): void
@@ -180,6 +181,14 @@ final class LazyGhostSpikeTest extends TestCase
         $this->expectExceptionMessage('Cannot modify readonly property');
 
         $code->setValue($ghost, 'OTHER');
+    }
+
+    /**
+     * @return array<mixed>
+     */
+    private function rawState(object $object): array
+    {
+        return (array) $object;
     }
 
     private function ghost(bool $fail = false): GhostClient
