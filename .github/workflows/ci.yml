@@ -4,6 +4,7 @@ on:
     push:
         # gitflow : main reçoit les releases, dev les features
         branches: [main, dev]
+        tags: ['v*']
     pull_request:
 
 concurrency:
@@ -83,3 +84,11 @@ jobs:
               run: vendor/bin/phpunit --testsuite functional
               env:
                   DATABASE_URL: ${{ matrix.url }}
+
+    split:
+        name: Split vers prism-orm/*
+        needs: [quality, tests]
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+        uses: ./.github/workflows/split.yml
+        secrets:
+            SPLIT_TOKEN: ${{ secrets.SPLIT_TOKEN }}
