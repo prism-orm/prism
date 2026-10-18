@@ -72,8 +72,8 @@ final class AssociationAttributesTest extends TestCase
 
     public function testOneToOneOwningSide(): void
     {
-        self::assertTrue((new OneToOne(inversedBy: 'user'))->isOwningSide());
-        self::assertFalse((new OneToOne(mappedBy: 'profile'))->isOwningSide());
+        self::assertTrue(new OneToOne(inversedBy: 'user')->isOwningSide());
+        self::assertFalse(new OneToOne(mappedBy: 'profile')->isOwningSide());
     }
 
     public function testOneToManyRequiresValidMappedBy(): void
@@ -95,14 +95,14 @@ final class AssociationAttributesTest extends TestCase
 
     public function testManyToManySides(): void
     {
-        self::assertTrue((new ManyToMany(\stdClass::class, inversedBy: 'articles'))->isOwningSide());
-        self::assertTrue((new ManyToMany(\stdClass::class))->isOwningSide());
-        self::assertFalse((new ManyToMany(\stdClass::class, mappedBy: 'tags'))->isOwningSide());
+        self::assertTrue(new ManyToMany(\stdClass::class, inversedBy: 'articles')->isOwningSide());
+        self::assertTrue(new ManyToMany(\stdClass::class)->isOwningSide());
+        self::assertFalse(new ManyToMany(\stdClass::class, mappedBy: 'tags')->isOwningSide());
     }
 
     public function testJoinTableDefaultsToCascade(): void
     {
-        self::assertSame(OnDelete::Cascade, (new JoinTable())->onDelete);
+        self::assertSame(OnDelete::Cascade, new JoinTable()->onDelete);
     }
 
     public function testOrderByRequiresOrderEnum(): void

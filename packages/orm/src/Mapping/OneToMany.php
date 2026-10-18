@@ -46,7 +46,8 @@ final class OneToMany implements AssociationAttribute
         $this->batchSize = AttributeGuard::positiveInt('OneToMany', 'batchSize', $batchSize, 1, 1000);
     }
 
-    public function getTargetEntity(): ?string
+    /** @return class-string */
+    public function getTargetEntity(): string
     {
         return $this->targetEntity;
     }

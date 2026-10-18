@@ -3,8 +3,9 @@ DB ?= mysql
 DC := docker compose
 RUN := $(DC) run --rm php
 
-URL_mysql   := mysql://prism:prism@mysql:3306/prism_test?serverVersion=8.4
-URL_mariadb := mysql://prism:prism@mariadb:3306/prism_test?serverVersion=11.8.0-MariaDB
+# root sous MySQL/MariaDB : la suite crée et détruit sa propre base (RG-00.1)
+URL_mysql   := mysql://root:root@mysql:3306/prism_test?serverVersion=8.4
+URL_mariadb := mysql://root:root@mariadb:3306/prism_test?serverVersion=11.8.0-MariaDB
 URL_pgsql   := postgresql://prism:prism@postgres:5432/prism_test?serverVersion=16
 URL_sqlite  := sqlite:///:memory:
 

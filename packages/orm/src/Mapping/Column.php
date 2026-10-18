@@ -68,10 +68,7 @@ final class Column implements MappingAttribute
             throw MappingException::invalidAttributeArgument('Column', 'scale', \sprintf('scale (%d) cannot exceed precision (%d).', $this->scale, $this->precision));
         }
 
-        if (null !== $enumType && !is_a($enumType, \BackedEnum::class, true)) {
-            throw MappingException::invalidAttributeArgument('Column', 'enumType', \sprintf('"%s" must be a backed enum.', $enumType));
-        }
-        $this->enumType = $enumType;
+        $this->enumType = AttributeGuard::backedEnum('Column', 'enumType', $enumType);
 
         if (!$insertable && !$updatable && null !== $default) {
             throw MappingException::invalidAttributeArgument('Column', 'default', 'a read-only column (insertable: false, updatable: false) cannot declare a default value.');

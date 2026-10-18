@@ -22,6 +22,9 @@
             <directory>packages/bundle/tests/Functional</directory>
         </testsuite>
     </testsuites>
+    <extensions>
+        <bootstrap class="Prism\Dbal\Tests\Support\TestDatabaseExtension"/>
+    </extensions>
     <source>
         <include>
             <directory>packages/dbal/src</directory>

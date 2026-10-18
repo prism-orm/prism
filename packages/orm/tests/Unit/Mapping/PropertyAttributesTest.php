@@ -65,12 +65,13 @@ final class PropertyAttributesTest extends TestCase
         $this->expectException(MappingException::class);
         $this->expectExceptionMessage('must be a backed enum');
 
-        new Column(enumType: \stdClass::class);
+        // instanciation par Reflection, comme pour un attribut lu sur une entité : le PHPDoc n'y est pas vérifié
+        new \ReflectionClass(Column::class)->newInstanceArgs(['enumType' => \stdClass::class]);
     }
 
     public function testEnumTypeAcceptsBackedEnum(): void
     {
-        self::assertSame(FixtureStatus::class, (new Column(enumType: FixtureStatus::class))->enumType);
+        self::assertSame(FixtureStatus::class, new Column(enumType: FixtureStatus::class)->enumType);
     }
 
     public function testReadOnlyColumnCannotHaveDefault(): void
@@ -82,7 +83,7 @@ final class PropertyAttributesTest extends TestCase
 
     public function testGeneratedValueDefaultsToAuto(): void
     {
-        self::assertSame(GenerationStrategy::Auto, (new GeneratedValue())->strategy);
+        self::assertSame(GenerationStrategy::Auto, new GeneratedValue()->strategy);
     }
 
     public function testSequenceNameRequiresSequenceStrategy(): void
@@ -95,9 +96,9 @@ final class PropertyAttributesTest extends TestCase
 
     public function testEmbeddedPrefixVariants(): void
     {
-        self::assertNull((new Embedded())->columnPrefix);
-        self::assertFalse((new Embedded(columnPrefix: false))->columnPrefix);
-        self::assertSame('billing_', (new Embedded(columnPrefix: 'billing_'))->columnPrefix);
+        self::assertNull(new Embedded()->columnPrefix);
+        self::assertFalse(new Embedded(columnPrefix: false)->columnPrefix);
+        self::assertSame('billing_', new Embedded(columnPrefix: 'billing_')->columnPrefix);
     }
 
     public function testVectorIndexDefaults(): void
@@ -119,8 +120,8 @@ final class PropertyAttributesTest extends TestCase
 
     public function testEmbeddedVectorNormalisesSingleSource(): void
     {
-        self::assertSame(['content'], (new EmbeddedVector('content'))->source);
-        self::assertSame(['title', 'content'], (new EmbeddedVector(['title', 'content']))->source);
+        self::assertSame(['content'], new EmbeddedVector('content')->source);
+        self::assertSame(['title', 'content'], new EmbeddedVector(['title', 'content'])->source);
     }
 
     public function testEmbeddedVectorRejectsEmptyModel(): void

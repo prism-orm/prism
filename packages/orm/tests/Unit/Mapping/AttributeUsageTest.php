@@ -38,7 +38,7 @@ final class AttributeUsageTest extends TestCase
 
     public function testRepeatableIndexIsReadTwice(): void
     {
-        $indexes = (new \ReflectionClass(Invoice::class))->getAttributes(Index::class);
+        $indexes = new \ReflectionClass(Invoice::class)->getAttributes(Index::class);
 
         self::assertCount(2, $indexes);
         self::assertSame("status <> 'draft'", $indexes[1]->newInstance()->where);
@@ -46,14 +46,14 @@ final class AttributeUsageTest extends TestCase
 
     public function testMethodCanCarrySeveralLifecycleCallbacks(): void
     {
-        $attributes = (new \ReflectionMethod(Invoice::class, 'onOtherEvents'))
+        $attributes = new \ReflectionMethod(Invoice::class, 'onOtherEvents')
             ->getAttributes(LifecycleCallbackAttribute::class, \ReflectionAttribute::IS_INSTANCEOF);
 
         self::assertCount(3, $attributes);
     }
 
     /**
-     * @param \ReflectionClass<object> $class
+     * @param \ReflectionClass<covariant object> $class
      *
      * @return list<MappingAttribute>
      */

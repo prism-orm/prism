@@ -55,7 +55,8 @@ final class ManyToMany implements AssociationAttribute
         return null === $this->mappedBy;
     }
 
-    public function getTargetEntity(): ?string
+    /** @return class-string */
+    public function getTargetEntity(): string
     {
         return $this->targetEntity;
     }

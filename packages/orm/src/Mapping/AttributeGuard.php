@@ -31,16 +31,16 @@ final class AttributeGuard
             throw MappingException::invalidAttributeArgument($attribute, $argument, 'expected a non-empty list of field names.');
         }
 
+        $names = [];
         foreach ($fields as $field) {
-            self::fieldName($attribute, $argument, $field);
+            $names[] = self::fieldName($attribute, $argument, $field);
         }
 
-        if (\count($fields) !== \count(array_unique($fields))) {
+        if (\count($names) !== \count(array_unique($names))) {
             throw MappingException::invalidAttributeArgument($attribute, $argument, 'duplicate field names.');
         }
 
-        /** @var list<string> $fields */
-        return $fields;
+        return $names;
     }
 
     public static function fieldName(string $attribute, string $argument, mixed $field): string
@@ -103,7 +103,9 @@ final class AttributeGuard
     }
 
     /**
-     * @param list<class-string> $classes
+     * L'existence des classes est vérifiée par le MetadataValidator.
+     *
+     * @param array<mixed> $classes
      *
      * @return list<class-string>
      */
@@ -113,7 +115,53 @@ final class AttributeGuard
             throw MappingException::invalidAttributeArgument($attribute, $argument, 'expected a non-empty list of class names.');
         }
 
+        foreach ($classes as $class) {
+            if (!\is_string($class) || '' === trim($class)) {
+                throw MappingException::invalidAttributeArgument($attribute, $argument, \sprintf('expected a class name, got %s.', get_debug_type($class)));
+            }
+        }
+
+        /** @var list<class-string> $classes */
         return $classes;
+    }
+
+    /**
+     * Le PHPDoc class-string<\BackedEnum> n'est pas vérifié quand PHP instancie l'attribut.
+     *
+     * @return class-string<\BackedEnum>|null
+     */
+    public static function backedEnum(string $attribute, string $argument, ?string $class): ?string
+    {
+        if (null !== $class && !is_a($class, \BackedEnum::class, true)) {
+            throw MappingException::invalidAttributeArgument($attribute, $argument, \sprintf('"%s" must be a backed enum.', $class));
+        }
+
+        return $class;
+    }
+
+    /**
+     * Carte non vide « champ => Order ».
+     *
+     * @param array<mixed> $fields
+     *
+     * @return array<string, Order>
+     */
+    public static function orderMap(string $attribute, string $argument, array $fields): array
+    {
+        if ([] === $fields) {
+            throw MappingException::invalidAttributeArgument($attribute, $argument, 'expected at least one field.');
+        }
+
+        $map = [];
+        foreach ($fields as $field => $order) {
+            $field = self::fieldName($attribute, $argument, $field);
+            if (!$order instanceof Order) {
+                throw MappingException::invalidAttributeArgument($attribute, $argument, \sprintf('direction for "%s" must be Order::Asc or Order::Desc.', $field));
+            }
+            $map[$field] = $order;
+        }
+
+        return $map;
     }
 
     public static function exclusive(string $attribute, string $a, mixed $valueA, string $b, mixed $valueB): void
