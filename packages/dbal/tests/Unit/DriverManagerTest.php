@@ -17,6 +17,7 @@ use Prism\Dbal\Platform\MySqlPlatform;
 use Prism\Dbal\Platform\PostgreSqlPlatform;
 use Prism\Dbal\Platform\SqlitePlatform;
 use Prism\Dbal\Tests\Support\TestLogger;
+use Prism\Dbal\Type\TypeRegistry;
 
 final class DriverManagerTest extends TestCase
 {
@@ -127,5 +128,16 @@ final class DriverManagerTest extends TestCase
         self::assertSame($logger, $withParams->logger);
         self::assertTrue($withParams->logParameters);
         self::assertFalse($withLogger->logParameters);
+
+        $types = TypeRegistry::withDefaults();
+        $utc = new \DateTimeZone('UTC');
+        $full = $withParams->withTypes($types)->withTimezone($utc);
+        self::assertSame($types, $full->types);
+        self::assertSame($utc, $full->timezone);
+        self::assertSame($logger, $full->logger);
+        self::assertTrue($full->logParameters);
+        self::assertNull($withParams->timezone);
+        self::assertSame($utc, $full->withLogger(new TestLogger())->withLogParameters(false)->timezone);
+        self::assertSame(TypeRegistry::withDefaults()->getNames(), $base->types->getNames());
     }
 }
