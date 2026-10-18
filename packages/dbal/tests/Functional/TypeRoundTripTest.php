@@ -9,6 +9,7 @@ use PHPUnit\Framework\TestCase;
 use Prism\Dbal\Configuration;
 use Prism\Dbal\Connection;
 use Prism\Dbal\Driver;
+use Prism\Dbal\Exception\ConversionException;
 use Prism\Dbal\Platform\MariaDbPlatform;
 use Prism\Dbal\Tests\Support\TestDatabase;
 
@@ -30,8 +31,9 @@ final class TypeRoundTripTest extends TestCase
         'smallint' => ['mysql' => 'SMALLINT', 'pgsql' => 'SMALLINT', 'sqlite' => 'SMALLINT'],
         'bigint' => ['mysql' => 'BIGINT', 'pgsql' => 'BIGINT', 'sqlite' => 'BIGINT'],
         'boolean' => ['mysql' => 'TINYINT(1)', 'pgsql' => 'BOOLEAN', 'sqlite' => 'INTEGER'],
-        // SQLite : NUMERIC convertirait '12.50' en REAL 12.5 et perdrait l'échelle, d'où TEXT
-        'decimal' => ['mysql' => 'DECIMAL(20,2)', 'pgsql' => 'NUMERIC(20,2)', 'sqlite' => 'TEXT'],
+        // SQLite : NUMERIC pour que comparaisons et tri soient numériques (TEXT les rendrait
+        // textuels : '5.25' >= '20.00') ; l'échelle est perdue, voir testDecimalOnSqlite()
+        'decimal' => ['mysql' => 'DECIMAL(20,2)', 'pgsql' => 'NUMERIC(20,2)', 'sqlite' => 'NUMERIC(20,2)'],
         'float' => ['mysql' => 'DOUBLE', 'pgsql' => 'DOUBLE PRECISION', 'sqlite' => 'REAL'],
         'datetime_immutable' => ['mysql' => 'DATETIME', 'pgsql' => 'TIMESTAMP(0) WITHOUT TIME ZONE', 'sqlite' => 'TEXT'],
         'date_immutable' => ['mysql' => 'DATE', 'pgsql' => 'DATE', 'sqlite' => 'TEXT'],
@@ -88,6 +90,10 @@ final class TypeRoundTripTest extends TestCase
     #[DataProvider('values')]
     public function testRoundTrip(string $type, mixed $value): void
     {
+        if ('decimal' === $type && Driver::Sqlite === TestDatabase::driver()) {
+            self::markTestSkipped('SQLite decimals lose their scale: covered by testDecimalOnSqlite().');
+        }
+
         $this->insert($type, $value);
 
         $read = $this->connection->convertToPhp($this->read($type), $type);
@@ -132,12 +138,32 @@ final class TypeRoundTripTest extends TestCase
         self::assertSame($paris->getTimestamp(), $read->getTimestamp());
     }
 
-    // RG-01.5 : un decimal relu n'est jamais un float, quelle que soit la plateforme
+    // RG-01.5 : sur un serveur, le driver relit un decimal exact, en string, avec son échelle
     public function testDecimalIsReadAsStringByTheDriver(): void
     {
+        if (Driver::Sqlite === TestDatabase::driver()) {
+            self::markTestSkipped('SQLite has no decimal type: covered by testDecimalOnSqlite().');
+        }
+
         $this->insert('decimal', '12.50');
 
         self::assertSame('12.50', $this->read('decimal'));
+    }
+
+    // Divergence documentée : SQLite stocke un NUMERIC en flottant ; la valeur reste une string
+    // côté PHP mais perd son échelle, et plus de 15 chiffres significatifs sont refusés
+    public function testDecimalOnSqlite(): void
+    {
+        if (Driver::Sqlite !== TestDatabase::driver()) {
+            self::markTestSkipped('SQLite only.');
+        }
+
+        $this->insert('decimal', '12.50');
+        self::assertSame('12.5', $this->connection->convertToPhp($this->read('decimal'), 'decimal'));
+
+        $this->expectException(ConversionException::class);
+        $this->expectExceptionMessage('16 significant digits on SQLite');
+        $this->connection->executeStatement('UPDATE prism_types_test SET c_decimal = ? WHERE id = 1', ['99999999999999.99'], ['decimal']);
     }
 
     private function insert(string $type, mixed $value): void

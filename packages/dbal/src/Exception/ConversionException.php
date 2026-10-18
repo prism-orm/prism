@@ -33,6 +33,11 @@ final class ConversionException extends \InvalidArgumentException implements Dba
         return new self('Cannot convert a float to the database type "decimal": floats lose precision, pass the amount as a numeric string (for example "12.50").');
     }
 
+    public static function tooManySignificantDigits(string $platform, int $digits, int $max): self
+    {
+        return new self(\sprintf('Cannot store a decimal with %d significant digits on %s: the platform keeps at most %d exactly and would silently round the value.', $digits, $platform, $max));
+    }
+
     public static function invalidJson(\JsonException $previous): self
     {
         return new self(\sprintf('Cannot encode the value to the database type "json": %s.', $previous->getMessage()), 0, $previous);
