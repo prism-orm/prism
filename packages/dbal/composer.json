@@ -1,5 +1,5 @@
 {
-    "name": "prism/dbal",
+    "name": "prism-orm/dbal",
     "description": "Couche d'abstraction base de données de Prism (connexion, plateformes, types, schéma)",
     "type": "library",
     "license": "MIT",

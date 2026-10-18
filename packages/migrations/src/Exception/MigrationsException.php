@@ -7,7 +7,7 @@ namespace Prism\Migrations\Exception;
 use Prism\Exception\PrismException;
 
 /**
- * Interface commune aux exceptions du paquet prism/migrations.
+ * Interface commune aux exceptions du paquet prism-orm/migrations.
  *
  * @api
  */

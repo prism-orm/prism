@@ -1,11 +1,11 @@
 {
-    "name": "prism/migrations",
+    "name": "prism-orm/migrations",
     "description": "Migrations versionnées et linter de migrations pour Prism",
     "type": "library",
     "license": "MIT",
     "require": {
         "php": ">=8.4",
-        "prism/orm": "self.version",
+        "prism-orm/orm": "self.version",
         "symfony/console": "^7.4 || ^8.0"
     },
     "autoload": {

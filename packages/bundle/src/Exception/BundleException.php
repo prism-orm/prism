@@ -7,7 +7,7 @@ namespace Prism\Bundle\Exception;
 use Prism\Exception\PrismException;
 
 /**
- * Interface commune aux exceptions du paquet prism/bundle.
+ * Interface commune aux exceptions du paquet prism-orm/bundle.
  *
  * @api
  */

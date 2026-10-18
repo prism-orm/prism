@@ -1,5 +1,5 @@
 {
-    "name": "prism/prism",
+    "name": "prism-orm/prism",
     "description": "Monorepo de Prism, ORM PHP moderne pour les applications métier et l'IA",
     "type": "project",
     "license": "MIT",
@@ -23,11 +23,11 @@
         "symfony/framework-bundle": "^7.4 || ^8.0"
     },
     "replace": {
-        "prism/bundle": "self.version",
-        "prism/dbal": "self.version",
-        "prism/migrations": "self.version",
-        "prism/orm": "self.version",
-        "prism/phpstan": "self.version"
+        "prism-orm/bundle": "self.version",
+        "prism-orm/dbal": "self.version",
+        "prism-orm/migrations": "self.version",
+        "prism-orm/orm": "self.version",
+        "prism-orm/phpstan": "self.version"
     },
     "autoload": {
         "psr-4": {
