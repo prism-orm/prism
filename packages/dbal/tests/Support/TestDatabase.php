@@ -63,11 +63,12 @@ final class TestDatabase
         }
 
         $name = ($parameters->database ?? 'prism_test') . '_' . $token;
-        // provisoire : Platform::quoteIdentifier() arrive à l'étape 2 de la phase 1
-        $quoted = Driver::PostgreSql === $parameters->driver ? '"' . $name . '"' : '`' . $name . '`';
+        $admin = DriverManager::fromUrl($url);
+        $quoted = $admin->getPlatform()->quoteIdentifier($name);
         $force = Driver::PostgreSql === $parameters->driver ? ' WITH (FORCE)' : '';
 
-        DriverManager::fromUrl($url)->executeStatement('CREATE DATABASE ' . $quoted);
+        $admin->executeStatement('CREATE DATABASE ' . $quoted);
+        $admin->close();
         self::useUrl((string) preg_replace('#/[^/?]*(\?.*)?$#', '/' . $name . '$1', $url, 1));
 
         return static function () use ($url, $quoted, $force): void {

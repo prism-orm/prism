@@ -4,14 +4,15 @@ declare(strict_types=1);
 
 namespace Prism\Dbal\Platform;
 
+use Prism\Dbal\Exception\InvalidIdentifierException;
 use Prism\Dbal\Exception\InvalidParameterException;
 use Prism\Dbal\Exception\UnsupportedPlatformException;
 
 /**
  * Seul endroit où vit le SQL propre à un SGBD.
  *
- * Phase 1, étape 1 : version, savepoints et initialisation de session ; le quoting, les types
- * et le DDL arrivent dans les étapes suivantes.
+ * Tout identifiant généré par Prism est cité, mot réservé ou non (RG-01.3) : pas de liste
+ * de mots-clés à maintenir, et un SQL déterministe pour le diff de schéma (RG-01.7).
  *
  * @api
  */
@@ -39,6 +40,50 @@ abstract class AbstractPlatform
 
     /** Version minimale du périmètre 1.0 (ROADMAP, ADR 0003). */
     abstract public function getMinimumVersion(): string;
+
+    /**
+     * Cite un identifiant d'une seule partie : un « . » est conservé tel quel, jamais interprété
+     * comme séparateur schéma.table.
+     *
+     * @throws InvalidIdentifierException nom vide, non UTF-8, avec octet NUL ou trop long
+     */
+    public function quoteIdentifier(string $name): string
+    {
+        if ('' === $name) {
+            throw InvalidIdentifierException::empty($this->getName());
+        }
+        if (str_contains($name, "\0") || 1 !== preg_match('//u', $name)) {
+            throw InvalidIdentifierException::invalidCharacters($this->getName(), $name);
+        }
+        $this->assertIdentifierLength($name);
+
+        $quote = $this->getIdentifierQuoteCharacter();
+
+        return $quote . str_replace($quote, $quote . $quote, $name) . $quote;
+    }
+
+    /**
+     * Littéral chaîne pour le DDL uniquement (valeurs DEFAULT) ; les requêtes lient leurs valeurs
+     * en paramètres (RG-01.4).
+     *
+     * @throws InvalidParameterException valeur contenant un octet NUL
+     */
+    public function quoteStringLiteral(string $value): string
+    {
+        if (str_contains($value, "\0")) {
+            throw InvalidParameterException::nulByteInLiteral();
+        }
+
+        return "'" . str_replace("'", "''", $value) . "'";
+    }
+
+    /**
+     * Longueur maximale d'un identifiant, null si la plateforme n'en impose pas.
+     */
+    public function getMaxIdentifierLength(): ?int
+    {
+        return null;
+    }
 
     /**
      * Requêtes exécutées juste après l'ouverture de la connexion.
@@ -71,6 +116,24 @@ abstract class AbstractPlatform
     public function getRollbackSavepointSql(string $name): string
     {
         return 'ROLLBACK TO SAVEPOINT ' . self::savepoint($name);
+    }
+
+    protected function getIdentifierQuoteCharacter(): string
+    {
+        return '"';
+    }
+
+    /**
+     * Par défaut la limite est comptée en octets (PostgreSQL : NAMEDATALEN - 1).
+     *
+     * @throws InvalidIdentifierException
+     */
+    protected function assertIdentifierLength(string $name): void
+    {
+        $max = $this->getMaxIdentifierLength();
+        if (null !== $max && \strlen($name) > $max) {
+            throw InvalidIdentifierException::tooLong($this->getName(), $name, \strlen($name), $max, 'bytes');
+        }
     }
 
     // les noms de savepoint sont générés par Connection : on refuse tout le reste plutôt que de les quoter

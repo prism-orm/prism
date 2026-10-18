@@ -21,6 +21,11 @@ final class InvalidParameterException extends \InvalidArgumentException implemen
         return new self(\sprintf('Invalid savepoint name "%s": expected uppercase letters, digits and underscores.', $name));
     }
 
+    public static function nulByteInLiteral(): self
+    {
+        return new self('Cannot quote a string literal containing a NUL byte.');
+    }
+
     public static function mixedKeys(): self
     {
         return new self('Cannot mix positional and named parameters in the same query.');
