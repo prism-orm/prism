@@ -37,6 +37,48 @@ final class SqlitePlatform extends AbstractPlatform
         return ' LIMIT -1 OFFSET ' . $offset;
     }
 
+    // BLOB n'a pas de longueur ; un auto-incrément est toujours relu INTEGER
+    public function getCanonicalColumn(Column $column): Column
+    {
+        $column = parent::getCanonicalColumn($column);
+        if ('binary' === $column->type && null !== $column->length) {
+            return $column->withType('binary');
+        }
+
+        return $column->autoincrement && 'integer' !== $column->type ? $column->withType('integer') : $column;
+    }
+
+    public function getListTablesSql(): string
+    {
+        return "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\' ORDER BY name";
+    }
+
+    public function getListColumnsSql(): string
+    {
+        return 'SELECT name, type AS data_type, "notnull" AS not_null, dflt_value AS default_value, pk AS primary_position FROM pragma_table_info(?) ORDER BY cid';
+    }
+
+    // origin « c » : index créés par CREATE INDEX (pas ceux implicites des clés primaires et UNIQUE)
+    public function getListIndexesSql(): string
+    {
+        return 'SELECT l.name, i.name AS column_name, CASE WHEN l."unique" = 1 THEN 0 ELSE 1 END AS non_unique FROM pragma_index_list(?) l'
+            . " JOIN pragma_index_info(l.name) i WHERE l.origin = 'c' ORDER BY l.name, i.seqno";
+    }
+
+    // le nom des contraintes n'est pas exposé par le pragma : il est relu dans le CREATE TABLE
+    public function getListForeignKeysSql(): string
+    {
+        return 'SELECT id, "table" AS foreign_table, "from" AS local_column, "to" AS foreign_column, on_delete FROM pragma_foreign_key_list(?) ORDER BY id, seq';
+    }
+
+    /**
+     * @internal un paramètre lié : le nom de la table
+     */
+    public function getTableDefinitionSql(): string
+    {
+        return "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?";
+    }
+
     protected function getTypeDeclarationSql(Table $table, Column $column): string
     {
         if ($column->autoincrement) {
