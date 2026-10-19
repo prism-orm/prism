@@ -36,8 +36,24 @@ final class ObjectHydrator
      */
     public function hydrate(ClassMetadata $metadata, array $row): object
     {
+        return $this->fromPhpRow($metadata, $this->toPhpRow($metadata, $row));
+    }
+
+    /**
+     * Entité à partir d'une ligne déjà convertie par toPhpRow() : l'UnitOfWork réutilise ces
+     * valeurs pour son snapshot.
+     *
+     * @template T of object
+     *
+     * @param ClassMetadata<T>     $metadata
+     * @param array<string, mixed> $row      valeurs PHP, par colonne
+     *
+     * @return T
+     */
+    public function fromPhpRow(ClassMetadata $metadata, array $row): object
+    {
         $entity = new \ReflectionClass($metadata->className)->newInstanceWithoutConstructor();
-        $metadata->hydrateRow($entity, $this->toPhpRow($metadata, $row));
+        $metadata->hydrateRow($entity, $row);
 
         return $entity;
     }

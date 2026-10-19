@@ -29,6 +29,9 @@ final class ClassMetadata
     /** @var array<string, AssociationMapping> */
     private readonly array $associations;
 
+    /** @var array<string, string> type DBAL par colonne, calculé une fois (appelé à chaque hydratation) */
+    private readonly array $columnTypes;
+
     /** @var array<value-of<LifecycleEvent>, list<array{class-string, string}>> listener et méthode, par événement */
     private readonly array $listenerCallbacks;
 
@@ -78,6 +81,16 @@ final class ClassMetadata
             }
         }
         $this->listenerCallbacks = $byEvent;
+        $types = [];
+        foreach ($this->fields as $field) {
+            $types[$field->columnName] = $field->type;
+        }
+        foreach ($this->embedded as $embedded) {
+            foreach ($embedded->getFields() as $field) {
+                $types[$field->columnName] = $field->type;
+            }
+        }
+        $this->columnTypes = $types;
 
         foreach (array_merge(array_keys($this->embedded), array_keys($this->associations)) as $name) {
             if (isset($this->fields[$name]) || (isset($this->embedded[$name]) && isset($this->associations[$name]))) {
@@ -223,17 +236,7 @@ final class ClassMetadata
      */
     public function getColumnTypes(): array
     {
-        $types = [];
-        foreach ($this->fields as $field) {
-            $types[$field->columnName] = $field->type;
-        }
-        foreach ($this->embedded as $embedded) {
-            foreach ($embedded->getFields() as $field) {
-                $types[$field->columnName] = $field->type;
-            }
-        }
-
-        return $types;
+        return $this->columnTypes;
     }
 
     /**

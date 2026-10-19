@@ -12,7 +12,7 @@ namespace Prism\Orm\Metadata;
  */
 final class ReflectionCache
 {
-    /** @var array<string, \ReflectionProperty> */
+    /** @var array<class-string, array<string, \ReflectionProperty>> sans clé concaténée : appelé pour chaque propriété hydratée */
     private array $properties = [];
 
     /**
@@ -20,12 +20,12 @@ final class ReflectionCache
      */
     public function property(string $class, string $property): \ReflectionProperty
     {
-        return $this->properties[$class . '::' . $property] ??= new \ReflectionProperty($class, $property);
+        return $this->properties[$class][$property] ??= new \ReflectionProperty($class, $property);
     }
 
     public function count(): int
     {
-        return \count($this->properties);
+        return array_sum(array_map(\count(...), $this->properties));
     }
 
     /**
