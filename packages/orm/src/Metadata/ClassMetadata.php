@@ -247,7 +247,7 @@ final class ClassMetadata
     {
         foreach ($this->fields as $field) {
             if (\array_key_exists($field->columnName, $row)) {
-                $this->property($this->className, $field->fieldName)->setValue($entity, $this->toProperty($field, $row[$field->columnName]));
+                $this->property($this->className, $field->fieldName)->setValue($entity, $this->toFieldValue($field, $row[$field->columnName]));
             }
         }
 
@@ -264,7 +264,7 @@ final class ClassMetadata
 
             $value = new \ReflectionClass($embedded->class)->newInstanceWithoutConstructor();
             foreach ($columns as $field) {
-                $this->property($embedded->class, $field->fieldName)->setValue($value, $this->toProperty($field, $row[$field->columnName]));
+                $this->property($embedded->class, $field->fieldName)->setValue($value, $this->toFieldValue($field, $row[$field->columnName]));
             }
             $this->property($this->className, $embedded->fieldName)->setValue($entity, $value);
         }
@@ -275,7 +275,15 @@ final class ClassMetadata
         return null !== $field->enumType && $value instanceof \BackedEnum ? $value->value : $value;
     }
 
-    private function toProperty(FieldMapping $field, mixed $value): mixed
+    /**
+     * Valeur PHP d'un champ à partir de la valeur de sa colonne (déjà convertie par son Type) :
+     * l'enum est reconstruit, le reste est rendu tel quel.
+     *
+     * @internal partagé avec l'ArrayHydrator
+     *
+     * @throws MappingException valeur qui n'est pas un cas de l'enum du champ
+     */
+    public function toFieldValue(FieldMapping $field, mixed $value): mixed
     {
         if (null === $field->enumType || null === $value || $value instanceof \BackedEnum) {
             return $value;
