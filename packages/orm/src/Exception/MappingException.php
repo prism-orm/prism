@@ -15,4 +15,19 @@ final class MappingException extends \LogicException implements OrmException
     {
         return new self(\sprintf('Invalid argument "%s" for #[%s]: %s', $argument, $attribute, $reason));
     }
+
+    public static function invalidMetadata(string $class, string $reason): self
+    {
+        return new self(\sprintf('Invalid mapping for %s: %s', $class, $reason));
+    }
+
+    public static function invalidField(string $class, string $field, string $reason): self
+    {
+        return new self(\sprintf('Invalid mapping for %s::$%s: %s', $class, $field, $reason));
+    }
+
+    public static function unknownField(string $class, string $field): self
+    {
+        return new self(\sprintf('%s has no mapped field "%s".', $class, $field));
+    }
 }
