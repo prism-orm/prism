@@ -12,6 +12,7 @@ use Prism\Orm\Collection\Collection;
 use Prism\Orm\Collection\PersistentCollection;
 use Prism\Orm\Event\DefaultEntityListenerResolver;
 use Prism\Orm\Event\EntityListenerResolver;
+use Prism\Orm\Event\InverseSideChangedEvent;
 use Prism\Orm\Event\LifecycleDispatcher;
 use Prism\Orm\Event\OnClearEvent;
 use Prism\Orm\Event\OnFlushEvent;
@@ -30,6 +31,7 @@ use Prism\Orm\Exception\InvalidArgumentException;
 use Prism\Orm\Exception\InvalidEntityStateException;
 use Prism\Orm\Exception\MappingException;
 use Prism\Orm\Exception\OptimisticLockException;
+use Prism\Orm\Exception\OrphanReattachedException;
 use Prism\Orm\Exception\ReentrantFlushException;
 use Prism\Orm\Exception\TransactionRequiredException;
 use Prism\Orm\Exception\UnpersistedRelationException;
@@ -68,7 +70,10 @@ use Psr\EventDispatcher\EventDispatcherInterface;
  *   inverse (RG-04.3, RG-04.4) ;
  * - collections (ADR 0007) : jamais remplacées ; une collection relue est une
  *   PersistentCollection chargée au premier accès ; au flush, la différence d'une ManyToMany
- *   propriétaire est écrite dans sa table pivot, après les entités et avant leurs DELETE.
+ *   propriétaire est écrite dans sa table pivot, après les entités et avant leurs DELETE ;
+ * - cascades : remove() suit cascade: remove et orphanRemoval (une collection non chargée est
+ *   chargée), detach() suit cascade: detach sans rien charger ; au flush, un orphelin est
+ *   supprimé (RG-04.5) et un côté inverse modifié seul publie InverseSideChangedEvent (RG-04.1).
  *
  * Les entités sont indexées par spl_object_id() ; clear() libère toutes les références (worker).
  *
@@ -116,6 +121,9 @@ final class UnitOfWork
 
     /** @var array<class-string, list<AssociationMapping>> */
     private array $collectionAssociations = [];
+
+    /** @var array<int, array<string, object|null>> côté inverse d'un OneToOne au chargement (orphanRemoval) */
+    private array $inverseSnapshots = [];
 
     /** @var array<class-string, bool> la classe a-t-elle des relations ? (évite leur traitement à chaque hydratation) */
     private array $hasRelations = [];
@@ -197,6 +205,7 @@ final class UnitOfWork
                 if (isset($this->insertions[$oid])) {
                     // jamais écrite : rien à supprimer
                     $this->forget($entity);
+                    $this->cascadeRemove($entity);
 
                     return;
                 }
@@ -205,7 +214,64 @@ final class UnitOfWork
                 $this->lifecycle->lifecycle($this->metadataOf($entity), LifecycleEvent::PreRemove, $entity, fn (): PreRemoveEvent => new PreRemoveEvent($entity, $this));
                 $this->states[$oid] = EntityState::Removed;
                 $this->deletions[$oid] = $entity;
+                $this->cascadeRemove($entity);
         }
+    }
+
+    /**
+     * RG-04.6 : cascade: remove, et orphanRemoval qui l'implique ; une collection non chargée
+     * est chargée. Seules les entités gérées sont suivies (cycles, entités NEW).
+     */
+    private function cascadeRemove(object $entity): void
+    {
+        $metadata = $this->metadataOf($entity);
+        foreach ($metadata->getAssociations() as $association) {
+            if ($association->orphanRemoval || \in_array(Cascade::Remove, $association->cascade, true)) {
+                foreach ($this->related($entity, $metadata, $association, load: true) as $target) {
+                    if (EntityState::Managed === $this->getEntityState($target)) {
+                        $this->remove($target);
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * cascade: detach, sans rien charger.
+     */
+    private function cascadeDetach(object $entity): void
+    {
+        $metadata = $this->metadataOf($entity);
+        foreach ($metadata->getAssociations() as $association) {
+            if (\in_array(Cascade::Detach, $association->cascade, true)) {
+                foreach ($this->related($entity, $metadata, $association, load: false) as $target) {
+                    if (EntityState::Managed === $this->getEntityState($target)) {
+                        $this->detach($target);
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Entités atteintes par une relation : la cible ToOne, les éléments d'une collection
+     * (chargée au besoin si $load).
+     *
+     * @param ClassMetadata<object> $metadata
+     *
+     * @return list<object>
+     */
+    private function related(object $entity, ClassMetadata $metadata, AssociationMapping $association, bool $load): array
+    {
+        $value = $this->read($entity, $metadata->className, $association->fieldName);
+        if ($association->isToOne()) {
+            return \is_object($value) ? [$value] : [];
+        }
+        if (!$value instanceof Collection || (!$load && $value instanceof PersistentCollection && !$value->isInitialized())) {
+            return [];
+        }
+
+        return array_values($value->toArray());
     }
 
     /**
@@ -215,12 +281,21 @@ final class UnitOfWork
      */
     public function detach(object $entity): void
     {
-        match ($this->getEntityState($entity)) {
-            EntityState::New => throw InvalidEntityStateException::transition($entity, EntityState::New, 'detach', 'only managed entities can be detached.'),
-            EntityState::Removed => throw InvalidEntityStateException::transition($entity, EntityState::Removed, 'detach', 'persist it again to cancel the removal, or flush first.'),
-            EntityState::Managed => $this->forget($entity, detach: true),
-            EntityState::Detached => null,
-        };
+        switch ($this->getEntityState($entity)) {
+            case EntityState::New:
+                throw InvalidEntityStateException::transition($entity, EntityState::New, 'detach', 'only managed entities can be detached.');
+            case EntityState::Removed:
+                throw InvalidEntityStateException::transition($entity, EntityState::Removed, 'detach', 'persist it again to cancel the removal, or flush first.');
+            case EntityState::Managed:
+                $this->forget($entity, detach: true);
+                // une référence non chargée n'a rien à suivre (et ne doit pas être chargée)
+                if (!$this->lazy->isUninitialized($entity)) {
+                    $this->cascadeDetach($entity);
+                }
+                break;
+            case EntityState::Detached:
+                break;
+        }
     }
 
     /**
@@ -239,6 +314,7 @@ final class UnitOfWork
         $this->keys = [];
         $this->collectionSnapshots = [];
         $this->collectionInstances = [];
+        $this->inverseSnapshots = [];
         $this->insertions = [];
         $this->deletions = [];
         $this->persisted = [];
@@ -495,6 +571,7 @@ final class UnitOfWork
      * @throws OptimisticLockException      version périmée (RG-03.9)
      * @throws UnpersistedRelationException entité NEW atteinte sans cascade: persist (RG-04.2)
      * @throws CyclicDependencyException    cycle de FK obligatoires (RG-04.4)
+     * @throws OrphanReattachedException    orphelin rattaché à un autre parent (RG-04.5)
      */
     public function commit(): void
     {
@@ -506,12 +583,15 @@ final class UnitOfWork
         try {
             $this->lifecycle->dispatch(new PreFlushEvent($this));
             $this->persistRelations();
+            $this->removeOrphans();
             $this->lifecycle->dispatch(new OnFlushEvent($this));
             $this->persistRelations();
+            $this->removeOrphans();
 
             // calculés après OnFlush : ses modifications sont prises en compte
             $updates = $this->pendingUpdates();
             $collections = $this->pendingCollections();
+            $this->reportInverseChanges($collections);
             if ([] !== $this->insertions || [] !== $this->deletions || [] !== $updates || [] !== $collections) {
                 $this->executeFlush($updates, $collections, $this->insertionOrder(), $this->deletionOrder());
             }
@@ -1031,7 +1111,11 @@ final class UnitOfWork
             if ($refresh && $property->isReadOnly() && $property->isInitialized($entity)) {
                 continue;
             }
-            $property->setValue($entity, $this->findBy($association->targetEntity, [(string) $association->mappedBy => $entity], [], 1)[0] ?? null);
+            $value = $this->findBy($association->targetEntity, [(string) $association->mappedBy => $entity], [], 1)[0] ?? null;
+            $property->setValue($entity, $value);
+            if ($association->orphanRemoval) {
+                $this->inverseSnapshots[spl_object_id($entity)][$association->fieldName] = $value;
+            }
         }
     }
 
@@ -1077,7 +1161,7 @@ final class UnitOfWork
     {
         foreach ($this->entities as $oid => $entity) {
             $metadata = $this->metadataOf($entity);
-            if (EntityState::Managed === ($this->states[$oid] ?? null) && ([] !== $this->owningToOne($metadata) || [] !== $this->collectionsOf($metadata)) && !$this->lazy->isUninitialized($entity)) {
+            if (EntityState::Managed === ($this->states[$oid] ?? null) && $this->hasRelations($metadata) && !$this->lazy->isUninitialized($entity)) {
                 $this->cascadePersist($entity, '');
             }
         }
@@ -1087,10 +1171,13 @@ final class UnitOfWork
     {
         $metadata = $this->metadataOf($entity);
         $reached = [];
-        foreach ($this->owningToOne($metadata) as [$association]) {
-            $target = $this->read($entity, $metadata->className, $association->fieldName);
-            if (\is_object($target)) {
-                $reached[] = [$association, $target];
+        // relations ToOne, des deux côtés
+        foreach ($metadata->getAssociations() as $association) {
+            if ($association->isToOne()) {
+                $target = $this->read($entity, $metadata->className, $association->fieldName);
+                if (\is_object($target)) {
+                    $reached[] = [$association, $target];
+                }
             }
         }
         foreach ($this->collectionsOf($metadata) as $association) {
@@ -1334,6 +1421,136 @@ final class UnitOfWork
     }
 
     /**
+     * RG-04.5 : un élément retiré d'une collection orphanRemoval, ou l'ancienne cible d'un
+     * OneToOne orphanRemoval, est supprimé par ce flush ; rattaché ailleurs, il est refusé.
+     *
+     * @throws OrphanReattachedException
+     */
+    private function removeOrphans(): void
+    {
+        foreach ($this->entities as $oid => $entity) {
+            if (EntityState::Managed !== ($this->states[$oid] ?? null)) {
+                continue;
+            }
+            $metadata = $this->metadataOf($entity);
+            if (!$this->hasRelations($metadata) || $this->lazy->isUninitialized($entity)) {
+                continue;
+            }
+            foreach ($metadata->getAssociations() as $association) {
+                if (!$association->orphanRemoval) {
+                    continue;
+                }
+                foreach ($this->orphansOf($oid, $entity, $metadata, $association) as $orphan) {
+                    if (EntityState::Managed !== $this->getEntityState($orphan)) {
+                        continue;
+                    }
+                    if ($this->isReattached($orphan, $entity, $association)) {
+                        throw OrphanReattachedException::reattached($orphan, $metadata->className, $association->fieldName);
+                    }
+                    $this->remove($orphan);
+                }
+            }
+        }
+    }
+
+    /**
+     * @param ClassMetadata<object> $metadata
+     *
+     * @return list<object>
+     */
+    private function orphansOf(int $oid, object $entity, ClassMetadata $metadata, AssociationMapping $association): array
+    {
+        $field = $association->fieldName;
+        $current = $this->read($entity, $metadata->className, $field);
+
+        if ($association->isCollection()) {
+            if (!$current instanceof Collection || ($current instanceof PersistentCollection && !$current->isInitialized())) {
+                return [];
+            }
+            $original = $this->collectionInstances[$oid][$field] ?? null;
+            // vidée ou remplacée sans avoir été chargée : ses anciens éléments sont relus
+            if (!isset($this->collectionSnapshots[$oid][$field]) && null !== $original && (($current instanceof PersistentCollection && $current->wasClearedUnloaded()) || ($original !== $current && !$original->isInitialized()))) {
+                $this->loadCollection($metadata, $entity, $association);
+            }
+
+            return self::without($this->collectionSnapshots[$oid][$field] ?? [], array_values($current->toArray()));
+        }
+
+        if ($association->isOwningSide()) {
+            $target = $this->metadata->getMetadataFor($association->targetEntity);
+            $id = $this->snapshots[$oid][(string) $association->joinColumn] ?? null;
+            $old = null === $id ? null : $this->getReference($target->className, $this->toPhp($target->getIdField(), $id));
+        } else {
+            $old = $this->inverseSnapshots[$oid][$field] ?? null;
+            $this->inverseSnapshots[$oid][$field] = \is_object($current) ? $current : null;
+        }
+
+        return null !== $old && $old !== $current ? [$old] : [];
+    }
+
+    // l'orphelin pointe-t-il désormais vers un autre parent ?
+    private function isReattached(object $orphan, object $parent, AssociationMapping $association): bool
+    {
+        if (null !== $association->mappedBy) {
+            $now = $this->read($orphan, $orphan::class, $association->mappedBy);
+
+            return \is_object($now) && $now !== $parent;
+        }
+        // OneToOne propriétaire : une autre entité de la même classe le référence
+        foreach ($this->entities as $oid => $entity) {
+            if ($entity !== $parent && $entity instanceof $parent && EntityState::Managed === $this->states[$oid] && !$this->lazy->isUninitialized($entity)
+                && $this->read($entity, $entity::class, $association->fieldName) === $orphan) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * RG-04.1 : collection inverse modifiée sans le côté propriétaire. Un côté propriétaire non
+     * chargé n'est jamais chargé pour le vérifier.
+     *
+     * @param list<array{int, AssociationMapping, list<object>, list<object>, bool}> $collections
+     */
+    private function reportInverseChanges(array $collections): void
+    {
+        foreach ($collections as [$oid, $association, $added, $removed]) {
+            if ($association->isOwningSide()) {
+                continue;
+            }
+            $owner = $this->entities[$oid];
+            foreach ($added as $element) {
+                if (false === $this->pointsTo($element, $association, $owner)) {
+                    $this->lifecycle->dispatch(new InverseSideChangedEvent($owner, $association->fieldName, $element, true, $this));
+                }
+            }
+            if ($association->orphanRemoval) {
+                continue;
+            }
+            foreach ($removed as $element) {
+                if (EntityState::Managed === $this->getEntityState($element) && true === $this->pointsTo($element, $association, $owner)) {
+                    $this->lifecycle->dispatch(new InverseSideChangedEvent($owner, $association->fieldName, $element, false, $this));
+                }
+            }
+        }
+    }
+
+    // le côté propriétaire de $element pointe-t-il vers $owner ? null : inconnu (non chargé)
+    private function pointsTo(object $element, AssociationMapping $association, object $owner): ?bool
+    {
+        $value = $this->read($element, $element::class, (string) $association->mappedBy);
+        if (AssociationType::OneToMany === $association->type) {
+            return $value === $owner;
+        }
+        if (!$value instanceof Collection) {
+            return false;
+        }
+
+        return $value instanceof PersistentCollection && !$value->isInitialized() ? null : $value->contains($owner);
+    }
+
+    /**
      * Ordre des INSERT (RG-04.3) : la FK d'une entité vers une autre entité à insérer.
      *
      * @throws CyclicDependencyException
@@ -1464,7 +1681,7 @@ final class UnitOfWork
         if (isset($this->keys[$oid])) {
             unset($this->identityMap[$entity::class][$this->keys[$oid]]);
         }
-        unset($this->collectionSnapshots[$oid], $this->collectionInstances[$oid]);
+        unset($this->collectionSnapshots[$oid], $this->collectionInstances[$oid], $this->inverseSnapshots[$oid]);
         unset($this->keys[$oid], $this->states[$oid], $this->entities[$oid], $this->snapshots[$oid], $this->insertions[$oid], $this->deletions[$oid], $this->persisted[$oid]);
 
         if ($detach) {

@@ -18,6 +18,7 @@ final class MappingError implements \Stringable
         public readonly string $class,
         public readonly ?string $field,
         public readonly string $message,
+        public readonly MappingSeverity $severity = MappingSeverity::Error,
     ) {
     }
 
