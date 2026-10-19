@@ -269,4 +269,17 @@ final class AttributeDriverTest extends TestCase
         /** @var class-string $class */
         new AttributeDriver()->loadMetadata($class);
     }
+
+    // étape 7 : méthodes des listeners lues avec la metadata, pour le cache
+    public function testEntityListenerMethodsAreReadWithTheMetadata(): void
+    {
+        $metadata = new AttributeDriver()->loadMetadata(\Prism\Orm\Tests\Unit\UnitOfWork\Fixtures\Journal::class);
+        $listener = \Prism\Orm\Tests\Unit\UnitOfWork\Fixtures\JournalListener::class;
+
+        self::assertSame([$listener], $metadata->entityListeners);
+        self::assertSame(['prePersist', 'postPersist', 'preUpdate', 'postUpdate', 'preRemove', 'postRemove', 'postLoad'], array_keys($metadata->entityListenerCallbacks[$listener]));
+        self::assertSame([[$listener, 'record']], $metadata->getEntityListenerCallbacks(LifecycleEvent::PostLoad));
+        self::assertSame(['record', 'touch'], $metadata->getLifecycleCallbacks(LifecycleEvent::PrePersist));
+        self::assertEquals($metadata, unserialize(serialize($metadata)), 'cached with the metadata');
+    }
 }

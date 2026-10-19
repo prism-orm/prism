@@ -8,6 +8,7 @@ use Prism\Dbal\Type\TypeRegistry;
 use Prism\Orm\Exception\MappingException;
 use Prism\Orm\Mapping\Entity;
 use Prism\Orm\Mapping\GenerationStrategy;
+use Prism\Orm\Mapping\LifecycleEvent;
 use Prism\Orm\Mapping\OnDelete;
 
 /**
@@ -63,6 +64,7 @@ final class MetadataValidator
             $this->validateIdentifierAndVersion($class);
             $this->validateAssociations($class, $byClass);
             $this->validateIndexes($class);
+            $this->validateCallbacks($class);
         }
 
         return $this->errors;
@@ -326,6 +328,97 @@ final class MetadataValidator
                 }
             }
         }
+    }
+
+    /**
+     * Callbacks et méthodes de listener : publics, non statiques, et des paramètres qui
+     * acceptent ce que l'ORM passe (l'événement ; pour un listener, l'entité puis l'événement).
+     *
+     * @param ClassMetadata<object> $class
+     */
+    private function validateCallbacks(ClassMetadata $class): void
+    {
+        foreach (LifecycleEvent::cases() as $event) {
+            foreach ($class->getLifecycleCallbacks($event) as $method) {
+                $this->validateCallback($class->className, $class->className, $method, $event);
+            }
+        }
+
+        foreach ($class->entityListeners as $listener) {
+            if (!class_exists($listener)) {
+                $this->error($class->className, null, \sprintf('entity listener %s does not exist or is not a class.', $listener));
+                continue;
+            }
+            $events = $class->entityListenerCallbacks[$listener] ?? [];
+            if ([] === $events) {
+                $this->error($class->className, null, \sprintf('entity listener %s has no method with a lifecycle attribute (#[PrePersist], #[PostLoad]…).', $listener));
+            }
+            foreach ($events as $event => $methods) {
+                foreach ($methods as $method) {
+                    $this->validateCallback($class->className, $listener, $method, LifecycleEvent::from($event));
+                }
+            }
+        }
+    }
+
+    /**
+     * @param class-string $entity
+     * @param class-string $owner  l'entité (callback) ou la classe de listener
+     */
+    private function validateCallback(string $entity, string $owner, string $method, LifecycleEvent $event): void
+    {
+        $listener = $owner !== $entity;
+        $reflection = new \ReflectionMethod($owner, $method);
+        $label = $listener ? \sprintf('entity listener method %s::%s()', $owner, $method) : \sprintf('lifecycle callback %s()', $method);
+
+        if (!$reflection->isPublic() || $reflection->isStatic()) {
+            $this->error($entity, null, \sprintf('%s must be a public, non-static method.', $label));
+
+            return;
+        }
+        $expected = $listener ? [$entity, $event->eventClass()] : [$event->eventClass()];
+        $parameters = $reflection->getParameters();
+        if (\count($parameters) > \count($expected)) {
+            $this->error($entity, null, \sprintf('%s takes at most %s.', $label, $listener ? 'two arguments: the entity and the event' : 'one argument: the event'));
+
+            return;
+        }
+        foreach ($parameters as $i => $parameter) {
+            if (!self::accepts($parameter->getType(), $expected[$i])) {
+                $this->error($entity, null, \sprintf('%s: parameter $%s must accept %s, which #[%s] passes.', $label, $parameter->getName(), $expected[$i], ucfirst($event->value)));
+            }
+        }
+    }
+
+    // un paramètre sans type, object, mixed, ou une classe parente de celle passée
+    private static function accepts(?\ReflectionType $type, string $class): bool
+    {
+        if (null === $type) {
+            return true;
+        }
+        if ($type instanceof \ReflectionUnionType) {
+            foreach ($type->getTypes() as $member) {
+                if (self::accepts($member, $class)) {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+        if ($type instanceof \ReflectionIntersectionType) {
+            foreach ($type->getTypes() as $member) {
+                if (!self::accepts($member, $class)) {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+        if (!$type instanceof \ReflectionNamedType) {
+            return false;
+        }
+
+        return \in_array($type->getName(), ['object', 'mixed'], true) || (!$type->isBuiltin() && is_a($class, $type->getName(), true));
     }
 
     /**

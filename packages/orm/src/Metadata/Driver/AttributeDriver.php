@@ -112,11 +112,12 @@ final class AttributeDriver implements MetadataDriver
             $this->indexes($reflection),
             $version,
             $this->lifecycleCallbacks($reflection),
-            self::attribute($reflection, Attr\EntityListeners::class)->listeners ?? [],
+            $listeners = self::attribute($reflection, Attr\EntityListeners::class)->listeners ?? [],
             $entity->trackingPolicy,
             $entity->readOnly,
             self::classString($class, $entity->repositoryClass),
             $table->options ?? [],
+            self::listenerCallbacks($listeners),
         );
     }
 
@@ -334,6 +335,33 @@ final class AttributeDriver implements MetadataDriver
                     throw MappingException::invalidMetadata($class->getName(), \sprintf('method %s() has a lifecycle callback attribute but the class lacks #[HasLifecycleCallbacks].', $method->getName()));
                 }
                 $callbacks[$attribute->newInstance()->getEvent()->value][] = $method->getName();
+            }
+        }
+
+        return $callbacks;
+    }
+
+    /**
+     * Méthodes des listeners d'entité portant un attribut de cycle de vie, lues ici pour être
+     * mises en cache avec la metadata (aucune Reflection après échauffement).
+     *
+     * @param list<class-string> $listeners
+     *
+     * @return array<class-string, array<value-of<Attr\LifecycleEvent>, list<string>>>
+     */
+    private static function listenerCallbacks(array $listeners): array
+    {
+        $callbacks = [];
+        foreach ($listeners as $listener) {
+            $callbacks[$listener] = [];
+            // classe absente : signalée par le MetadataValidator
+            if (!class_exists($listener)) {
+                continue;
+            }
+            foreach (new \ReflectionClass($listener)->getMethods() as $method) {
+                foreach ($method->getAttributes(LifecycleCallbackAttribute::class, \ReflectionAttribute::IS_INSTANCEOF) as $attribute) {
+                    $callbacks[$listener][$attribute->newInstance()->getEvent()->value][] = $method->getName();
+                }
             }
         }
 
