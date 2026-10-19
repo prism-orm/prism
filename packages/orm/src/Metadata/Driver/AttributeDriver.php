@@ -292,6 +292,10 @@ final class AttributeDriver implements MetadataDriver
         if (null === $target) {
             throw MappingException::invalidField($class, $field, 'the target entity cannot be determined; type the property or set targetEntity.');
         }
+        // auto-référence typée ?self (PHP-CS-Fixer réécrit le nom de la classe en self)
+        if ('self' === strtolower($target)) {
+            $target = $class;
+        }
         if (!class_exists($target)) {
             throw MappingException::invalidField($class, $field, \sprintf('the target entity %s does not exist.', $target));
         }

@@ -39,7 +39,7 @@ final class EntityManager implements EntityManagerInterface
         ?EntityListenerResolver $listeners = null,
     ) {
         $this->metadata = $metadata ?? new MetadataFactory(new AttributeDriver(), types: $connection->getTypeRegistry());
-        $this->unitOfWork = new UnitOfWork($this->metadata, new DbalPersisterProvider($connection), $connection->getConversionContext(), $connection->getTypeRegistry(), $events, $listeners);
+        $this->unitOfWork = new UnitOfWork($this->metadata, new DbalPersisterProvider($connection, $this->metadata), $connection->getConversionContext(), $connection->getTypeRegistry(), $events, $listeners);
     }
 
     public function persist(object $entity): void

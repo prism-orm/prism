@@ -31,18 +31,29 @@ final class BasicEntityPersister implements EntityPersister
 
     private readonly bool $identity;
 
+    /** @var array<string, FieldMapping> colonne de jointure de chaque relation possédée, typée comme l'identifiant visé */
+    private readonly array $joins;
+
     /**
-     * @param ClassMetadata<object> $metadata
+     * @param ClassMetadata<object>                $metadata
+     * @param array<string, array{string, string}> $joinColumns relation ToOne possédée → colonne et type
      */
     public function __construct(
         private readonly Connection $connection,
         private readonly ClassMetadata $metadata,
+        array $joinColumns = [],
     ) {
         $this->idColumn = $metadata->getIdField()->columnName;
         $bindings = [];
         foreach ($metadata->getColumnTypes() as $column => $type) {
             $bindings[$column] = $connection->getTypeRegistry()->get($type)->getBindingType();
         }
+        $joins = [];
+        foreach ($joinColumns as $field => [$column, $type]) {
+            $joins[$field] = new FieldMapping($field, $column, $type, true);
+            $bindings[$column] = $connection->getTypeRegistry()->get($type)->getBindingType();
+        }
+        $this->joins = $joins;
         $this->bindings = $bindings;
         $this->identity = GenerationStrategy::Identity === GenerationStrategyResolver::resolve($metadata->id->strategy, $connection->getPlatform());
     }
@@ -182,8 +193,12 @@ final class BasicEntityPersister implements EntityPersister
         return $qb;
     }
 
+    // un champ, ou une relation ToOne possédée par sa colonne de jointure (critère : identifiant visé)
     private function field(string $name): FieldMapping
     {
+        if (isset($this->joins[$name])) {
+            return $this->joins[$name];
+        }
         if (!$this->metadata->hasField($name)) {
             throw MappingException::unknownField($this->metadata->className, $name);
         }

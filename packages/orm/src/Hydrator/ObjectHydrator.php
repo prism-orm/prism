@@ -87,6 +87,14 @@ final class ObjectHydrator
     }
 
     /**
+     * Valeur PHP d'une valeur de la base, par le Type du DBAL.
+     */
+    public function toPhpValue(string $type, mixed $value): mixed
+    {
+        return $this->types->get($type)->toPhp($value, $this->conversion);
+    }
+
+    /**
      * Valeurs PHP des colonnes connues de la ligne ; les autres sont ignorées.
      *
      * @param ClassMetadata<object> $metadata

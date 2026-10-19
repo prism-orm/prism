@@ -282,4 +282,12 @@ final class AttributeDriverTest extends TestCase
         self::assertSame(['record', 'touch'], $metadata->getLifecycleCallbacks(LifecycleEvent::PrePersist));
         self::assertEquals($metadata, unserialize(serialize($metadata)), 'cached with the metadata');
     }
+
+    // régression : une auto-référence typée ?self vise sa propre classe
+    public function testSelfTypedRelationTargetsItsOwnClass(): void
+    {
+        $category = \Prism\Orm\Tests\Unit\UnitOfWork\Fixtures\Relations\Category::class;
+
+        self::assertSame($category, new AttributeDriver()->loadMetadata($category)->getAssociation('parent')->targetEntity);
+    }
 }
