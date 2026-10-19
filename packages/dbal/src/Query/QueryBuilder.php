@@ -6,6 +6,7 @@ namespace Prism\Dbal\Query;
 
 use Prism\Dbal\Connection;
 use Prism\Dbal\Exception\InvalidQueryException;
+use Prism\Dbal\LockMode;
 use Prism\Dbal\ParameterType;
 use Prism\Dbal\Result;
 
@@ -56,6 +57,8 @@ final class QueryBuilder
     private ?int $limit = null;
 
     private int $offset = 0;
+
+    private ?LockMode $lock = null;
 
     /** @var array<string, BoundValue> */
     private array $parameters = [];
@@ -263,6 +266,17 @@ final class QueryBuilder
     }
 
     /**
+     * Verrou de ligne du SELECT (FOR UPDATE, FOR SHARE), tenu jusqu'à la fin de la transaction ;
+     * null le retire.
+     */
+    public function lock(?LockMode $mode): self
+    {
+        return $this->with(static function (self $qb) use ($mode): void {
+            $qb->lock = $mode;
+        });
+    }
+
+    /**
      * Paramètre nommé utilisé dans une expression brute (« i.total > :min »).
      *
      * @throws InvalidQueryException nom invalide ou réservé (prism_*)
@@ -457,7 +471,9 @@ final class QueryBuilder
             $sql .= ' ORDER BY ' . implode(', ', array_map(static fn (array $o): string => $o[0] . ' ' . $o[1]->value, $this->orderBy));
         }
 
-        return $c->platform->applyLimit($sql, $this->limit, $this->offset);
+        $sql = $c->platform->applyLimit($sql, $this->limit, $this->offset);
+
+        return null === $this->lock ? $sql : $sql . $c->platform->getLockSql($this->lock);
     }
 
     private function compileInsert(QueryCompiler $c): string
@@ -523,6 +539,7 @@ final class QueryBuilder
             'LIMIT' => null !== $this->limit,
             'OFFSET' => $this->offset > 0,
             'DISTINCT' => $this->distinct,
+            'LOCK' => null !== $this->lock,
             'WHERE' => !$whereAllowed && null !== $this->where,
         ];
 

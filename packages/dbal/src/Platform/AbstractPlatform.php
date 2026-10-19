@@ -8,6 +8,7 @@ use Prism\Dbal\Exception\InvalidIdentifierException;
 use Prism\Dbal\Exception\InvalidParameterException;
 use Prism\Dbal\Exception\InvalidSchemaException;
 use Prism\Dbal\Exception\UnsupportedPlatformException;
+use Prism\Dbal\LockMode;
 use Prism\Dbal\Schema\Column;
 use Prism\Dbal\Schema\ColumnDiff;
 use Prism\Dbal\Schema\ForeignKey;
@@ -109,6 +110,18 @@ abstract class AbstractPlatform
         }
 
         return $sql;
+    }
+
+    /**
+     * Clause de verrou ajoutée en fin de SELECT ; vide pour un verrou optimiste.
+     */
+    public function getLockSql(LockMode $mode): string
+    {
+        return match ($mode) {
+            LockMode::Optimistic => '',
+            LockMode::PessimisticRead => ' FOR SHARE',
+            LockMode::PessimisticWrite => ' FOR UPDATE',
+        };
     }
 
     /**
