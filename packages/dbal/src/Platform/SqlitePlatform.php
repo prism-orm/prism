@@ -4,8 +4,12 @@ declare(strict_types=1);
 
 namespace Prism\Dbal\Platform;
 
+use Prism\Dbal\Exception\InvalidSchemaException;
 use Prism\Dbal\Schema\Column;
+use Prism\Dbal\Schema\ColumnDiff;
+use Prism\Dbal\Schema\ForeignKey;
 use Prism\Dbal\Schema\Table;
+use Prism\Dbal\Schema\TableDiff;
 
 /**
  * Tests et dev uniquement (périmètre 1.0).
@@ -110,6 +114,39 @@ final class SqlitePlatform extends AbstractPlatform
     protected function getAutoincrementSql(): string
     {
         return ' PRIMARY KEY AUTOINCREMENT';
+    }
+
+    /**
+     * ALTER TABLE natif : ajout d'une colonne nullable ou avec défaut, suppression d'une colonne.
+     * Le reste (colonne modifiée, clé primaire ou étrangère) exige une reconstruction (RG-01.11).
+     */
+    protected function getAlterColumnsSql(TableDiff $diff): array
+    {
+        foreach ($diff->addedColumns as $column) {
+            if (!$column->nullable && null === $column->default) {
+                throw InvalidSchemaException::unsupportedFeature($this->getName(), \sprintf('adding the NOT NULL column "%s.%s" without a default value (the table must be rebuilt)', $diff->name, $column->name));
+            }
+        }
+        if ([] !== $diff->changedColumns || $diff->primaryKeyChanged() || [] !== $diff->addedForeignKeys || [] !== $diff->droppedForeignKeys) {
+            throw InvalidSchemaException::unsupportedFeature($this->getName(), \sprintf('altering columns, primary key or foreign keys of table "%s" (the table must be rebuilt)', $diff->name));
+        }
+
+        return parent::getAlterColumnsSql($diff);
+    }
+
+    protected function getChangeColumnSql(Table $table, ColumnDiff $diff): array
+    {
+        throw InvalidSchemaException::unsupportedFeature($this->getName(), 'altering a column (the table must be rebuilt)');
+    }
+
+    protected function getDropPrimaryKeySql(Table $table): string
+    {
+        throw InvalidSchemaException::unsupportedFeature($this->getName(), 'dropping a primary key (the table must be rebuilt)');
+    }
+
+    protected function getDropForeignKeyStatements(TableDiff $table, ForeignKey $foreignKey): array
+    {
+        return [];
     }
 
     protected function declaresPrimaryKeyInline(Table $table): bool

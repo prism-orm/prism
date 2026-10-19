@@ -60,6 +60,45 @@ final class SchemaManager
         return $this->introspector()->introspectTable($name);
     }
 
+    /**
+     * Diff qui mène du schéma réel de la base au schéma cible.
+     *
+     * @throws InvalidSchemaException
+     */
+    public function diffTo(Schema $target): SchemaDiff
+    {
+        return new Comparator($this->connection->getPlatform())->compare($this->introspect(), $target);
+    }
+
+    /**
+     * Applique un diff. Sous PostgreSQL, tout passe dans une transaction (DDL transactionnel) ;
+     * sous MySQL et MariaDB, chaque DDL est validé implicitement par le serveur : un échec laisse
+     * la base à mi-chemin (RG-06.6).
+     *
+     * @return list<string> requêtes exécutées
+     *
+     * @throws InvalidSchemaException opération impossible sur la plateforme
+     */
+    public function migrate(SchemaDiff $diff): array
+    {
+        $platform = $this->connection->getPlatform();
+        $sql = $platform->getMigrationSql($diff);
+
+        $run = static function (Connection $connection) use ($sql): void {
+            foreach ($sql as $statement) {
+                $connection->executeStatement($statement);
+            }
+        };
+
+        if ($platform instanceof AbstractMySqlPlatform) {
+            $run($this->connection);
+        } else {
+            $this->connection->transactional($run);
+        }
+
+        return $sql;
+    }
+
     private function introspector(): Introspector
     {
         $platform = $this->connection->getPlatform();

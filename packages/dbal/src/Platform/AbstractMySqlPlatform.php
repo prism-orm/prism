@@ -7,7 +7,10 @@ namespace Prism\Dbal\Platform;
 use Prism\Dbal\Exception\InvalidIdentifierException;
 use Prism\Dbal\Exception\InvalidParameterException;
 use Prism\Dbal\Schema\Column;
+use Prism\Dbal\Schema\ColumnDiff;
+use Prism\Dbal\Schema\ForeignKey;
 use Prism\Dbal\Schema\Table;
+use Prism\Dbal\Schema\TableDiff;
 
 /**
  * Socle commun MySQL / MariaDB ; les divergences (VECTOR, JSON, index) vivent dans les sous-classes.
@@ -108,6 +111,50 @@ abstract class AbstractMySqlPlatform extends AbstractPlatform
             'binary' => null === $column->length ? 'LONGBLOB' : \sprintf('VARBINARY(%d)', $column->length),
             default => $this->unsupportedType($table, $column),
         };
+    }
+
+    // MODIFY redéclare la colonne entière : type, NULL, DEFAULT et AUTO_INCREMENT d'un coup
+    protected function getChangeColumnSql(Table $table, ColumnDiff $diff): array
+    {
+        return ['ALTER TABLE ' . $this->quoteIdentifier($table->name) . ' MODIFY COLUMN ' . $this->getColumnDeclarationSql($table, $diff->to)];
+    }
+
+    protected function getDropPrimaryKeySql(Table $table): string
+    {
+        return 'ALTER TABLE ' . $this->quoteIdentifier($table->name) . ' DROP PRIMARY KEY';
+    }
+
+    /**
+     * MySQL a créé un index portant le nom de la clé étrangère si aucun index déclaré ne la
+     * couvrait ; il survit à la clé et doit être supprimé avec elle, sinon le diff ne serait
+     * jamais vide.
+     */
+    protected function getDropForeignKeyStatements(TableDiff $table, ForeignKey $foreignKey): array
+    {
+        $sql = [$this->getDropForeignKeySql($table->name, $foreignKey->name)];
+        if (!self::isCoveredByIndex($table->from, $foreignKey)) {
+            $sql[] = $this->getDropIndexSql($table->name, $foreignKey->name);
+        }
+
+        return $sql;
+    }
+
+    // un index (ou la clé primaire) dont les premières colonnes sont celles de la clé étrangère
+    private static function isCoveredByIndex(Table $table, ForeignKey $foreignKey): bool
+    {
+        $columns = array_map(strtolower(...), $foreignKey->localColumns);
+        $candidates = array_map(static fn ($index): array => $index->columns, $table->getIndexes());
+        if (null !== $table->primaryKey) {
+            $candidates[] = $table->primaryKey;
+        }
+
+        foreach ($candidates as $candidate) {
+            if (\array_slice(array_map(strtolower(...), $candidate), 0, \count($columns)) === $columns) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     protected function getUuidDeclarationSql(): string

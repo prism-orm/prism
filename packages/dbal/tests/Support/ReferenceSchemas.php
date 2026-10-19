@@ -58,6 +58,54 @@ final class ReferenceSchemas
         return $schemas;
     }
 
+    /**
+     * Évolutions A → B du test RG-01.8 : diff(introspect(apply(diff(A, B))), B) doit être vide.
+     *
+     * @return array<string, array{Schema, Schema}>
+     */
+    public static function evolutions(bool $withSequences): array
+    {
+        $client = new Table('ref_client', [new Column('id', 'bigint'), new Column('name', 'string', length: 100)], ['id']);
+        $invoice = new Table('ref_invoice', [
+            new Column('id', 'bigint'),
+            new Column('client_id', 'bigint', nullable: true),
+            new Column('number', 'string', length: 20),
+            new Column('qty', 'integer', default: 1),
+            new Column('total', 'decimal', default: '0.00', precision: 10, scale: 2),
+        ], ['id']);
+        $base = new Schema([$client, $invoice]);
+        $with = static fn (Table ...$tables): Schema => array_reduce($tables, static fn (Schema $s, Table $t): Schema => $s->withTable($t), $base);
+        $linked = $with($invoice->withForeignKeyTo(['client_id'], 'ref_client', ['id'], ForeignKeyAction::Cascade));
+
+        $evolutions = [
+            'add nullable column' => [$base, $with($invoice->withColumn(new Column('note', 'string', nullable: true, length: 200)))],
+            'add not null column with default' => [$base, $with($invoice->withColumn(new Column('status', 'string', default: 'draft', length: 20)))],
+            'drop column' => [$base, $with($invoice->withoutColumn('qty'))],
+            'widen string' => [$base, $with($invoice->withColumn(new Column('number', 'string', length: 60)))],
+            'make column not null' => [$base, $with($invoice->withColumn(new Column('client_id', 'bigint')))],
+            'make column nullable' => [$base, $with($invoice->withColumn(new Column('number', 'string', nullable: true, length: 20)))],
+            'change default' => [$base, $with($invoice->withColumn(new Column('qty', 'integer', default: 10)))],
+            'drop default' => [$base, $with($invoice->withColumn(new Column('qty', 'integer')))],
+            'integer to bigint' => [$base, $with($invoice->withColumn(new Column('qty', 'bigint', default: 1)))],
+            'decimal precision and scale' => [$base, $with($invoice->withColumn(new Column('total', 'decimal', default: '0.000', precision: 14, scale: 3)))],
+            'add composite index' => [$base, $with($invoice->withIndexOn(['client_id', 'number']))],
+            'drop index' => [$with($invoice->withIndexOn(['number'])), $base],
+            'index becomes unique' => [$with($invoice->withIndexOn(['number'], name: 'ref_number_idx')), $with($invoice->withIndexOn(['number'], unique: true, name: 'ref_number_idx'))],
+            'add foreign key' => [$base, $linked],
+            'change on delete action' => [$linked, $with($invoice->withForeignKeyTo(['client_id'], 'ref_client', ['id'], ForeignKeyAction::SetNull))],
+            'drop foreign key' => [$linked, $base],
+            'add referencing table' => [$base, $base->withTable(new Table('ref_line', [new Column('id', 'bigint'), new Column('invoice_id', 'bigint')], ['id'])->withForeignKeyTo(['invoice_id'], 'ref_invoice', ['id'], ForeignKeyAction::Cascade))],
+            'drop referenced table' => [$linked, new Schema([$invoice])],
+            'widen primary key' => [$base, $with($invoice->withPrimaryKey(['id', 'number']))],
+        ];
+
+        if ($withSequences) {
+            $evolutions['sequence increment'] = [$base->withSequence(new Sequence('ref_evolution_seq', 1, 1)), $base->withSequence(new Sequence('ref_evolution_seq', 1, 5))];
+        }
+
+        return $evolutions;
+    }
+
     public static function everyType(): Table
     {
         return new Table('ref_types', [
