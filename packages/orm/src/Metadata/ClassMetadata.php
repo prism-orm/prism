@@ -29,19 +29,27 @@ final class ClassMetadata
     /** @var array<string, AssociationMapping> */
     private readonly array $associations;
 
+    /** @var array<string, string> type DBAL par colonne, calculé une fois (appelé à chaque hydratation) */
+    private readonly array $columnTypes;
+
+    /** @var array<value-of<LifecycleEvent>, list<array{class-string, string}>> listener et méthode, par événement */
+    private readonly array $listenerCallbacks;
+
     /** Reflection créée au premier usage, jamais sérialisée (reconstruite après le cache). */
     private readonly ReflectionCache $reflection;
 
     /**
-     * @param class-string<T>                               $className
-     * @param list<FieldMapping>                            $fields
-     * @param list<EmbeddedMapping>                         $embedded
-     * @param list<AssociationMapping>                      $associations
-     * @param list<IndexMapping>                            $indexes
-     * @param array<value-of<LifecycleEvent>, list<string>> $lifecycleCallbacks méthodes par événement
-     * @param list<class-string>                            $entityListeners
-     * @param array<string, string>                         $tableOptions
-     * @param class-string|null                             $repositoryClass
+     * @param class-string<T>                                                    $className
+     * @param list<FieldMapping>                                                 $fields
+     * @param list<EmbeddedMapping>                                              $embedded
+     * @param list<AssociationMapping>                                           $associations
+     * @param list<IndexMapping>                                                 $indexes
+     * @param array<value-of<LifecycleEvent>, list<string>>                      $lifecycleCallbacks      méthodes par événement
+     * @param list<class-string>                                                 $entityListeners
+     * @param array<string, string>                                              $tableOptions
+     * @param class-string|null                                                  $repositoryClass
+     * @param array<class-string, array<value-of<LifecycleEvent>, list<string>>> $entityListenerCallbacks
+     *                                                                                                    méthodes de chaque listener d'entité, par événement
      */
     public function __construct(
         public readonly string $className,
@@ -58,11 +66,31 @@ final class ClassMetadata
         public readonly bool $readOnly = false,
         public readonly ?string $repositoryClass = null,
         public readonly array $tableOptions = [],
+        public readonly array $entityListenerCallbacks = [],
     ) {
         $this->fields = self::byName($className, $fields, static fn (FieldMapping $f): string => $f->fieldName);
         $this->embedded = self::byName($className, $embedded, static fn (EmbeddedMapping $e): string => $e->fieldName);
         $this->associations = self::byName($className, $associations, static fn (AssociationMapping $a): string => $a->fieldName);
         $this->reflection = new ReflectionCache();
+        $byEvent = [];
+        foreach ($entityListenerCallbacks as $listener => $events) {
+            foreach ($events as $event => $methods) {
+                foreach ($methods as $method) {
+                    $byEvent[$event][] = [$listener, $method];
+                }
+            }
+        }
+        $this->listenerCallbacks = $byEvent;
+        $types = [];
+        foreach ($this->fields as $field) {
+            $types[$field->columnName] = $field->type;
+        }
+        foreach ($this->embedded as $embedded) {
+            foreach ($embedded->getFields() as $field) {
+                $types[$field->columnName] = $field->type;
+            }
+        }
+        $this->columnTypes = $types;
 
         foreach (array_merge(array_keys($this->embedded), array_keys($this->associations)) as $name) {
             if (isset($this->fields[$name]) || (isset($this->embedded[$name]) && isset($this->associations[$name]))) {
@@ -192,23 +220,23 @@ final class ClassMetadata
     }
 
     /**
+     * Méthodes des listeners d'entité pour cet événement, dans l'ordre de #[EntityListeners].
+     *
+     * @return list<array{class-string, string}> listener et méthode
+     */
+    public function getEntityListenerCallbacks(LifecycleEvent $event): array
+    {
+        return $this->listenerCallbacks[$event->value] ?? [];
+    }
+
+    /**
      * Type DBAL de chaque colonne portée par un champ ou un embeddable.
      *
      * @return array<string, string>
      */
     public function getColumnTypes(): array
     {
-        $types = [];
-        foreach ($this->fields as $field) {
-            $types[$field->columnName] = $field->type;
-        }
-        foreach ($this->embedded as $embedded) {
-            foreach ($embedded->getFields() as $field) {
-                $types[$field->columnName] = $field->type;
-            }
-        }
-
-        return $types;
+        return $this->columnTypes;
     }
 
     /**
@@ -247,7 +275,7 @@ final class ClassMetadata
     {
         foreach ($this->fields as $field) {
             if (\array_key_exists($field->columnName, $row)) {
-                $this->property($this->className, $field->fieldName)->setValue($entity, $this->toProperty($field, $row[$field->columnName]));
+                $this->property($this->className, $field->fieldName)->setValue($entity, $this->toFieldValue($field, $row[$field->columnName]));
             }
         }
 
@@ -264,7 +292,7 @@ final class ClassMetadata
 
             $value = new \ReflectionClass($embedded->class)->newInstanceWithoutConstructor();
             foreach ($columns as $field) {
-                $this->property($embedded->class, $field->fieldName)->setValue($value, $this->toProperty($field, $row[$field->columnName]));
+                $this->property($embedded->class, $field->fieldName)->setValue($value, $this->toFieldValue($field, $row[$field->columnName]));
             }
             $this->property($this->className, $embedded->fieldName)->setValue($entity, $value);
         }
@@ -275,7 +303,15 @@ final class ClassMetadata
         return null !== $field->enumType && $value instanceof \BackedEnum ? $value->value : $value;
     }
 
-    private function toProperty(FieldMapping $field, mixed $value): mixed
+    /**
+     * Valeur PHP d'un champ à partir de la valeur de sa colonne (déjà convertie par son Type) :
+     * l'enum est reconstruit, le reste est rendu tel quel.
+     *
+     * @internal partagé avec l'ArrayHydrator
+     *
+     * @throws MappingException valeur qui n'est pas un cas de l'enum du champ
+     */
+    public function toFieldValue(FieldMapping $field, mixed $value): mixed
     {
         if (null === $field->enumType || null === $value || $value instanceof \BackedEnum) {
             return $value;

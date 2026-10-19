@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Prism\Dbal\Platform;
 
+use Prism\Dbal\LockMode;
+
 /**
  * @api
  */
@@ -17,6 +19,17 @@ final class MariaDbPlatform extends AbstractMySqlPlatform
     public function supportsSequences(): bool
     {
         return true;
+    }
+
+    // FOR SHARE n'existe pas sous MariaDB
+    public function getLockSql(LockMode $mode): string
+    {
+        return LockMode::PessimisticRead === $mode ? ' LOCK IN SHARE MODE' : parent::getLockSql($mode);
+    }
+
+    public function getSequenceNextValSql(string $sequence): string
+    {
+        return 'SELECT NEXTVAL(' . $this->quoteIdentifier($sequence) . ')';
     }
 
     /**

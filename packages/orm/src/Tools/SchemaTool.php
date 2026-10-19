@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Prism\Orm\Tools;
 
 use Prism\Dbal\Platform\AbstractPlatform;
-use Prism\Dbal\Platform\PostgreSqlPlatform;
 use Prism\Dbal\Schema\Column;
 use Prism\Dbal\Schema\ForeignKeyAction;
 use Prism\Dbal\Schema\Schema;
@@ -13,6 +12,7 @@ use Prism\Dbal\Schema\Sequence;
 use Prism\Dbal\Schema\Table;
 use Prism\Dbal\Type\TypeRegistry;
 use Prism\Orm\Exception\MappingException;
+use Prism\Orm\Id\GenerationStrategyResolver;
 use Prism\Orm\Mapping\GenerationStrategy;
 use Prism\Orm\Mapping\OnDelete;
 use Prism\Orm\Metadata\AssociationMapping;
@@ -81,11 +81,7 @@ final class SchemaTool
      */
     public function resolveStrategy(?GenerationStrategy $strategy): ?GenerationStrategy
     {
-        if (GenerationStrategy::Auto === $strategy) {
-            return $this->platform instanceof PostgreSqlPlatform ? GenerationStrategy::Sequence : GenerationStrategy::Identity;
-        }
-
-        return $strategy;
+        return GenerationStrategyResolver::resolve($strategy, $this->platform);
     }
 
     /**
@@ -165,11 +161,8 @@ final class SchemaTool
         if (GenerationStrategy::Sequence !== $this->resolveStrategy($class->id->strategy)) {
             return null;
         }
-        if (!$this->platform->supportsSequences()) {
-            throw MappingException::invalidField($class->className, $class->id->fieldName, \sprintf('GenerationStrategy::Sequence is not supported by %s; use Auto or Identity.', $this->platform->getName()));
-        }
 
-        return new Sequence($class->id->sequenceName ?? $class->tableName . '_id_seq');
+        return new Sequence(GenerationStrategyResolver::sequenceName($class, $this->platform));
     }
 
     /**

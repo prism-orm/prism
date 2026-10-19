@@ -5,5 +5,10 @@
     "runner.retry_threshold": 5,
     "runner.iterations": 5,
     "runner.revs": 100,
-    "storage.xml_storage_path": "var/phpbench"
+    "storage.xml_storage_path": "var/phpbench",
+    "runner.php_config": {
+        "opcache.enable_cli": 1,
+        "pcov.enabled": 0,
+        "memory_limit": "1G"
+    }
 }

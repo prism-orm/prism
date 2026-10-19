@@ -12,6 +12,11 @@ parameters:
         - packages/migrations/tests
         - packages/bundle/src
         - packages/bundle/tests
+        - benchmarks
     checkUninitializedProperties: true
+    # PHPBench appelle setUp() (BeforeMethods) avant chaque mesure, comme un constructeur
+    additionalConstructors:
+        - Prism\Benchmarks\HydrationBench::setUp
+        - Prism\Benchmarks\FlushBench::setUp
     checkImplicitMixed: true
     reportUnmatchedIgnoredErrors: true
