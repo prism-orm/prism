@@ -45,6 +45,12 @@ final class PostgreSqlPlatform extends AbstractPlatform
         return true;
     }
 
+    // nextval() reçoit le nom en texte : identifiant cité (casse, mots réservés) puis littéral
+    public function getSequenceNextValSql(string $sequence): string
+    {
+        return 'SELECT nextval(' . $this->quoteStringLiteral($this->quoteIdentifier($sequence)) . ')';
+    }
+
     // BYTEA n'a pas de longueur
     public function getCanonicalColumn(Column $column): Column
     {

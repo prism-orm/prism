@@ -449,6 +449,16 @@ abstract class AbstractPlatform
     }
 
     /**
+     * Requête qui renvoie la prochaine valeur d'une séquence (une ligne, une colonne).
+     *
+     * @throws InvalidSchemaException plateforme sans séquences
+     */
+    public function getSequenceNextValSql(string $sequence): string
+    {
+        throw InvalidSchemaException::unsupportedFeature($this->getName(), 'sequences');
+    }
+
+    /**
      * @throws InvalidSchemaException plateforme sans séquences
      */
     public function getDropSequenceSql(string $sequence): string

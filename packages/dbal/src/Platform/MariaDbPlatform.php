@@ -19,6 +19,11 @@ final class MariaDbPlatform extends AbstractMySqlPlatform
         return true;
     }
 
+    public function getSequenceNextValSql(string $sequence): string
+    {
+        return 'SELECT NEXTVAL(' . $this->quoteIdentifier($sequence) . ')';
+    }
+
     /**
      * MariaDB stocke JSON en LONGTEXT + CHECK (json_valid(col)) : la contrainte distingue json de text.
      *
