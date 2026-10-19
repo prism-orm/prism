@@ -65,11 +65,16 @@ final class BasicEntityPersister implements EntityPersister
             unset($row[$this->idColumn]);
         }
 
-        $qb = $this->connection->createQueryBuilder()->insert($this->metadata->tableName);
-        foreach ($row as $column => $value) {
-            $qb = $qb->set($column, $value, $this->binding($column, $value));
+        if ([] === $row) {
+            // seul l'identifiant, attribué par la base
+            $this->connection->executeStatement($this->connection->getPlatform()->getInsertDefaultValuesSql($this->metadata->tableName));
+        } else {
+            $qb = $this->connection->createQueryBuilder()->insert($this->metadata->tableName);
+            foreach ($row as $column => $value) {
+                $qb = $qb->set($column, $value, $this->binding($column, $value));
+            }
+            $qb->executeStatement();
         }
-        $qb->executeStatement();
 
         return $this->identity && !\array_key_exists($this->idColumn, $row) ? new IdentityGenerator()->generate($this->connection) : null;
     }
@@ -150,6 +155,52 @@ final class BasicEntityPersister implements EntityPersister
         $qb = $qb->select($qb->column($this->idColumn))->from($this->metadata->tableName);
 
         return false !== $this->whereKey($qb, $id, null)->lock($mode)->executeQuery()->fetchOne();
+    }
+
+    public function loadByJoinTable(string $table, string $ownerColumn, string $targetColumn, mixed $ownerId, string $ownerType, array $orderBy = []): array
+    {
+        $qb = $this->connection->createQueryBuilder();
+        $qb = $qb->select(...array_map(static fn (string $column): string => $qb->column($column, 't'), array_keys($this->bindings)))
+            ->from($this->metadata->tableName, 't')
+            ->join($table, 'p', $qb->column($targetColumn, 'p') . ' = ' . $qb->column($this->idColumn, 't'));
+        $qb = $qb->where($qb->expr()->eq($qb->column($ownerColumn, 'p'), $ownerId, $this->bindingOf($ownerType)));
+        foreach ($orderBy as $field => $order) {
+            $qb = $qb->addOrderBy($qb->column($this->field($field)->columnName, 't'), $order);
+        }
+
+        return $qb->executeQuery()->fetchAllAssociative();
+    }
+
+    public function countJoinTable(string $table, string $ownerColumn, mixed $ownerId, string $ownerType): int
+    {
+        $qb = $this->connection->createQueryBuilder();
+        $count = $qb->select('COUNT(*)')->from($table)->where($qb->expr()->eq($qb->column($ownerColumn), $ownerId, $this->bindingOf($ownerType)))->executeQuery()->fetchOne();
+
+        return is_numeric($count) ? (int) $count : 0;
+    }
+
+    public function insertJoinRow(string $table, array $row, array $types): void
+    {
+        $qb = $this->connection->createQueryBuilder()->insert($table);
+        foreach ($row as $column => $value) {
+            $qb = $qb->set($column, $value, $this->bindingOf($types[$column]));
+        }
+        $qb->executeStatement();
+    }
+
+    public function deleteJoinRows(string $table, array $criteria, array $types): int
+    {
+        $qb = $this->connection->createQueryBuilder()->delete($table);
+        foreach ($criteria as $column => $value) {
+            $qb = $qb->andWhere($qb->expr()->eq($qb->column($column), $value, $this->bindingOf($types[$column])));
+        }
+
+        return $qb->executeStatement();
+    }
+
+    private function bindingOf(string $type): ParameterType
+    {
+        return $this->connection->getTypeRegistry()->get($type)->getBindingType();
     }
 
     private function select(): QueryBuilder

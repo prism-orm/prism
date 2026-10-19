@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Prism\Orm\Tests\Unit\Mapping\Fixtures;
 
+use Prism\Orm\Collection\ArrayCollection;
+use Prism\Orm\Collection\Collection;
 use Prism\Orm\Mapping as Prism;
 use Prism\Orm\Mapping\Cascade;
 use Prism\Orm\Mapping\Order;
@@ -81,18 +83,20 @@ final class Invoice
     #[Prism\OneToOne(targetEntity: self::class, joinColumn: 'credit_note_id', onDelete: Prism\OnDelete::SetNull)]
     public ?Invoice $creditNote = null;
 
-    /** @var iterable<int, InvoiceLine> */
+    /** @var Collection<int, InvoiceLine> */
     #[Prism\OneToMany(targetEntity: InvoiceLine::class, mappedBy: 'invoice', cascade: [Cascade::Persist, Cascade::Remove], orphanRemoval: true)]
     #[Prism\OrderBy(['position' => Order::Asc])]
-    public iterable $lines = [];
+    public Collection $lines;
 
-    /** @var iterable<int, Tag> */
+    /** @var Collection<int, Tag> */
     #[Prism\ManyToMany(targetEntity: Tag::class, inversedBy: 'invoices', batch: false)]
     #[Prism\JoinTable(name: 'invoice_tag', onDelete: Prism\OnDelete::Cascade)]
-    public iterable $tags = [];
+    public Collection $tags;
 
     public function __construct(Client $client, \DateTimeImmutable $issuedAt)
     {
+        $this->lines = new ArrayCollection();
+        $this->tags = new ArrayCollection();
         $this->client = $client;
         $this->issuedAt = $issuedAt;
         $this->createdAt = $issuedAt;

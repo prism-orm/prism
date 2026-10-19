@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Prism\Orm\Tests\Functional\Fixtures;
 
+use Prism\Orm\Collection\ArrayCollection;
+use Prism\Orm\Collection\Collection;
 use Prism\Orm\Mapping as Prism;
 
 #[Prism\Entity]
@@ -15,7 +17,12 @@ final class Author
     #[Prism\Column(length: 100)]
     public string $name = '';
 
-    /** @var iterable<int, Book> */
+    /** @var Collection<int, Book> */
     #[Prism\OneToMany(targetEntity: Book::class, mappedBy: 'author')]
-    public iterable $books = [];
+    public Collection $books;
+
+    public function __construct()
+    {
+        $this->books = new ArrayCollection();
+    }
 }

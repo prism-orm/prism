@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Prism\Orm\Metadata;
 
 use Prism\Dbal\Type\TypeRegistry;
+use Prism\Orm\Collection\Collection;
 use Prism\Orm\Exception\MappingException;
 use Prism\Orm\Mapping\Entity;
 use Prism\Orm\Mapping\GenerationStrategy;
@@ -233,6 +234,10 @@ final class MetadataValidator
         foreach ($class->getAssociations() as $association) {
             $field = $association->fieldName;
 
+            if ($association->isCollection() && !self::isTypedCollection($class->className, $field)) {
+                $this->error($class->className, $field, \sprintf('a collection relation must be typed %s (not array, iterable or nullable), initialized with new ArrayCollection() in the constructor (ADR 0007).', Collection::class));
+            }
+
             if (OnDelete::SetNull === $association->onDelete && $association->isToOne() && $association->isOwningSide() && !$association->nullable) {
                 $this->error($class->className, $field, 'onDelete: SetNull needs a nullable relation; make the property nullable or choose another action.');
             }
@@ -388,6 +393,21 @@ final class MetadataValidator
                 $this->error($entity, null, \sprintf('%s: parameter $%s must accept %s, which #[%s] passes.', $label, $parameter->getName(), $expected[$i], ucfirst($event->value)));
             }
         }
+    }
+
+    /**
+     * ADR 0007 : l'ORM suit l'instance de la collection, jamais un tableau copié.
+     *
+     * @param class-string $class
+     */
+    private static function isTypedCollection(string $class, string $field): bool
+    {
+        if (!property_exists($class, $field)) {
+            return false;
+        }
+        $type = new \ReflectionProperty($class, $field)->getType();
+
+        return $type instanceof \ReflectionNamedType && Collection::class === $type->getName() && !$type->allowsNull();
     }
 
     // un paramètre sans type, object, mixed, ou une classe parente de celle passée

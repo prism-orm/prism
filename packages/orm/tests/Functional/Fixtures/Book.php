@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Prism\Orm\Tests\Functional\Fixtures;
 
+use Prism\Orm\Collection\ArrayCollection;
+use Prism\Orm\Collection\Collection;
 use Prism\Orm\Mapping as Prism;
 
 #[Prism\Entity]
@@ -26,7 +28,12 @@ final class Book
     #[Prism\OneToOne(targetEntity: self::class, joinColumn: 'sequel_id', onDelete: Prism\OnDelete::SetNull)]
     public ?Book $sequel = null;
 
-    /** @var iterable<int, Label> */
+    /** @var Collection<int, Label> */
     #[Prism\ManyToMany(targetEntity: Label::class, inversedBy: 'books')]
-    public iterable $labels = [];
+    public Collection $labels;
+
+    public function __construct()
+    {
+        $this->labels = new ArrayCollection();
+    }
 }
