@@ -117,21 +117,80 @@ final class SqlitePlatform extends AbstractPlatform
     }
 
     /**
-     * ALTER TABLE natif : ajout d'une colonne nullable ou avec défaut, suppression d'une colonne.
-     * Le reste (colonne modifiée, clé primaire ou étrangère) exige une reconstruction (RG-01.11).
+     * ALTER TABLE natif quand il suffit (ajout d'une colonne nullable ou avec défaut, suppression
+     * d'une colonne) ; sinon reconstruction de la table (RG-01.11), selon la procédure SQLite :
+     * nouvelle table, copie des colonnes communes, suppression, renommage, index conservés.
+     *
+     * La reconstruction exige PRAGMA foreign_keys désactivé, ce qui est sans effet dans une
+     * transaction : sinon le DROP TABLE déclencherait les ON DELETE CASCADE des tables enfants.
+     * Exécuter ce SQL par SchemaManager::migrate(), qui s'en charge.
      */
     protected function getAlterColumnsSql(TableDiff $diff): array
     {
+        return $this->needsRebuild($diff) ? $this->getRebuildTableSql($diff) : parent::getAlterColumnsSql($diff);
+    }
+
+    /**
+     * @internal utilisé par SchemaManager::migrate()
+     */
+    public function getForeignKeysSql(bool $enabled): string
+    {
+        return 'PRAGMA foreign_keys = ' . ($enabled ? 'ON' : 'OFF');
+    }
+
+    /**
+     * @internal colonne « foreign_keys » : 1 ou 0
+     */
+    public function getForeignKeysStateSql(): string
+    {
+        return 'PRAGMA foreign_keys';
+    }
+
+    /**
+     * @internal une ligne par violation (colonnes « table » et « parent »)
+     */
+    public function getForeignKeyCheckSql(): string
+    {
+        return 'PRAGMA foreign_key_check';
+    }
+
+    private function needsRebuild(TableDiff $diff): bool
+    {
         foreach ($diff->addedColumns as $column) {
             if (!$column->nullable && null === $column->default) {
-                throw InvalidSchemaException::unsupportedFeature($this->getName(), \sprintf('adding the NOT NULL column "%s.%s" without a default value (the table must be rebuilt)', $diff->name, $column->name));
+                return true;
             }
         }
-        if ([] !== $diff->changedColumns || $diff->primaryKeyChanged() || [] !== $diff->addedForeignKeys || [] !== $diff->droppedForeignKeys) {
-            throw InvalidSchemaException::unsupportedFeature($this->getName(), \sprintf('altering columns, primary key or foreign keys of table "%s" (the table must be rebuilt)', $diff->name));
+
+        return [] !== $diff->changedColumns || $diff->primaryKeyChanged() || [] !== $diff->addedForeignKeys || [] !== $diff->droppedForeignKeys;
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function getRebuildTableSql(TableDiff $diff): array
+    {
+        $to = $diff->to;
+        $temporary = '__prism_tmp_' . $to->name;
+        $common = array_values(array_filter($to->getColumns(), static fn (Column $c): bool => $diff->from->hasColumn($c->name)));
+        $columns = implode(', ', array_map(fn (Column $c): string => $this->quoteIdentifier($c->name), $common));
+
+        $sql = [$this->getCreateTableSql(new Table($temporary, $to->getColumns(), $to->primaryKey, [], $to->getForeignKeys()))];
+        if ([] !== $common) {
+            $sql[] = \sprintf('INSERT INTO %s (%s) SELECT %s FROM %s', $this->quoteIdentifier($temporary), $columns, $columns, $this->quoteIdentifier($to->name));
+        }
+        $sql[] = $this->getDropTableSql($to->name);
+        $sql[] = \sprintf('ALTER TABLE %s RENAME TO %s', $this->quoteIdentifier($temporary), $this->quoteIdentifier($to->name));
+
+        // les index ajoutés sont créés plus loin par getMigrationSql() (étape 6 de RG-01.10)
+        $added = array_map(static fn ($i): string => strtolower($i->name), $diff->addedIndexes);
+        foreach ($to->getIndexes() as $index) {
+            if (!\in_array(strtolower($index->name), $added, true)) {
+                $sql[] = $this->getCreateIndexSql($to->name, $index);
+            }
         }
 
-        return parent::getAlterColumnsSql($diff);
+        return $sql;
     }
 
     protected function getChangeColumnSql(Table $table, ColumnDiff $diff): array

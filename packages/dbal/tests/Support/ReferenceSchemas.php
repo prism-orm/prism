@@ -97,6 +97,7 @@ final class ReferenceSchemas
             'add referencing table' => [$base, $base->withTable(new Table('ref_line', [new Column('id', 'bigint'), new Column('invoice_id', 'bigint')], ['id'])->withForeignKeyTo(['invoice_id'], 'ref_invoice', ['id'], ForeignKeyAction::Cascade))],
             'drop referenced table' => [$linked, new Schema([$invoice])],
             'widen primary key' => [$base, $with($invoice->withPrimaryKey(['id', 'number']))],
+            'string to text' => [$base, $with($client->withColumn(new Column('name', 'text')))],
         ];
 
         if ($withSequences) {

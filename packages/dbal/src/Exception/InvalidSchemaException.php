@@ -66,6 +66,21 @@ final class InvalidSchemaException extends \InvalidArgumentException implements 
         return new self(\sprintf('Foreign key "%s" of table "%s" references table "%s", which is not in the target schema.', $foreignKey, $table, $foreignTable));
     }
 
+    public static function foreignKeyViolation(string $table, string $parent): self
+    {
+        return new self(\sprintf('The migration was rolled back: rows of table "%s" reference missing rows of table "%s".', $table, $parent));
+    }
+
+    public static function migrationInsideTransaction(string $platform): self
+    {
+        return new self(\sprintf('Cannot migrate a %s schema inside an open transaction: foreign keys cannot be disabled during a transaction, and rebuilding a table would cascade deletes to its children.', $platform));
+    }
+
+    public static function foreignKeysStillEnabled(string $platform): self
+    {
+        return new self(\sprintf('Cannot migrate the %s schema: foreign keys could not be disabled, rebuilding a table would cascade deletes to its children.', $platform));
+    }
+
     public static function unsupportedType(string $platform, string $table, string $column, string $type): self
     {
         return new self(\sprintf('%s cannot declare column "%s.%s" of type "%s": the type has no column declaration on this platform.', $platform, $table, $column, $type));

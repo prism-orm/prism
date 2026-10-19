@@ -90,13 +90,49 @@ final class SchemaManager
             }
         };
 
-        if ($platform instanceof AbstractMySqlPlatform) {
-            $run($this->connection);
-        } else {
-            $this->connection->transactional($run);
-        }
+        match (true) {
+            $platform instanceof AbstractMySqlPlatform => $run($this->connection),
+            $platform instanceof SqlitePlatform => $this->migrateSqlite($platform, $run),
+            default => $this->connection->transactional($run),
+        };
 
         return $sql;
+    }
+
+    /**
+     * RG-01.11 : clés étrangères désactivées hors transaction (vérifié, pas supposé), migration
+     * dans une transaction, contrôle des clés avant le commit, puis réactivation.
+     *
+     * @param \Closure(Connection): void $run
+     */
+    private function migrateSqlite(SqlitePlatform $platform, \Closure $run): void
+    {
+        if ($this->connection->isTransactionActive()) {
+            throw InvalidSchemaException::migrationInsideTransaction($platform->getName());
+        }
+
+        $this->connection->executeStatement($platform->getForeignKeysSql(false));
+        try {
+            if (0 !== (int) self::scalar($this->connection->executeQuery($platform->getForeignKeysStateSql())->fetchOne())) {
+                throw InvalidSchemaException::foreignKeysStillEnabled($platform->getName());
+            }
+
+            $this->connection->transactional(static function (Connection $connection) use ($platform, $run): void {
+                $run($connection);
+
+                $violation = $connection->executeQuery($platform->getForeignKeyCheckSql())->fetchAssociative();
+                if (false !== $violation) {
+                    throw InvalidSchemaException::foreignKeyViolation(self::scalar($violation['table'] ?? ''), self::scalar($violation['parent'] ?? ''));
+                }
+            });
+        } finally {
+            $this->connection->executeStatement($platform->getForeignKeysSql(true));
+        }
+    }
+
+    private static function scalar(mixed $value): string
+    {
+        return \is_scalar($value) ? (string) $value : '';
     }
 
     private function introspector(): Introspector

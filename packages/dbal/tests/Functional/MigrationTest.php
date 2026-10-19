@@ -7,7 +7,6 @@ namespace Prism\Dbal\Tests\Functional;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Prism\Dbal\Connection;
-use Prism\Dbal\Exception\InvalidSchemaException;
 use Prism\Dbal\Schema\Comparator;
 use Prism\Dbal\Schema\Schema;
 use Prism\Dbal\Schema\SchemaDiff;
@@ -87,14 +86,7 @@ final class MigrationTest extends TestCase
         $this->migrateTo($from);
         $this->assertNoDiff($from);
 
-        try {
-            $this->migrateTo($to);
-        } catch (InvalidSchemaException $e) {
-            if (str_contains($e->getMessage(), 'the table must be rebuilt')) {
-                self::markTestSkipped('SQLite table rebuild arrives in step 6c.');
-            }
-            throw $e;
-        }
+        $this->migrateTo($to);
 
         $this->assertNoDiff($to);
     }
@@ -107,11 +99,7 @@ final class MigrationTest extends TestCase
         $q = $this->connection->getPlatform()->quoteIdentifier(...);
         $this->connection->executeStatement(\sprintf('INSERT INTO %s (%s, %s) VALUES (?, ?)', $q('ref_invoice'), $q('id'), $q('number')), [1, 'F-2026-001']);
 
-        try {
-            $this->migrateTo($to);
-        } catch (InvalidSchemaException) {
-            self::markTestSkipped('SQLite table rebuild arrives in step 6c.');
-        }
+        $this->migrateTo($to);
 
         self::assertSame('F-2026-001', $this->connection->executeQuery(\sprintf('SELECT %s FROM %s', $q('number'), $q('ref_invoice')))->fetchOne());
     }

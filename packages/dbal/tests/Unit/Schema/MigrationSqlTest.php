@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Prism\Dbal\Tests\Unit\Schema;
 
 use PHPUnit\Framework\TestCase;
-use Prism\Dbal\Exception\InvalidSchemaException;
 use Prism\Dbal\Platform\AbstractPlatform;
 use Prism\Dbal\Platform\MariaDbPlatform;
 use Prism\Dbal\Platform\MySqlPlatform;
@@ -160,7 +159,34 @@ final class MigrationSqlTest extends TestCase
         ], self::sql($platform, $from, $to));
     }
 
-    public function testSqliteRefusesWhatNeedsARebuild(): void
+    // RG-01.11 : nouvelle table, copie des colonnes communes, suppression, renommage, index conservés
+    public function testSqliteRebuildsTheTable(): void
+    {
+        $platform = new SqlitePlatform('3.46');
+        $from = new Schema([
+            new Table('client', [new Column('id', 'integer')], ['id']),
+            new Table('t', [new Column('id', 'integer'), new Column('qty', 'integer'), new Column('client_id', 'integer'), new Column('old', 'string', nullable: true)], ['id'])
+                ->withIndexOn(['qty'], name: 'idx_qty')->withIndexOn(['old'], name: 'idx_old'),
+        ]);
+        $to = new Schema([
+            new Table('client', [new Column('id', 'integer')], ['id']),
+            new Table('t', [new Column('id', 'integer'), new Column('qty', 'bigint'), new Column('client_id', 'integer'), new Column('code', 'string', length: 10)], ['id'])
+                ->withIndexOn(['qty'], name: 'idx_qty')->withIndexOn(['code'], name: 'idx_code')
+                ->withForeignKeyTo(['client_id'], 'client', ['id'], ForeignKeyAction::Cascade, 'fk_client'),
+        ]);
+
+        self::assertSame([
+            'DROP INDEX "idx_old"',
+            'CREATE TABLE "__prism_tmp_t" ("id" INTEGER NOT NULL, "qty" BIGINT NOT NULL, "client_id" INTEGER NOT NULL, "code" VARCHAR(10) NOT NULL, PRIMARY KEY ("id"), CONSTRAINT "fk_client" FOREIGN KEY ("client_id") REFERENCES "client" ("id") ON DELETE CASCADE)',
+            'INSERT INTO "__prism_tmp_t" ("id", "qty", "client_id") SELECT "id", "qty", "client_id" FROM "t"',
+            'DROP TABLE "t"',
+            'ALTER TABLE "__prism_tmp_t" RENAME TO "t"',
+            'CREATE INDEX "idx_qty" ON "t" ("qty")',
+            'CREATE INDEX "idx_code" ON "t" ("code")',
+        ], self::sql($platform, $from, $to));
+    }
+
+    public function testSqliteRebuildsForEachChangeThatAlterTableCannotDo(): void
     {
         $platform = new SqlitePlatform('3.46');
         $from = new Schema([new Table('t', [new Column('id', 'integer'), new Column('qty', 'integer')], ['id'])]);
@@ -169,13 +195,19 @@ final class MigrationSqlTest extends TestCase
             'changed column' => new Schema([new Table('t', [new Column('id', 'integer'), new Column('qty', 'bigint')], ['id'])]),
             'not null column without default' => new Schema([new Table('t', [new Column('id', 'integer'), new Column('qty', 'integer'), new Column('x', 'integer')], ['id'])]),
             'primary key' => new Schema([new Table('t', [new Column('id', 'integer'), new Column('qty', 'integer')], ['id', 'qty'])]),
+            'foreign key' => new Schema([new Table('t', [new Column('id', 'integer'), new Column('qty', 'integer')], ['id'])->withForeignKeyTo(['qty'], 't', ['id'], name: 'fk_self')]),
         ] as $case => $to) {
-            try {
-                self::sql($platform, $from, $to);
-                self::fail(\sprintf('Expected InvalidSchemaException for %s.', $case));
-            } catch (InvalidSchemaException $e) {
-                self::assertStringContainsString('the table must be rebuilt', $e->getMessage(), $case);
-            }
+            self::assertStringStartsWith('CREATE TABLE "__prism_tmp_t"', self::sql($platform, $from, $to)[0], $case);
         }
+    }
+
+    public function testSqliteForeignKeyPragmas(): void
+    {
+        $platform = new SqlitePlatform('3.46');
+
+        self::assertSame('PRAGMA foreign_keys = OFF', $platform->getForeignKeysSql(false));
+        self::assertSame('PRAGMA foreign_keys = ON', $platform->getForeignKeysSql(true));
+        self::assertSame('PRAGMA foreign_keys', $platform->getForeignKeysStateSql());
+        self::assertSame('PRAGMA foreign_key_check', $platform->getForeignKeyCheckSql());
     }
 }
