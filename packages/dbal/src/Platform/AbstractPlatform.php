@@ -9,11 +9,14 @@ use Prism\Dbal\Exception\InvalidParameterException;
 use Prism\Dbal\Exception\InvalidSchemaException;
 use Prism\Dbal\Exception\UnsupportedPlatformException;
 use Prism\Dbal\Schema\Column;
+use Prism\Dbal\Schema\ColumnDiff;
 use Prism\Dbal\Schema\ForeignKey;
 use Prism\Dbal\Schema\Index;
 use Prism\Dbal\Schema\Schema;
+use Prism\Dbal\Schema\SchemaDiff;
 use Prism\Dbal\Schema\Sequence;
 use Prism\Dbal\Schema\Table;
+use Prism\Dbal\Schema\TableDiff;
 
 /**
  * Seul endroit où vit le SQL propre à un SGBD.
@@ -170,6 +173,126 @@ abstract class AbstractPlatform
         }
 
         return $sql;
+    }
+
+    /**
+     * SQL qui applique le diff, dans l'ordre RG-01.10 : suppression des clés étrangères, des index
+     * et des tables, création des tables, modification des colonnes, création des index puis des
+     * clés étrangères. Les séquences sont créées avant les tables et supprimées après.
+     *
+     * Sous MySQL et MariaDB, chaque DDL valide implicitement la transaction : un échec laisse la
+     * base à mi-chemin (RG-06.6). Préférer SchemaManager::migrate(), qui gère les transactions.
+     *
+     * @return list<string>
+     *
+     * @throws InvalidSchemaException opération impossible sur la plateforme
+     */
+    public function getMigrationSql(SchemaDiff $diff): array
+    {
+        $sql = [];
+
+        // 1. clés étrangères : celles retirées, et toutes celles des tables supprimées (références croisées)
+        if ($this->supportsAlterForeignKeys()) {
+            foreach ($diff->droppedTables as $table) {
+                foreach ($table->getForeignKeys() as $foreignKey) {
+                    $sql[] = $this->getDropForeignKeySql($table->name, $foreignKey->name);
+                }
+            }
+        }
+        foreach ($diff->alteredTables as $table) {
+            foreach ($table->droppedForeignKeys as $foreignKey) {
+                array_push($sql, ...$this->getDropForeignKeyStatements($table, $foreignKey));
+            }
+        }
+
+        // 2. index
+        foreach ($diff->alteredTables as $table) {
+            foreach ($table->droppedIndexes as $index) {
+                $sql[] = $this->getDropIndexSql($table->name, $index->name);
+            }
+        }
+
+        // 3. tables, puis séquences
+        foreach ($diff->droppedTables as $table) {
+            $sql[] = $this->getDropTableSql($table->name);
+        }
+        foreach ($diff->droppedSequences as $sequence) {
+            $sql[] = $this->getDropSequenceSql($sequence->name);
+        }
+
+        // 4. séquences, puis tables
+        foreach ($diff->createdSequences as $sequence) {
+            $sql[] = $this->getCreateSequenceSql($sequence);
+        }
+        foreach ($diff->alteredSequences as $sequence) {
+            $sql[] = $this->getAlterSequenceSql($sequence);
+        }
+        foreach ($diff->createdTables as $table) {
+            $sql[] = $this->getCreateTableSql($table);
+        }
+
+        // 5. colonnes et clé primaire
+        foreach ($diff->alteredTables as $table) {
+            array_push($sql, ...$this->getAlterColumnsSql($table));
+        }
+
+        // 6. index
+        foreach ($diff->createdTables as $table) {
+            foreach ($table->getIndexes() as $index) {
+                $sql[] = $this->getCreateIndexSql($table->name, $index);
+            }
+        }
+        foreach ($diff->alteredTables as $table) {
+            foreach ($table->addedIndexes as $index) {
+                $sql[] = $this->getCreateIndexSql($table->name, $index);
+            }
+        }
+
+        // 7. clés étrangères (SQLite : déclarées dans le CREATE TABLE)
+        if ($this->supportsAlterForeignKeys()) {
+            foreach ($diff->createdTables as $table) {
+                foreach ($table->getForeignKeys() as $foreignKey) {
+                    $sql[] = $this->getCreateForeignKeySql($table->name, $foreignKey);
+                }
+            }
+        }
+        foreach ($diff->alteredTables as $table) {
+            foreach ($table->addedForeignKeys as $foreignKey) {
+                $sql[] = $this->getCreateForeignKeySql($table->name, $foreignKey);
+            }
+        }
+
+        return $sql;
+    }
+
+    public function getAddColumnSql(Table $table, Column $column): string
+    {
+        return 'ALTER TABLE ' . $this->quoteIdentifier($table->name) . ' ADD COLUMN ' . $this->getColumnDeclarationSql($table, $column);
+    }
+
+    public function getDropColumnSql(string $table, string $column): string
+    {
+        return 'ALTER TABLE ' . $this->quoteIdentifier($table) . ' DROP COLUMN ' . $this->quoteIdentifier($column);
+    }
+
+    /**
+     * @param list<string> $columns
+     */
+    public function getAddPrimaryKeySql(string $table, array $columns): string
+    {
+        return 'ALTER TABLE ' . $this->quoteIdentifier($table) . ' ADD PRIMARY KEY (' . $this->quoteIdentifiers($columns) . ')';
+    }
+
+    /**
+     * @throws InvalidSchemaException plateforme sans séquences
+     */
+    public function getAlterSequenceSql(Sequence $sequence): string
+    {
+        if (!$this->supportsSequences()) {
+            throw InvalidSchemaException::unsupportedFeature($this->getName(), 'sequences');
+        }
+
+        return \sprintf('ALTER SEQUENCE %s INCREMENT BY %d', $this->quoteIdentifier($sequence->name), $sequence->increment);
     }
 
     /**
@@ -371,6 +494,55 @@ abstract class AbstractPlatform
     protected function getIdentifierQuoteCharacter(): string
     {
         return '"';
+    }
+
+    /**
+     * Étape 5 de RG-01.10 pour une table : clé primaire retirée, colonnes supprimées, ajoutées,
+     * modifiées, puis nouvelle clé primaire.
+     *
+     * @return list<string>
+     *
+     * @throws InvalidSchemaException
+     */
+    protected function getAlterColumnsSql(TableDiff $diff): array
+    {
+        $sql = [];
+        if ($diff->primaryKeyChanged() && null !== $diff->fromPrimaryKey) {
+            $sql[] = $this->getDropPrimaryKeySql($diff->from);
+        }
+        foreach ($diff->droppedColumns as $column) {
+            $sql[] = $this->getDropColumnSql($diff->name, $column->name);
+        }
+        foreach ($diff->addedColumns as $column) {
+            $sql[] = $this->getAddColumnSql($diff->to, $column);
+        }
+        foreach ($diff->changedColumns as $column) {
+            array_push($sql, ...$this->getChangeColumnSql($diff->to, $column));
+        }
+        if ($diff->primaryKeyChanged() && null !== $diff->toPrimaryKey) {
+            $sql[] = $this->getAddPrimaryKeySql($diff->name, $diff->toPrimaryKey);
+        }
+
+        return $sql;
+    }
+
+    /**
+     * @return list<string>
+     *
+     * @throws InvalidSchemaException
+     */
+    abstract protected function getChangeColumnSql(Table $table, ColumnDiff $diff): array;
+
+    abstract protected function getDropPrimaryKeySql(Table $table): string;
+
+    /**
+     * Suppression d'une clé étrangère d'une table conservée (MySQL y ajoute son index implicite).
+     *
+     * @return list<string>
+     */
+    protected function getDropForeignKeyStatements(TableDiff $table, ForeignKey $foreignKey): array
+    {
+        return [$this->getDropForeignKeySql($table->name, $foreignKey->name)];
     }
 
     /**
