@@ -58,6 +58,17 @@ final class PersistentCollection implements Collection
     }
 
     /**
+     * Chargée de l'extérieur, avec les collections de sa cohorte (batch fetching) ; sans effet
+     * si elle l'est déjà.
+     *
+     * @param array<TKey, T> $elements
+     */
+    public function initializeWith(array $elements): void
+    {
+        $this->elements ??= $elements;
+    }
+
+    /**
      * Revient à l'état non chargé (refresh d'une propriété readonly).
      */
     public function reset(): void
