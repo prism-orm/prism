@@ -71,6 +71,8 @@ use Psr\EventDispatcher\EventDispatcherInterface;
  * - collections (ADR 0007) : jamais remplacées ; une collection relue est une
  *   PersistentCollection chargée au premier accès ; au flush, la différence d'une ManyToMany
  *   propriétaire est écrite dans sa table pivot, après les entités et avant leurs DELETE ;
+ * - batch fetching (pilier 1) : une requête hydrate une cohorte ; une relation chargée pour un
+ *   membre l'est pour toute la cohorte, par lot (BatchLoader, RG-04.9 à RG-04.14) ;
  * - cascades : remove() suit cascade: remove et orphanRemoval (une collection non chargée est
  *   chargée), detach() suit cascade: detach sans rien charger ; au flush, un orphelin est
  *   supprimé (RG-04.5) et un côté inverse modifié seul publie InverseSideChangedEvent (RG-04.1).
@@ -143,6 +145,11 @@ final class UnitOfWork
 
     private readonly LifecycleDispatcher $lifecycle;
 
+    private readonly BatchLoader $batch;
+
+    /** @var array<class-string, array<string, array{array<string, mixed>, Cohort}>> lignes chargées par lot, en attente de leur ghost */
+    private array $prefetched = [];
+
     public function __construct(
         private readonly MetadataFactory $metadata,
         private readonly PersisterProvider $persisters,
@@ -150,7 +157,9 @@ final class UnitOfWork
         private readonly TypeRegistry $types,
         ?EventDispatcherInterface $events = null,
         ?EntityListenerResolver $listeners = null,
+        int $batchSize = 100,
     ) {
+        $this->batch = new BatchLoader($batchSize);
         $this->detached = new \WeakMap();
         $this->hydrator = new ObjectHydrator($conversion, $types);
         $this->lazy = new LazyFactory();
@@ -315,6 +324,8 @@ final class UnitOfWork
         $this->collectionSnapshots = [];
         $this->collectionInstances = [];
         $this->inverseSnapshots = [];
+        $this->prefetched = [];
+        $this->batch->clear();
         $this->insertions = [];
         $this->deletions = [];
         $this->persisted = [];
@@ -365,8 +376,14 @@ final class UnitOfWork
 
         $metadata = $this->metadata->getMetadataFor($class);
         $row = $this->persisters->getPersister($metadata)->loadById($this->toDatabase($metadata->getIdField(), $id));
+        if (null === $row) {
+            return null;
+        }
+        $cohort = new Cohort();
+        $entity = $this->register($metadata, $row, $cohort);
+        $this->completeCohort($metadata, $cohort->members());
 
-        return null === $row ? null : $this->register($metadata, $row);
+        return $entity;
     }
 
     /**
@@ -387,7 +404,12 @@ final class UnitOfWork
         $metadata = $this->metadata->getMetadataFor($class);
         $rows = $this->persisters->getPersister($metadata)->loadBy($this->criteria($metadata, $criteria), $orderBy, $limit, $offset);
 
-        return array_map(fn (array $row): object => $this->register($metadata, $row), $rows);
+        // RG-04.9 : une requête, une cohorte
+        $cohort = new Cohort();
+        $entities = array_map(fn (array $row): object => $this->register($metadata, $row, $cohort), $rows);
+        $this->completeCohort($metadata, $cohort->members());
+
+        return $entities;
     }
 
     /**
@@ -432,17 +454,26 @@ final class UnitOfWork
         $after = null;
         do {
             $rows = $persister->loadAfter($criteria, $after, $batchSize);
+            // RG-04.14 : une page, une cohorte
+            $cohort = new Cohort();
+            $page = [];
             $loaded = [];
             foreach ($rows as $row) {
                 $known = isset($this->identityMap[$class][self::key($this->toPhp($metadata->getIdField(), $row[$idColumn]))]);
-                $entity = $this->register($metadata, $row);
+                $entity = $this->register($metadata, $row, $cohort);
                 if (!$known) {
                     $loaded[] = $entity;
                 }
+                $page[] = $entity;
                 $after = $row[$idColumn];
+            }
+            $this->completeCohort($metadata, $cohort->members());
+            unset($cohort);
 
+            foreach ($page as $entity) {
                 yield $entity;
             }
+            $page = [];
             foreach ($loaded as $entity) {
                 if ($this->contains($entity)) {
                     $this->forget($entity, detach: true);
@@ -474,20 +505,8 @@ final class UnitOfWork
             return $this->identityMap[$class][$key];
         }
 
-        $ghost = $this->lazy->ghost($metadata, $id, function (object $ghost) use ($metadata, $idField, $id): void {
-            $row = $this->persisters->getPersister($metadata)->loadById($this->toDatabase($idField, $id));
-            if (null === $row) {
-                throw EntityNotFoundException::forId($metadata->className, $id);
-            }
-            $this->hydrator->refresh($ghost, $metadata, $row);
-            $this->hydrateRelations($metadata, $ghost, $row, refresh: true);
-            $this->hydrateCollections($metadata, $ghost, refresh: true);
-            // une référence détachée se charge encore, mais n'est plus suivie
-            $oid = spl_object_id($ghost);
-            if (($this->entities[$oid] ?? null) === $ghost) {
-                $this->snapshots[$oid] = $this->databaseRow($metadata, $ghost);
-            }
-            $this->postLoad($metadata, $ghost);
+        $ghost = $this->lazy->ghost($metadata, $id, function (object $ghost) use ($metadata, $key, $id): void {
+            $this->loadGhost($metadata, $ghost, $key, $id);
         });
         $this->track($ghost, EntityState::Managed);
         $this->identityMap[$class][$key] = $ghost;
@@ -520,6 +539,7 @@ final class UnitOfWork
         $this->hydrator->refresh($entity, $metadata, $row);
         $this->hydrateRelations($metadata, $entity, $row, refresh: true);
         $this->hydrateCollections($metadata, $entity, refresh: true);
+        $this->completeCohort($metadata, [$entity], refresh: true);
         $this->snapshots[$oid] = $this->databaseRow($metadata, $entity);
         $this->postLoad($metadata, $entity);
     }
@@ -1033,7 +1053,7 @@ final class UnitOfWork
      *
      * @return T
      */
-    private function register(ClassMetadata $metadata, array $row): object
+    private function register(ClassMetadata $metadata, array $row, ?Cohort $cohort = null): object
     {
         $idField = $metadata->getIdField();
         $key = self::key($this->toPhp($idField, $row[$idField->columnName] ?? null));
@@ -1049,6 +1069,9 @@ final class UnitOfWork
         $this->identityMap[$metadata->className][$key] = $entity;
         $this->keys[$oid] = $key;
         if ($this->hasRelations($metadata)) {
+            if (null !== $cohort) {
+                $this->batch->join($cohort, $entity);
+            }
             $this->hydrateRelations($metadata, $entity, $row, refresh: false);
             $this->hydrateCollections($metadata, $entity, refresh: false);
             $this->snapshots[$oid] = $this->snapshotOf($metadata, $entity, $values) + $this->foreignKeys($metadata, $entity);
@@ -1100,21 +1123,149 @@ final class UnitOfWork
                 continue;
             }
             $id = $row[(string) $association->joinColumn];
-            $property->setValue($entity, null === $id ? null : $this->getReference($target->className, $this->toPhp($target->getIdField(), $id)));
+            $reference = null === $id ? null : $this->getReference($target->className, $this->toPhp($target->getIdField(), $id));
+            $property->setValue($entity, $reference);
+            if (null !== $reference && $this->lazy->isUninitialized($reference)) {
+                $this->batch->referenced($reference, $entity, $association);
+            }
+        }
+    }
+
+    /**
+     * Charge un ghost (RG-04.7, RG-04.8). Sa ligne a pu être chargée avec celles de sa cohorte ;
+     * sinon, les autres ghosts de la même relation dans la cohorte d'origine sont chargés avec
+     * lui en une requête IN (RG-04.10), puis hydratés ensemble : ils forment une cohorte.
+     *
+     * @param ClassMetadata<object> $metadata
+     *
+     * @throws EntityNotFoundException
+     */
+    private function loadGhost(ClassMetadata $metadata, object $ghost, string $key, mixed $id): void
+    {
+        [$row, $cohort] = $this->prefetched[$metadata->className][$key] ?? [null, null];
+        unset($this->prefetched[$metadata->className][$key]);
+        $leader = null === $cohort;
+        $batch = [];
+
+        if (null === $row) {
+            $idField = $metadata->getIdField();
+            $batch = \array_slice($this->batch->targetsWith(
+                $ghost,
+                fn (object $member, AssociationMapping $association): mixed => $this->read($member, $member::class, $association->fieldName),
+                fn (object $other): bool => $other instanceof $metadata->className && $this->lazy->isUninitialized($other) && !isset($this->prefetched[$metadata->className][$this->keys[spl_object_id($other)] ?? '']),
+            ), 1);
+            $cohort = new Cohort();
+            if ([] === $batch) {
+                $row = $this->persisters->getPersister($metadata)->loadById($this->toDatabase($idField, $id));
+            } else {
+                $ids = [$id, ...array_map(fn (object $other): mixed => $this->property($metadata->className, $metadata->id->fieldName)->getValue($other), $batch)];
+                foreach ($this->persisters->getPersister($metadata)->loadBy([$idField->fieldName => $ids]) as $loaded) {
+                    $this->prefetched[$metadata->className][self::key($this->toPhp($idField, $loaded[$idField->columnName] ?? null))] = [$loaded, $cohort];
+                }
+                [$row] = $this->prefetched[$metadata->className][$key] ?? [null];
+                unset($this->prefetched[$metadata->className][$key]);
+            }
+        }
+        if (null === $row) {
+            throw EntityNotFoundException::forId($metadata->className, $id);
         }
 
+        $this->hydrator->refresh($ghost, $metadata, $row);
+        // une référence détachée se charge encore, mais n'est plus suivie
+        $oid = spl_object_id($ghost);
+        $tracked = ($this->entities[$oid] ?? null) === $ghost;
+        if ($tracked && $this->hasRelations($metadata)) {
+            $this->batch->join($cohort ?? new Cohort(), $ghost);
+        }
+        $this->hydrateRelations($metadata, $ghost, $row, refresh: true);
+        $this->hydrateCollections($metadata, $ghost, refresh: true);
+
+        if (!$leader) {
+            // hydraté avec son lot : celui qui l'a chargé complète la cohorte
+            $this->finishGhost($metadata, $ghost, $tracked);
+
+            return;
+        }
+        // les autres ghosts du lot, depuis leur ligne préchargée
+        foreach ($batch as $other) {
+            if ($this->lazy->isUninitialized($other) && isset($this->prefetched[$metadata->className][$this->keys[spl_object_id($other)] ?? ''])) {
+                $this->lazy->initialize($other);
+            }
+        }
+        $this->completeCohort($metadata, null === $cohort || [] === $batch ? [$ghost] : $cohort->members(), refresh: true);
+        $this->finishGhost($metadata, $ghost, $tracked);
+    }
+
+    /**
+     * @param ClassMetadata<object> $metadata
+     */
+    private function finishGhost(ClassMetadata $metadata, object $ghost, bool $tracked): void
+    {
+        if ($tracked) {
+            $this->snapshots[spl_object_id($ghost)] = $this->databaseRow($metadata, $ghost);
+        }
+        $this->postLoad($metadata, $ghost);
+    }
+
+    /**
+     * Fin d'hydratation d'une cohorte : le côté inverse de ses OneToOne en une requête IN par
+     * lot, puis ses relations Fetch::Eager, par lot.
+     *
+     * @param ClassMetadata<object> $metadata
+     * @param list<object>          $members
+     */
+    private function completeCohort(ClassMetadata $metadata, array $members, bool $refresh = false): void
+    {
+        if ([] === $members || !$this->hasRelations($metadata)) {
+            return;
+        }
         foreach ($metadata->getAssociations() as $association) {
-            if (!$association->isToOne() || $association->isOwningSide()) {
+            if ($association->isToOne() && !$association->isOwningSide()) {
+                $this->loadInverseToOne($metadata, $association, $members, $refresh);
+            }
+        }
+        foreach ($metadata->getAssociations() as $association) {
+            if (Fetch::Eager !== $association->fetch) {
                 continue;
             }
-            $property = $this->property($metadata->className, $association->fieldName);
-            if ($refresh && $property->isReadOnly() && $property->isInitialized($entity)) {
-                continue;
+            foreach ($members as $member) {
+                $value = $this->read($member, $metadata->className, $association->fieldName);
+                if ($value instanceof Collection) {
+                    $value->toArray();
+                } elseif (\is_object($value)) {
+                    $this->lazy->initialize($value);
+                }
             }
-            $value = $this->findBy($association->targetEntity, [(string) $association->mappedBy => $entity], [], 1)[0] ?? null;
-            $property->setValue($entity, $value);
+        }
+    }
+
+    /**
+     * Côté inverse d'un OneToOne pour des entités hydratées ensemble : une requête sur la FK du
+     * côté propriétaire, par lot. Au refresh, une relation readonly déjà écrite n'est pas touchée.
+     *
+     * @param ClassMetadata<object> $metadata
+     * @param list<object>          $members
+     */
+    private function loadInverseToOne(ClassMetadata $metadata, AssociationMapping $association, array $members, bool $refresh): void
+    {
+        $property = $this->property($metadata->className, $association->fieldName);
+        $members = array_values(array_filter($members, static fn (object $m): bool => !($refresh && $property->isReadOnly() && $property->isInitialized($m))));
+        $mappedBy = (string) $association->mappedBy;
+
+        $targets = [];
+        foreach (array_chunk($members, $association->batch ? max(1, $association->batchSize ?? $this->batch->batchSize) : 1) as $chunk) {
+            foreach ($this->findBy($association->targetEntity, [$mappedBy => $chunk]) as $target) {
+                $owner = $this->read($target, $target::class, $mappedBy);
+                if (\is_object($owner)) {
+                    $targets[spl_object_id($owner)] = $target;
+                }
+            }
+        }
+        foreach ($members as $member) {
+            $value = $targets[spl_object_id($member)] ?? null;
+            $property->setValue($member, $value);
             if ($association->orphanRemoval) {
-                $this->inverseSnapshots[spl_object_id($entity)][$association->fieldName] = $value;
+                $this->inverseSnapshots[spl_object_id($member)][$association->fieldName] = $value;
             }
         }
     }
@@ -1252,19 +1403,65 @@ final class UnitOfWork
     {
         $target = $this->metadata->getMetadataFor($association->targetEntity);
         $order = array_map(static fn (MappingOrder $o): Order => MappingOrder::Desc === $o ? Order::Desc : Order::Asc, $association->orderBy);
+        $field = $association->fieldName;
+        // RG-04.12 : la même collection des autres membres de la cohorte, en une requête
+        $owners = $this->batch->ownersWith($owner, $association, function (object $member) use ($metadata, $field): bool {
+            $collection = $this->read($member, $metadata->className, $field);
 
+            return $collection instanceof PersistentCollection && !$collection->isInitialized();
+        });
+
+        /** @var array<int, list<object>> éléments par propriétaire, dans l'ordre orderBy */
+        $groups = [];
         if (AssociationType::OneToMany === $association->type) {
-            $elements = $this->findBy($target->className, [(string) $association->mappedBy => $owner], $order);
+            $mappedBy = (string) $association->mappedBy;
+            foreach ($this->findBy($target->className, [$mappedBy => 1 === \count($owners) ? $owner : $owners], $order) as $element) {
+                $parent = $this->read($element, $target->className, $mappedBy);
+                if (\is_object($parent)) {
+                    $groups[spl_object_id($parent)][] = $element;
+                }
+            }
         } else {
             [$table, $ownerColumn, $targetColumn] = $this->joinTableOf($association);
-            $rows = $this->persisters->getPersister($target)->loadByJoinTable($table, $ownerColumn, $targetColumn, $this->currentId($metadata, $owner), $metadata->getIdField()->type, $order);
-            $elements = array_map(fn (array $row): object => $this->register($target, $row), $rows);
+            $byId = [];
+            foreach ($owners as $member) {
+                $byId[self::key($this->toPhp($metadata->getIdField(), $this->currentId($metadata, $member)))] = spl_object_id($member);
+            }
+            $cohort = new Cohort();
+            $rows = $this->persisters->getPersister($target)->loadByJoinTable($table, $ownerColumn, $targetColumn, array_map(fn (object $m): mixed => $this->currentId($metadata, $m), $owners), $metadata->getIdField()->type, $order);
+            foreach ($rows as [$ownerId, $row]) {
+                $groups[$byId[self::key($this->toPhp($metadata->getIdField(), $ownerId))] ?? 0][] = $this->register($target, $row, $cohort);
+            }
+            $this->completeCohort($target, $cohort->members());
         }
 
-        $oid = spl_object_id($owner);
-        if (($this->entities[$oid] ?? null) === $owner) {
-            $this->collectionSnapshots[$oid][$association->fieldName] = $elements;
+        foreach ($owners as $member) {
+            $elements = $groups[spl_object_id($member)] ?? [];
+            $oid = spl_object_id($member);
+            if (($this->entities[$oid] ?? null) === $member) {
+                $this->collectionSnapshots[$oid][$field] = $elements;
+            }
+            if ($member !== $owner) {
+                $collection = $this->read($member, $metadata->className, $field);
+                if ($collection instanceof PersistentCollection) {
+                    $collection->initializeWith($this->indexed($elements, $association, $target));
+                }
+            }
         }
+
+        return $this->indexed($groups[spl_object_id($owner)] ?? [], $association, $target);
+    }
+
+    /**
+     * Clés d'une collection : indexBy, ou une liste.
+     *
+     * @param list<object>          $elements
+     * @param ClassMetadata<object> $target
+     *
+     * @return array<array-key, object>
+     */
+    private function indexed(array $elements, AssociationMapping $association, ClassMetadata $target): array
+    {
         if (null === $association->indexBy) {
             return $elements;
         }
@@ -1681,7 +1878,8 @@ final class UnitOfWork
         if (isset($this->keys[$oid])) {
             unset($this->identityMap[$entity::class][$this->keys[$oid]]);
         }
-        unset($this->collectionSnapshots[$oid], $this->collectionInstances[$oid], $this->inverseSnapshots[$oid]);
+        unset($this->collectionSnapshots[$oid], $this->collectionInstances[$oid], $this->inverseSnapshots[$oid], $this->prefetched[$entity::class][$this->keys[$oid] ?? '']);
+        $this->batch->forget($entity);
         unset($this->keys[$oid], $this->states[$oid], $this->entities[$oid], $this->snapshots[$oid], $this->insertions[$oid], $this->deletions[$oid], $this->persisted[$oid]);
 
         if ($detach) {

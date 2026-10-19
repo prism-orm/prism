@@ -24,6 +24,9 @@ use Prism\Orm\Metadata\FieldMapping;
  */
 final class BasicEntityPersister implements EntityPersister
 {
+    // colonne du propriétaire dans le résultat d'une jointure sur une table pivot
+    private const string OWNER_ALIAS = 'prism_owner';
+
     private readonly string $idColumn;
 
     /** @var array<string, ParameterType> type de liaison par colonne */
@@ -157,18 +160,26 @@ final class BasicEntityPersister implements EntityPersister
         return false !== $this->whereKey($qb, $id, null)->lock($mode)->executeQuery()->fetchOne();
     }
 
-    public function loadByJoinTable(string $table, string $ownerColumn, string $targetColumn, mixed $ownerId, string $ownerType, array $orderBy = []): array
+    public function loadByJoinTable(string $table, string $ownerColumn, string $targetColumn, array $ownerIds, string $ownerType, array $orderBy = []): array
     {
         $qb = $this->connection->createQueryBuilder();
-        $qb = $qb->select(...array_map(static fn (string $column): string => $qb->column($column, 't'), array_keys($this->bindings)))
+        $owner = $this->connection->getPlatform()->quoteIdentifier(self::OWNER_ALIAS);
+        $qb = $qb->select($qb->column($ownerColumn, 'p') . ' AS ' . $owner, ...array_map(static fn (string $column): string => $qb->column($column, 't'), array_keys($this->bindings)))
             ->from($this->metadata->tableName, 't')
             ->join($table, 'p', $qb->column($targetColumn, 'p') . ' = ' . $qb->column($this->idColumn, 't'));
-        $qb = $qb->where($qb->expr()->eq($qb->column($ownerColumn, 'p'), $ownerId, $this->bindingOf($ownerType)));
+        $qb = $qb->where($qb->expr()->in($qb->column($ownerColumn, 'p'), $ownerIds, $this->bindingOf($ownerType)));
         foreach ($orderBy as $field => $order) {
             $qb = $qb->addOrderBy($qb->column($this->field($field)->columnName, 't'), $order);
         }
 
-        return $qb->executeQuery()->fetchAllAssociative();
+        $rows = [];
+        foreach ($qb->executeQuery()->fetchAllAssociative() as $row) {
+            $ownerId = $row[self::OWNER_ALIAS];
+            unset($row[self::OWNER_ALIAS]);
+            $rows[] = [$ownerId, $row];
+        }
+
+        return $rows;
     }
 
     public function countJoinTable(string $table, string $ownerColumn, mixed $ownerId, string $ownerType): int

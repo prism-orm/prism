@@ -19,7 +19,8 @@ use Psr\EventDispatcher\EventDispatcherInterface;
  * EntityManager d'une Connection : délègue le suivi à l'UnitOfWork et garde un repository par
  * entité. Sans MetadataFactory, les attributs sont relus sans cache ; sans dispatcher PSR-14,
  * seuls les callbacks et les listeners d'entité sont appelés (décision E) ; sans résolveur, un
- * listener d'entité est construit sans argument (DefaultEntityListenerResolver).
+ * listener d'entité est construit sans argument (DefaultEntityListenerResolver). $batchSize est
+ * la taille de lot du batch fetching par défaut (RG-04.11), qu'une relation peut changer.
  *
  * @api
  */
@@ -37,9 +38,10 @@ final class EntityManager implements EntityManagerInterface
         ?MetadataFactory $metadata = null,
         ?EventDispatcherInterface $events = null,
         ?EntityListenerResolver $listeners = null,
+        int $batchSize = 100,
     ) {
         $this->metadata = $metadata ?? new MetadataFactory(new AttributeDriver(), types: $connection->getTypeRegistry());
-        $this->unitOfWork = new UnitOfWork($this->metadata, new DbalPersisterProvider($connection, $this->metadata), $connection->getConversionContext(), $connection->getTypeRegistry(), $events, $listeners);
+        $this->unitOfWork = new UnitOfWork($this->metadata, new DbalPersisterProvider($connection, $this->metadata), $connection->getConversionContext(), $connection->getTypeRegistry(), $events, $listeners, $batchSize);
     }
 
     public function persist(object $entity): void

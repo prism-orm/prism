@@ -99,16 +99,24 @@ final class InMemoryPersister implements EntityPersister
         return isset($this->storage->tables[$this->table][(string) (\is_int($id) || \is_string($id) ? $id : '')]);
     }
 
-    public function loadByJoinTable(string $table, string $ownerColumn, string $targetColumn, mixed $ownerId, string $ownerType, array $orderBy = []): array
+    public function loadByJoinTable(string $table, string $ownerColumn, string $targetColumn, array $ownerIds, string $ownerType, array $orderBy = []): array
     {
         self::assertOrder($orderBy);
-        $ids = [];
+        $owners = array_map(self::scalar(...), $ownerIds);
+        $pairs = [];
         foreach ($this->storage->pivots[$table] ?? [] as $row) {
-            if (self::scalar($row[$ownerColumn]) === self::scalar($ownerId)) {
-                $ids[] = self::scalar($row[$targetColumn]);
+            if (\in_array(self::scalar($row[$ownerColumn]), $owners, true)) {
+                $pairs[] = [$row[$ownerColumn], self::scalar($row[$targetColumn])];
             }
         }
-        $rows = array_values(array_filter($this->storage->tables[$this->table] ?? [], fn (array $row): bool => \in_array(self::scalar($row[$this->idColumn]), $ids, true)));
+        $rows = [];
+        foreach ($pairs as [$owner, $target]) {
+            foreach ($this->storage->tables[$this->table] ?? [] as $row) {
+                if (self::scalar($row[$this->idColumn]) === $target) {
+                    $rows[] = ['prism_owner' => $owner] + $row;
+                }
+            }
+        }
         $sort = [] === $orderBy ? [$this->idColumn => Order::Asc] : [];
         foreach ($orderBy as $field => $order) {
             $sort[$this->column($field)] = $order;
@@ -125,7 +133,12 @@ final class InMemoryPersister implements EntityPersister
         });
         $this->storage->log[] = ['SELECT', $this->table, []];
 
-        return $rows;
+        return array_map(static function (array $row): array {
+            $owner = $row['prism_owner'];
+            unset($row['prism_owner']);
+
+            return [$owner, $row];
+        }, $rows);
     }
 
     public function countJoinTable(string $table, string $ownerColumn, mixed $ownerId, string $ownerType): int

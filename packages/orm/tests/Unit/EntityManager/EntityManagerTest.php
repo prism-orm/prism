@@ -53,4 +53,13 @@ final class EntityManagerTest extends TestCase
         $em->detach($document);
         self::assertFalse($em->contains($document));
     }
+
+    // RG-04.11 : taille de lot globale
+    public function testBatchSizeMustBePositive(): void
+    {
+        $this->expectException(\Prism\Orm\Exception\InvalidArgumentException::class);
+        $this->expectExceptionMessage('The batch size must be at least 1, got 0.');
+
+        new EntityManager(DriverManager::fromUrl('sqlite:///:memory:?serverVersion=3.46.0'), batchSize: 0);
+    }
 }

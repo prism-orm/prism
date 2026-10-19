@@ -83,13 +83,15 @@ interface EntityPersister
     public function lock(mixed $id, LockMode $mode): bool;
 
     /**
-     * Lignes de cette entité liées à $ownerId par la table pivot $table (une jointure).
+     * Lignes de cette entité liées aux propriétaires $ownerIds par la table pivot $table, en une
+     * jointure : chaque ligne avec l'identifiant de son propriétaire (valeur de la base).
      *
-     * @param array<string, Order> $orderBy champ de cette entité → sens
+     * @param non-empty-list<mixed> $ownerIds
+     * @param array<string, Order>  $orderBy  champ de cette entité → sens
      *
-     * @return list<array<string, mixed>>
+     * @return list<array{mixed, array<string, mixed>}>
      */
-    public function loadByJoinTable(string $table, string $ownerColumn, string $targetColumn, mixed $ownerId, string $ownerType, array $orderBy = []): array;
+    public function loadByJoinTable(string $table, string $ownerColumn, string $targetColumn, array $ownerIds, string $ownerType, array $orderBy = []): array;
 
     public function countJoinTable(string $table, string $ownerColumn, mixed $ownerId, string $ownerType): int;
 
