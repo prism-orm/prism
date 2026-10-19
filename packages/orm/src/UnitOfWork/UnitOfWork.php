@@ -6,7 +6,19 @@ namespace Prism\Orm\UnitOfWork;
 
 use Prism\Dbal\Type\ConversionContext;
 use Prism\Dbal\Type\TypeRegistry;
+use Prism\Orm\Event\PostPersistEvent;
+use Prism\Orm\Event\PostRemoveEvent;
+use Prism\Orm\Event\PostUpdateEvent;
+use Prism\Orm\Event\PrePersistEvent;
+use Prism\Orm\Event\PreRemoveEvent;
+use Prism\Orm\Event\PreUpdateEvent;
 use Prism\Orm\Exception\InvalidEntityStateException;
+use Prism\Orm\Exception\OptimisticLockException;
+use Prism\Orm\Exception\ReentrantFlushException;
+use Prism\Orm\Hydrator\ObjectHydrator;
+use Prism\Orm\Mapping\TrackingPolicy;
+use Prism\Orm\Metadata\ClassMetadata;
+use Prism\Orm\Metadata\FieldMapping;
 use Prism\Orm\Metadata\MetadataFactory;
 use Prism\Orm\Persister\PersisterProvider;
 use Psr\EventDispatcher\EventDispatcherInterface;
@@ -14,14 +26,50 @@ use Psr\EventDispatcher\EventDispatcherInterface;
 /**
  * Suit l'état des entités, détecte leurs changements et les écrit en une transaction.
  *
- * Phase 3, étape 1 : signature seule. Les scénarios de référence (tests/Unit/UnitOfWork)
- * décrivent le comportement attendu ; l'implémentation arrive à l'étape 5.
+ * Comportements fixés par les scénarios de référence (tests/Unit/UnitOfWork) :
+ * - une opération qui laisse l'entité dans son état est sans effet ; les autres transitions
+ *   absentes de RG-03.2 lèvent InvalidEntityStateException ;
+ * - PrePersist est publié pendant le flush, avant l'INSERT ; PreRemove par remove() ;
+ * - Post* est publié après le commit, jamais pendant la transaction ;
+ * - une entité supprimée par le flush, ou persistée puis retirée avant tout flush, redevient NEW.
+ *
+ * Les entités sont indexées par spl_object_id() ; clear() libère toutes les références (worker).
  *
  * @api
  */
 final class UnitOfWork
 {
-    // étape 1 : dépendances déclarées, lues par l'implémentation de l'étape 5
+    /** @var array<int, EntityState> */
+    private array $states = [];
+
+    /** @var array<int, object> références gardées tant que l'entité est suivie */
+    private array $entities = [];
+
+    /** @var array<int, array<string, mixed>> valeurs de la base au dernier chargement ou flush */
+    private array $snapshots = [];
+
+    /** @var array<class-string, array<string, object>> identity map (RG-03.3) */
+    private array $identityMap = [];
+
+    /** @var array<int, object> INSERT dans l'ordre de persist() */
+    private array $insertions = [];
+
+    /** @var array<int, object> DELETE, dans l'ordre de remove() */
+    private array $deletions = [];
+
+    /** @var array<int, true> entités passées à persist() depuis le dernier flush (RG-03.11) */
+    private array $persisted = [];
+
+    /** @var \WeakMap<object, true> distingue DETACHED de NEW sans retenir les objets */
+    private \WeakMap $detached;
+
+    /** @var array<class-string, array<string, FieldMapping>> colonne → champ */
+    private array $columns = [];
+
+    private bool $flushing = false;
+
+    private readonly ObjectHydrator $hydrator;
+
     public function __construct(
         private readonly MetadataFactory $metadata,
         private readonly PersisterProvider $persisters,
@@ -29,6 +77,8 @@ final class UnitOfWork
         private readonly TypeRegistry $types,
         private readonly ?EventDispatcherInterface $events = null,
     ) {
+        $this->detached = new \WeakMap();
+        $this->hydrator = new ObjectHydrator($conversion, $types);
     }
 
     /**
@@ -38,7 +88,24 @@ final class UnitOfWork
      */
     public function persist(object $entity): void
     {
-        throw self::notYet();
+        $oid = spl_object_id($entity);
+
+        switch ($this->getEntityState($entity)) {
+            case EntityState::New:
+                $this->track($entity, EntityState::Managed);
+                $this->insertions[$oid] = $entity;
+                break;
+            case EntityState::Removed:
+                $this->states[$oid] = EntityState::Managed;
+                unset($this->deletions[$oid]);
+                break;
+            case EntityState::Detached:
+                throw InvalidEntityStateException::transition($entity, EntityState::Detached, 'persist', 'a detached entity is no longer tracked; load it again with find().');
+            case EntityState::Managed:
+                break;
+        }
+
+        $this->persisted[$oid] = true;
     }
 
     /**
@@ -48,7 +115,26 @@ final class UnitOfWork
      */
     public function remove(object $entity): void
     {
-        throw self::notYet();
+        $oid = spl_object_id($entity);
+
+        switch ($this->getEntityState($entity)) {
+            case EntityState::New:
+                throw InvalidEntityStateException::transition($entity, EntityState::New, 'remove', 'it is not managed; persist it first.');
+            case EntityState::Detached:
+                throw InvalidEntityStateException::transition($entity, EntityState::Detached, 'remove', 'a detached entity is no longer tracked; load it again with find().');
+            case EntityState::Removed:
+                return;
+            case EntityState::Managed:
+                if (isset($this->insertions[$oid])) {
+                    // jamais écrite : rien à supprimer
+                    $this->forget($entity);
+
+                    return;
+                }
+                $this->events?->dispatch(new PreRemoveEvent($entity, $this));
+                $this->states[$oid] = EntityState::Removed;
+                $this->deletions[$oid] = $entity;
+        }
     }
 
     /**
@@ -58,7 +144,12 @@ final class UnitOfWork
      */
     public function detach(object $entity): void
     {
-        throw self::notYet();
+        match ($this->getEntityState($entity)) {
+            EntityState::New => throw InvalidEntityStateException::transition($entity, EntityState::New, 'detach', 'only managed entities can be detached.'),
+            EntityState::Removed => throw InvalidEntityStateException::transition($entity, EntityState::Removed, 'detach', 'persist it again to cancel the removal, or flush first.'),
+            EntityState::Managed => $this->forget($entity, detach: true),
+            EntityState::Detached => null,
+        };
     }
 
     /**
@@ -66,7 +157,17 @@ final class UnitOfWork
      */
     public function clear(): void
     {
-        throw self::notYet();
+        foreach ($this->entities as $entity) {
+            $this->detached[$entity] = true;
+        }
+
+        $this->states = [];
+        $this->entities = [];
+        $this->snapshots = [];
+        $this->identityMap = [];
+        $this->insertions = [];
+        $this->deletions = [];
+        $this->persisted = [];
     }
 
     /**
@@ -74,12 +175,12 @@ final class UnitOfWork
      */
     public function contains(object $entity): bool
     {
-        throw self::notYet();
+        return EntityState::Managed === $this->getEntityState($entity);
     }
 
     public function getEntityState(object $entity): EntityState
     {
-        throw self::notYet();
+        return $this->states[spl_object_id($entity)] ?? (isset($this->detached[$entity]) ? EntityState::Detached : EntityState::New);
     }
 
     /**
@@ -94,24 +195,393 @@ final class UnitOfWork
      */
     public function find(string $class, mixed $id): ?object
     {
-        throw self::notYet();
+        $key = self::key($id);
+        if (isset($this->identityMap[$class][$key])) {
+            /** @var T */
+            return $this->identityMap[$class][$key];
+        }
+
+        $metadata = $this->metadata->getMetadataFor($class);
+        $row = $this->persisters->getPersister($metadata)->loadById($this->toDatabase($metadata->getIdField(), $id));
+        if (null === $row) {
+            return null;
+        }
+
+        $entity = $this->hydrator->hydrate($metadata, $row);
+        $this->track($entity, EntityState::Managed);
+        $this->snapshots[spl_object_id($entity)] = $this->databaseRow($metadata, $entity);
+        $this->identityMap[$class][$key] = $entity;
+
+        return $entity;
     }
 
     /**
      * Écrit tout en une transaction (RG-03.6) : INSERT dans l'ordre de persist(), UPDATE des
      * seules colonnes modifiées, DELETE en ordre inverse. En cas d'échec, rollback et l'état
-     * d'avant le flush est rétabli, identifiants générés compris.
+     * d'avant le flush est rétabli, identifiants générés et versions compris.
      *
-     * Lève ReentrantFlushException depuis un listener (RG-03.7), OptimisticLockException sur
-     * une version périmée (RG-03.9).
+     * @throws ReentrantFlushException appelé depuis un listener (RG-03.7)
+     * @throws OptimisticLockException version périmée (RG-03.9)
      */
     public function commit(): void
     {
-        throw self::notYet();
+        if ($this->flushing) {
+            throw ReentrantFlushException::create();
+        }
+
+        $updates = $this->pendingUpdates();
+        if ([] === $this->insertions && [] === $this->deletions && [] === $updates) {
+            return;
+        }
+
+        $this->flushing = true;
+        /** @var list<array{object, \ReflectionProperty, mixed}> valeurs écrites sur les entités, à rétablir si rollback */
+        $written = [];
+
+        try {
+            $done = $this->persisters->transactional(function () use ($updates, &$written): array {
+                return [$this->executeInsertions($written), $this->executeUpdates($updates, $written), $this->executeDeletions()];
+            });
+        } catch (\Throwable $e) {
+            foreach (array_reverse($written) as [$entity, $property, $value]) {
+                $property->setValue($entity, $value);
+            }
+
+            throw $e;
+        } finally {
+            $this->flushing = false;
+        }
+
+        $this->afterCommit(...$done);
     }
 
-    private static function notYet(): \LogicException
+    /**
+     * @param list<array{object, \ReflectionProperty, mixed}> $written
+     *
+     * @return list<object>
+     */
+    private function executeInsertions(array &$written): array
     {
-        return new \LogicException('UnitOfWork is implemented in phase 3, step 5; see the reference scenarios in tests/Unit/UnitOfWork.');
+        $inserted = [];
+        foreach ($this->insertions as $entity) {
+            $this->events?->dispatch(new PrePersistEvent($entity, $this));
+            $metadata = $this->metadataOf($entity);
+            $idField = $metadata->getIdField();
+
+            if (null !== $generated = $this->persisters->nextId($metadata)) {
+                $this->write($entity, $idField->fieldName, $this->toPhp($idField, $generated), $written);
+            }
+
+            $row = array_filter($this->databaseRow($metadata, $entity), fn (string $column): bool => $this->field($metadata, $column)->insertable, \ARRAY_FILTER_USE_KEY);
+            $identity = $this->persisters->getPersister($metadata)->insert($row);
+            if (null !== $identity) {
+                $this->write($entity, $idField->fieldName, $this->toPhp($idField, $identity), $written);
+            }
+            $inserted[] = $entity;
+        }
+
+        return $inserted;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>>                $updates changements calculés avant la transaction
+     * @param list<array{object, \ReflectionProperty, mixed}> $written
+     *
+     * @return list<array{object, array<string, mixed>}> entité et colonnes écrites
+     */
+    private function executeUpdates(array $updates, array &$written): array
+    {
+        $updated = [];
+        foreach ($updates as $oid => $changes) {
+            $entity = $this->entities[$oid];
+            $metadata = $this->metadataOf($entity);
+
+            $this->events?->dispatch(new PreUpdateEvent($entity, $this->changeSet($metadata, $oid, $changes), $this));
+            // RG-03.8 : une modification faite dans PreUpdate est prise en compte
+            $changes = $this->changes($metadata, $entity);
+            if ([] === $changes) {
+                continue;
+            }
+
+            $version = null;
+            if (null !== $metadata->versionField) {
+                $field = $metadata->getField($metadata->versionField);
+                $old = $this->snapshots[$oid][$field->columnName];
+                $oldPhp = $this->toPhp($field, $old);
+                $this->write($entity, $field->fieldName, \is_int($oldPhp) ? $oldPhp + 1 : new \DateTimeImmutable(), $written);
+                $changes[$field->columnName] = $this->toDatabase($field, $this->property($metadata->className, $field->fieldName)->getValue($entity));
+                $version = [$field->columnName, $old];
+            }
+
+            $affected = $this->persisters->getPersister($metadata)->update($this->idOf($metadata, $oid), $changes, $version);
+            if (0 === $affected && null !== $version) {
+                throw OptimisticLockException::versionMismatch($entity, $this->toPhp($metadata->getField($metadata->versionField), $version[1]));
+            }
+            $updated[] = [$entity, $changes];
+        }
+
+        return $updated;
+    }
+
+    /**
+     * @return list<object>
+     */
+    private function executeDeletions(): array
+    {
+        $deleted = [];
+        foreach (array_reverse($this->deletions, true) as $oid => $entity) {
+            $metadata = $this->metadataOf($entity);
+            $version = null;
+            if (null !== $metadata->versionField) {
+                $column = $metadata->getField($metadata->versionField)->columnName;
+                $version = [$column, $this->snapshots[$oid][$column]];
+            }
+
+            $affected = $this->persisters->getPersister($metadata)->delete($this->idOf($metadata, $oid), $version);
+            if (0 === $affected && null !== $version) {
+                throw OptimisticLockException::versionMismatch($entity, $this->toPhp($metadata->getField($metadata->versionField), $version[1]));
+            }
+            $deleted[] = $entity;
+        }
+
+        return $deleted;
+    }
+
+    /**
+     * Rien n'a changé dans l'UnitOfWork pendant la transaction : tout est appliqué ici, une fois
+     * le commit acquis, puis les événements Post* sont publiés.
+     *
+     * @param list<object>                              $inserted
+     * @param list<array{object, array<string, mixed>}> $updated
+     * @param list<object>                              $deleted
+     */
+    private function afterCommit(array $inserted, array $updated, array $deleted): void
+    {
+        foreach ($inserted as $entity) {
+            $metadata = $this->metadataOf($entity);
+            $oid = spl_object_id($entity);
+            $this->snapshots[$oid] = $this->databaseRow($metadata, $entity);
+            $this->identityMap[$metadata->className][self::key($this->property($metadata->className, $metadata->id->fieldName)->getValue($entity))] = $entity;
+        }
+        foreach ($updated as [$entity, $changes]) {
+            $oid = spl_object_id($entity);
+            $this->snapshots[$oid] = $changes + $this->snapshots[$oid];
+        }
+        foreach ($deleted as $entity) {
+            $this->forget($entity);
+        }
+        $this->insertions = [];
+        $this->deletions = [];
+        $this->persisted = [];
+
+        foreach ($inserted as $entity) {
+            $this->events?->dispatch(new PostPersistEvent($entity, $this));
+        }
+        foreach ($updated as [$entity]) {
+            $this->events?->dispatch(new PostUpdateEvent($entity, $this));
+        }
+        foreach ($deleted as $entity) {
+            $this->events?->dispatch(new PostRemoveEvent($entity, $this));
+        }
+    }
+
+    /**
+     * Changements des entités gérées et déjà écrites (RG-03.4), selon leur politique de suivi
+     * (RG-03.11) ; une entité readOnly n'est jamais comparée.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    private function pendingUpdates(): array
+    {
+        $updates = [];
+        foreach ($this->entities as $oid => $entity) {
+            if (EntityState::Managed !== $this->states[$oid] || !isset($this->snapshots[$oid])) {
+                continue;
+            }
+            $metadata = $this->metadataOf($entity);
+            if ($metadata->readOnly || (TrackingPolicy::Explicit === $metadata->trackingPolicy && !isset($this->persisted[$oid]))) {
+                continue;
+            }
+            if ([] !== $changes = $this->changes($metadata, $entity)) {
+                $updates[$oid] = $changes;
+            }
+        }
+
+        return $updates;
+    }
+
+    /**
+     * Colonnes dont la valeur de la base diffère du snapshot (RG-03.5) : ni l'identifiant, ni la
+     * version, ni une propriété readonly (RG-02.6), ni une colonne updatable: false.
+     *
+     * @param ClassMetadata<object> $metadata
+     *
+     * @return array<string, mixed>
+     */
+    private function changes(ClassMetadata $metadata, object $entity): array
+    {
+        $snapshot = $this->snapshots[spl_object_id($entity)] ?? [];
+        $idColumn = $metadata->getIdField()->columnName;
+        $versionColumn = null === $metadata->versionField ? null : $metadata->getField($metadata->versionField)->columnName;
+        $topLevel = array_map(static fn (FieldMapping $f): string => $f->columnName, $metadata->getFields());
+
+        $changes = [];
+        foreach ($this->databaseRow($metadata, $entity) as $column => $value) {
+            $field = $this->field($metadata, $column);
+            $readonly = $field->readonly && \in_array($column, $topLevel, true);
+            if ($column === $idColumn || $column === $versionColumn || $readonly || !$field->updatable) {
+                continue;
+            }
+            if (!\array_key_exists($column, $snapshot) || $snapshot[$column] !== $value) {
+                $changes[$column] = $value;
+            }
+        }
+
+        return $changes;
+    }
+
+    /**
+     * Changeset de PreUpdate : champ → [ancienne valeur, nouvelle valeur], en valeurs PHP.
+     *
+     * @param ClassMetadata<object> $metadata
+     * @param array<string, mixed>  $changes
+     *
+     * @return array<string, array{mixed, mixed}>
+     */
+    private function changeSet(ClassMetadata $metadata, int $oid, array $changes): array
+    {
+        $set = [];
+        foreach ($changes as $column => $value) {
+            $field = $this->field($metadata, $column);
+            $set[$metadata->getFieldPathByColumn($column) ?? $column] = [
+                $metadata->toFieldValue($field, $this->toPhp($field, $this->snapshots[$oid][$column] ?? null)),
+                $metadata->toFieldValue($field, $this->toPhp($field, $value)),
+            ];
+        }
+
+        return $set;
+    }
+
+    /**
+     * Valeurs de la base des colonnes de l'entité ; un decimal est complété à l'échelle de sa
+     * colonne, pour que '12.5' et '12.50' ne soient pas vus comme un changement.
+     *
+     * @param ClassMetadata<object> $metadata
+     *
+     * @return array<string, mixed>
+     */
+    private function databaseRow(ClassMetadata $metadata, object $entity): array
+    {
+        $row = [];
+        foreach ($metadata->extractRow($entity) as $column => $value) {
+            $row[$column] = $this->toDatabase($this->field($metadata, $column), $value);
+        }
+
+        return $row;
+    }
+
+    private function toDatabase(FieldMapping $field, mixed $value): mixed
+    {
+        // les enums sont déjà ramenés à leur valeur par ClassMetadata::extractRow()
+        $value = $this->types->get($field->type)->toDatabase($value, $this->conversion);
+
+        return 'decimal' === $field->type && \is_string($value) ? self::normalizeDecimal($value, $field->scale ?? 0) : $value;
+    }
+
+    private function toPhp(FieldMapping $field, mixed $value): mixed
+    {
+        return $this->types->get($field->type)->toPhp($value, $this->conversion);
+    }
+
+    private static function normalizeDecimal(string $value, int $scale): string
+    {
+        if (1 !== preg_match('/^([+-]?\d+)(?:\.(\d*))?$/', $value, $m)) {
+            return $value;
+        }
+        $fraction = $m[2] ?? '';
+
+        return \strlen($fraction) >= $scale ? $value : $m[1] . '.' . str_pad($fraction, $scale, '0');
+    }
+
+    /**
+     * @param list<array{object, \ReflectionProperty, mixed}> $written
+     */
+    private function write(object $entity, string $field, mixed $value, array &$written): void
+    {
+        $property = $this->property($entity::class, $field);
+        $written[] = [$entity, $property, $property->isInitialized($entity) ? $property->getValue($entity) : null];
+        $property->setValue($entity, $value);
+    }
+
+    /**
+     * @param ClassMetadata<object> $metadata
+     */
+    private function idOf(ClassMetadata $metadata, int $oid): mixed
+    {
+        return $this->snapshots[$oid][$metadata->getIdField()->columnName] ?? null;
+    }
+
+    private function track(object $entity, EntityState $state): void
+    {
+        $oid = spl_object_id($entity);
+        $this->states[$oid] = $state;
+        $this->entities[$oid] = $entity;
+        unset($this->detached[$entity]);
+    }
+
+    private function forget(object $entity, bool $detach = false): void
+    {
+        $oid = spl_object_id($entity);
+        if (isset($this->snapshots[$oid])) {
+            $metadata = $this->metadataOf($entity);
+            unset($this->identityMap[$metadata->className][self::key($this->idOf($metadata, $oid))]);
+        }
+        unset($this->states[$oid], $this->entities[$oid], $this->snapshots[$oid], $this->insertions[$oid], $this->deletions[$oid], $this->persisted[$oid]);
+
+        if ($detach) {
+            $this->detached[$entity] = true;
+        }
+    }
+
+    /**
+     * @return ClassMetadata<object>
+     */
+    private function metadataOf(object $entity): ClassMetadata
+    {
+        return $this->metadata->getMetadataFor($entity::class);
+    }
+
+    /**
+     * @param ClassMetadata<object> $metadata
+     */
+    private function field(ClassMetadata $metadata, string $column): FieldMapping
+    {
+        if (!isset($this->columns[$metadata->className])) {
+            $columns = [];
+            foreach ($metadata->getFields() as $field) {
+                $columns[$field->columnName] = $field;
+            }
+            foreach ($metadata->getEmbedded() as $embedded) {
+                foreach ($embedded->getFields() as $field) {
+                    $columns[$field->columnName] = $field;
+                }
+            }
+            $this->columns[$metadata->className] = $columns;
+        }
+
+        return $this->columns[$metadata->className][$column];
+    }
+
+    /**
+     * @param class-string $class
+     */
+    private function property(string $class, string $field): \ReflectionProperty
+    {
+        return new \ReflectionProperty($class, $field);
+    }
+
+    private static function key(mixed $id): string
+    {
+        return \is_int($id) || \is_string($id) ? (string) $id : '';
     }
 }

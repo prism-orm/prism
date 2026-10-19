@@ -39,6 +39,17 @@ final class InMemoryStorage implements PersisterProvider
         return new InMemoryPersister($this, $metadata->tableName, $metadata->getIdField()->columnName, GenerationStrategy::Identity === $metadata->id->strategy);
     }
 
+    // SEQUENCE : identifiant connu avant l'INSERT, compteur rétabli par le rollback
+    public function nextId(ClassMetadata $metadata): ?int
+    {
+        if (GenerationStrategy::Sequence !== $metadata->id->strategy) {
+            return null;
+        }
+        $name = $metadata->tableName . '_seq';
+
+        return $this->sequences[$name] = ($this->sequences[$name] ?? 100) + 1;
+    }
+
     public function transactional(\Closure $operations): mixed
     {
         $tables = $this->tables;
