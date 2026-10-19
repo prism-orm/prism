@@ -272,6 +272,46 @@ abstract class AbstractPlatform
     }
 
     /**
+     * Forme d'une colonne telle que la plateforme la conserve : ce que l'introspection relira.
+     * Le Comparator compare des colonnes canoniques (RG-01.8).
+     */
+    public function getCanonicalColumn(Column $column): Column
+    {
+        return 'string' === $column->type && null === $column->length ? $column->withType('string', 255) : $column;
+    }
+
+    public function getCanonicalTable(Table $table): Table
+    {
+        foreach ($table->getColumns() as $column) {
+            $table = $table->withColumn($this->getCanonicalColumn($column));
+        }
+
+        return $table;
+    }
+
+    /**
+     * Requête des tables de la base courante (colonne « name »), sans tables système.
+     *
+     * @internal utilisé par le SchemaManager de la plateforme
+     */
+    abstract public function getListTablesSql(): string;
+
+    /**
+     * @internal un paramètre lié : le nom de la table
+     */
+    abstract public function getListColumnsSql(): string;
+
+    /**
+     * @internal un paramètre lié : le nom de la table
+     */
+    abstract public function getListIndexesSql(): string;
+
+    /**
+     * @internal un paramètre lié : le nom de la table
+     */
+    abstract public function getListForeignKeysSql(): string;
+
+    /**
      * @throws InvalidSchemaException plateforme sans séquences (MySQL, SQLite)
      */
     public function getCreateSequenceSql(Sequence $sequence): string

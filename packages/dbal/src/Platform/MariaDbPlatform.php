@@ -19,6 +19,34 @@ final class MariaDbPlatform extends AbstractMySqlPlatform
         return true;
     }
 
+    /**
+     * MariaDB stocke JSON en LONGTEXT + CHECK (json_valid(col)) : la contrainte distingue json de text.
+     *
+     * @internal un paramètre lié : le nom de la table
+     */
+    public function getListCheckConstraintsSql(): string
+    {
+        return 'SELECT CONSTRAINT_NAME AS name, CHECK_CLAUSE AS clause FROM information_schema.CHECK_CONSTRAINTS WHERE CONSTRAINT_SCHEMA = DATABASE() AND TABLE_NAME = ?';
+    }
+
+    /**
+     * @internal
+     */
+    public function getListSequencesSql(): string
+    {
+        return "SELECT TABLE_NAME AS name FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_TYPE = 'SEQUENCE' ORDER BY TABLE_NAME";
+    }
+
+    /**
+     * Une séquence MariaDB se lit comme une table d'une ligne.
+     *
+     * @internal
+     */
+    public function getSequenceDefinitionSql(string $sequence): string
+    {
+        return 'SELECT start_value, increment FROM ' . $this->quoteIdentifier($sequence);
+    }
+
     // type natif depuis MariaDB 10.7 : 16 octets, rendu sous forme canonique
     protected function getUuidDeclarationSql(): string
     {

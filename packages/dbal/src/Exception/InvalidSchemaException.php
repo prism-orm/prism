@@ -66,6 +66,11 @@ final class InvalidSchemaException extends \InvalidArgumentException implements 
         return new self(\sprintf('%s cannot declare column "%s.%s" of type "%s": the type has no column declaration on this platform.', $platform, $table, $column, $type));
     }
 
+    public static function unsupportedDatabaseType(string $platform, string $table, string $column, string $declaration): self
+    {
+        return new self(\sprintf('Cannot introspect column "%s.%s": the %s type "%s" has no Prism type. Register a custom Type or change the column.', $table, $column, $platform, $declaration));
+    }
+
     public static function unsupportedFeature(string $platform, string $feature): self
     {
         return new self(\sprintf('%s does not support %s.', $platform, $feature));

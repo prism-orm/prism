@@ -15,6 +15,7 @@ use Prism\Dbal\Exception\UnsupportedPlatformException;
 use Prism\Dbal\Platform\AbstractPlatform;
 use Prism\Dbal\Platform\PlatformResolver;
 use Prism\Dbal\Query\QueryBuilder;
+use Prism\Dbal\Schema\SchemaManager;
 use Prism\Dbal\Type\ConversionContext;
 use Prism\Dbal\Type\TypeRegistry;
 use Psr\Log\LoggerInterface;
@@ -310,6 +311,11 @@ final class Connection
     public function createQueryBuilder(): QueryBuilder
     {
         return new QueryBuilder($this);
+    }
+
+    public function createSchemaManager(): SchemaManager
+    {
+        return new SchemaManager($this);
     }
 
     public function getTypeRegistry(): TypeRegistry
