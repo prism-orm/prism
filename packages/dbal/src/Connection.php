@@ -308,6 +308,27 @@ final class Connection
         }
     }
 
+    /**
+     * Identifiant produit par le dernier INSERT d'une colonne IDENTITY / AUTO_INCREMENT de cette
+     * connexion (PostgreSQL : lastval()).
+     *
+     * @throws QueryFailedException aucun identifiant généré dans la session (PostgreSQL)
+     */
+    public function lastInsertId(): string
+    {
+        $pdo = $this->pdo();
+
+        try {
+            $id = $pdo->lastInsertId();
+        } catch (\PDOException $e) {
+            $this->failed('lastInsertId()', $e, []);
+
+            throw QueryFailedException::fromPdo($e, 'lastInsertId()');
+        }
+
+        return false === $id ? '' : $id;
+    }
+
     public function createQueryBuilder(): QueryBuilder
     {
         return new QueryBuilder($this);
