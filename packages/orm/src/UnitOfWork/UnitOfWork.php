@@ -813,15 +813,40 @@ final class UnitOfWork
             return $this->identityMap[$metadata->className][$key];
         }
 
-        $entity = $this->hydrator->hydrate($metadata, $row);
+        $values = $this->hydrator->toPhpRow($metadata, $row);
+        $entity = $this->hydrator->fromPhpRow($metadata, $values);
         $oid = spl_object_id($entity);
         $this->track($entity, EntityState::Managed);
-        $this->snapshots[$oid] = $this->databaseRow($metadata, $entity);
+        $this->snapshots[$oid] = $this->snapshotOf($metadata, $entity, $values);
         $this->identityMap[$metadata->className][$key] = $entity;
         $this->keys[$oid] = $key;
         $this->postLoad($metadata, $entity);
 
         return $entity;
+    }
+
+    /**
+     * Snapshot d'une entité qu'on vient d'hydrater : ses valeurs PHP par colonne sont celles que
+     * databaseRow() relirait, sans relire les propriétés. Une ligne incomplète (colonne absente,
+     * propriété laissée à sa valeur par défaut) passe par databaseRow().
+     *
+     * @param ClassMetadata<object> $metadata
+     * @param array<string, mixed>  $values   valeurs PHP, par colonne
+     *
+     * @return array<string, mixed>
+     */
+    private function snapshotOf(ClassMetadata $metadata, object $entity, array $values): array
+    {
+        if (\count($values) !== \count($metadata->getColumnTypes())) {
+            return $this->databaseRow($metadata, $entity);
+        }
+
+        $snapshot = [];
+        foreach ($values as $column => $value) {
+            $snapshot[$column] = $this->toDatabase($this->field($metadata, $column), $value);
+        }
+
+        return $snapshot;
     }
 
     /**

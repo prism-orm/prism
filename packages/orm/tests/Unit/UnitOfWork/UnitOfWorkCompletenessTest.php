@@ -223,4 +223,21 @@ final class UnitOfWorkCompletenessTest extends TestCase
 
         self::assertSame([['ticket', ['contact_email']]], $this->storage->operations('UPDATE'));
     }
+
+    // étape 8 : le snapshot est calculé depuis la ligne hydratée ; une ligne incomplète laisse
+    // la propriété à sa valeur par défaut, relue telle quelle
+    public function testIncompleteRowGivesNoSpuriousUpdate(): void
+    {
+        $uow = $this->uow();
+        $this->storage->seed('document', 'id', ['id' => 1, 'version' => 1]);
+        $document = $uow->find(Document::class, 1);
+        self::assertNotNull($document);
+
+        $uow->commit();
+        self::assertSame([], $this->storage->operations('UPDATE'));
+
+        $document->title = 'Now set';
+        $uow->commit();
+        self::assertSame([['document', ['title', 'version']]], $this->storage->operations('UPDATE'));
+    }
 }
