@@ -14,7 +14,12 @@ return new PhpCsFixer\Config()
         '@Symfony:risky' => true,
         '@PHP84Migration' => true,
         'declare_strict_types' => true,
-        'final_class' => true,
+        // final_class, sauf une classe marquée @extensible (ADR 0006)
+        'final_internal_class' => [
+            'include' => [],
+            'exclude' => ['final', 'Entity', 'ORM\\Entity', 'ORM\\Mapping\\Entity', 'Mapping\\Entity', 'Document', 'ODM\\Document', 'extensible'],
+            'consider_absent_docblock_as_internal_class' => true,
+        ],
         'concat_space' => ['spacing' => 'one'],
         'native_function_invocation' => ['include' => ['@compiler_optimized'], 'scope' => 'namespaced'],
         'ordered_imports' => ['imports_order' => ['class', 'function', 'const']],

@@ -8,6 +8,7 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Prism\Dbal\DriverManager;
 use Prism\Dbal\Exception\InvalidQueryException;
+use Prism\Dbal\LockMode;
 use Prism\Dbal\ParameterType;
 use Prism\Dbal\Query\Order;
 use Prism\Dbal\Query\QueryBuilder;
@@ -208,5 +209,23 @@ final class QueryBuilderTest extends TestCase
         $this->expectExceptionMessage($message);
 
         $build(self::qb());
+    }
+
+    public function testLockIsAppendedAfterTheLimit(): void
+    {
+        $qb = self::qb()->from('invoice')->where('id = :id', ['id' => 1])->limit(1);
+
+        self::assertSame('SELECT * FROM "invoice" WHERE id = :id LIMIT 1 FOR UPDATE', $qb->lock(LockMode::PessimisticWrite)->toSql());
+        self::assertSame('SELECT * FROM `invoice` WHERE id = :id LOCK IN SHARE MODE', self::qb('mariadb://u@db/erp?serverVersion=11.8')->from('invoice')->where('id = :id', ['id' => 1])->lock(LockMode::PessimisticRead)->toSql());
+        self::assertSame('SELECT * FROM "invoice" WHERE id = :id LIMIT 1', $qb->lock(LockMode::PessimisticWrite)->lock(null)->toSql(), 'null removes the lock');
+        self::assertSame('SELECT * FROM "invoice" WHERE id = :id LIMIT 1', $qb->toSql(), 'the base query is left untouched');
+    }
+
+    public function testLockIsRefusedOnWrites(): void
+    {
+        $this->expectException(InvalidQueryException::class);
+        $this->expectExceptionMessage('LOCK is not supported in UPDATE queries.');
+
+        self::qb()->update('invoice')->set('total', 1)->lock(LockMode::PessimisticWrite)->toSql();
     }
 }

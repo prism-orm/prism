@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Prism\Dbal\Platform;
 
 use Prism\Dbal\Exception\InvalidSchemaException;
+use Prism\Dbal\LockMode;
 use Prism\Dbal\Schema\Column;
 use Prism\Dbal\Schema\ColumnDiff;
 use Prism\Dbal\Schema\ForeignKey;
@@ -33,6 +34,12 @@ final class SqlitePlatform extends AbstractPlatform
     public function getDecimalMaxSignificantDigits(): int
     {
         return 15;
+    }
+
+    // aucun verrou de ligne : une transaction en écriture verrouille toute la base (décision C)
+    public function getLockSql(LockMode $mode): string
+    {
+        return '';
     }
 
     // SQLite : LIMIT -1 signifie « sans limite »

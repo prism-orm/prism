@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Prism\Orm\Persister;
 
 use Prism\Dbal\Connection;
+use Prism\Dbal\LockMode;
 use Prism\Dbal\ParameterType;
 use Prism\Dbal\Query\Order;
 use Prism\Dbal\Query\QueryBuilder;
@@ -119,6 +120,25 @@ final class BasicEntityPersister implements EntityPersister
         $count = $this->where($qb, $criteria)->executeQuery()->fetchOne();
 
         return is_numeric($count) ? (int) $count : 0;
+    }
+
+    public function loadAfter(array $criteria, mixed $afterId, int $limit): array
+    {
+        $qb = $this->where($this->select(), $criteria);
+        $id = $qb->column($this->idColumn);
+        if (null !== $afterId) {
+            $qb = $qb->andWhere($qb->expr()->gt($id, $afterId, $this->bindings[$this->idColumn]));
+        }
+
+        return $qb->orderBy($id)->limit($limit)->executeQuery()->fetchAllAssociative();
+    }
+
+    public function lock(mixed $id, LockMode $mode): bool
+    {
+        $qb = $this->connection->createQueryBuilder();
+        $qb = $qb->select($qb->column($this->idColumn))->from($this->metadata->tableName);
+
+        return false !== $this->whereKey($qb, $id, null)->lock($mode)->executeQuery()->fetchOne();
     }
 
     private function select(): QueryBuilder

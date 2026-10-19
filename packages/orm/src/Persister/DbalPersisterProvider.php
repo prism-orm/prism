@@ -38,6 +38,11 @@ final class DbalPersisterProvider implements PersisterProvider
         return null === $generator || $generator->isPostInsert() ? null : $generator->generate($this->connection);
     }
 
+    public function isTransactionActive(): bool
+    {
+        return $this->connection->isTransactionActive();
+    }
+
     public function transactional(\Closure $operations): mixed
     {
         return $this->connection->transactional(static fn (): mixed => $operations());
