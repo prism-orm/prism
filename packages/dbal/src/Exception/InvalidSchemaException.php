@@ -61,6 +61,11 @@ final class InvalidSchemaException extends \InvalidArgumentException implements 
         return new self(\sprintf('The schema has no table "%s".', $table));
     }
 
+    public static function unknownForeignTable(string $table, string $foreignKey, string $foreignTable): self
+    {
+        return new self(\sprintf('Foreign key "%s" of table "%s" references table "%s", which is not in the target schema.', $foreignKey, $table, $foreignTable));
+    }
+
     public static function unsupportedType(string $platform, string $table, string $column, string $type): self
     {
         return new self(\sprintf('%s cannot declare column "%s.%s" of type "%s": the type has no column declaration on this platform.', $platform, $table, $column, $type));
