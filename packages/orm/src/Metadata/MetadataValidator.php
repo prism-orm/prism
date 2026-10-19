@@ -7,6 +7,7 @@ namespace Prism\Orm\Metadata;
 use Prism\Dbal\Type\TypeRegistry;
 use Prism\Orm\Collection\Collection;
 use Prism\Orm\Exception\MappingException;
+use Prism\Orm\Mapping\Cascade;
 use Prism\Orm\Mapping\Entity;
 use Prism\Orm\Mapping\GenerationStrategy;
 use Prism\Orm\Mapping\LifecycleEvent;
@@ -78,7 +79,8 @@ final class MetadataValidator
      */
     public function assertValid(array $metadata): void
     {
-        $errors = $this->validate($metadata);
+        // les avertissements ne bloquent pas
+        $errors = array_values(array_filter($this->validate($metadata), static fn (MappingError $e): bool => MappingSeverity::Error === $e->severity));
         if ([] !== $errors) {
             throw MappingException::invalidMapping($errors);
         }
@@ -261,6 +263,7 @@ final class MetadataValidator
             }
 
             $this->validateOtherSide($class, $association, $target);
+            $this->validateRemovalPolicy($class, $association, $target);
         }
     }
 
@@ -468,5 +471,36 @@ final class MetadataValidator
     private function error(string $class, ?string $field, string $message): void
     {
         $this->errors[] = new MappingError($class, $field, $message);
+    }
+
+    /**
+     * @param class-string $class
+     */
+    private function warning(string $class, string $field, string $message): void
+    {
+        $this->errors[] = new MappingError($class, $field, $message, MappingSeverity::Warning);
+    }
+
+    /**
+     * RG-04.6 : la suppression des enfants d'un OneToMany réglée deux fois, ou de deux façons
+     * contraires, par l'ORM (cascade: remove, orphanRemoval) et par la base (onDelete).
+     *
+     * @param ClassMetadata<object> $class
+     * @param ClassMetadata<object> $target
+     */
+    private function validateRemovalPolicy(ClassMetadata $class, AssociationMapping $association, ClassMetadata $target): void
+    {
+        if (AssociationType::OneToMany !== $association->type || !$target->hasAssociation((string) $association->mappedBy)) {
+            return;
+        }
+        $owning = $target->getAssociation((string) $association->mappedBy);
+        $other = $target->className . '::$' . $owning->fieldName;
+
+        if (OnDelete::Cascade === $owning->onDelete && ($association->orphanRemoval || \in_array(Cascade::Remove, $association->cascade, true))) {
+            $this->warning($class->className, $association->fieldName, \sprintf('cascade: remove repeats onDelete: CASCADE of %s: the database already deletes these rows, without events. Keep one of them (RG-04.6).', $other));
+        }
+        if (OnDelete::SetNull === $owning->onDelete && $association->orphanRemoval) {
+            $this->warning($class->className, $association->fieldName, \sprintf('orphanRemoval contradicts onDelete: SET NULL of %s: the ORM deletes the rows the database would keep. Keep one of them (RG-04.6).', $other));
+        }
     }
 }
