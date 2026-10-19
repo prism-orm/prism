@@ -11,7 +11,9 @@ use Prism\Orm\Exception\EntityNotFoundException;
 use Prism\Orm\Exception\OptimisticLockException;
 use Prism\Orm\Exception\TransactionRequiredException;
 use Prism\Orm\Tests\Functional\PersisterFixtures\Label;
+use Prism\Orm\Tests\Support\TestDispatcher;
 use Prism\Orm\Tests\Unit\UnitOfWork\Fixtures\Document;
+use Prism\Orm\Tests\Unit\UnitOfWork\Fixtures\Journal;
 
 /**
  * CRUD complet par l'EntityManager, sur les 4 bases.
@@ -22,7 +24,7 @@ final class EntityManagerTest extends MappingSchemaTestCase
 
     protected static function entities(): array
     {
-        return [Document::class, Label::class];
+        return [Document::class, Label::class, Journal::class];
     }
 
     protected function setUp(): void
@@ -201,5 +203,23 @@ final class EntityManagerTest extends MappingSchemaTestCase
         $this->em->lock($document, LockMode::Optimistic, 1);
         $this->expectException(OptimisticLockException::class);
         $this->em->lock($document, LockMode::Optimistic, 2);
+    }
+
+    // étape 7 : dispatcher, callbacks et listener d'entité branchés par l'EntityManager
+    public function testEventsCallbacksAndEntityListenersOnARealDatabase(): void
+    {
+        Journal::$log = [];
+        $events = new TestDispatcher();
+        $em = new EntityManager($this->connection, events: $events);
+        $journal = new Journal();
+        $journal->title = 'Real';
+
+        $em->persist($journal);
+        $em->flush();
+        $em->clear();
+        self::assertSame('Real', $em->find(Journal::class, $journal->id)?->title);
+
+        self::assertSame(['callback:PrePersist', 'callback:touch', 'listener:PrePersist', 'callback:PostPersist', 'listener:PostPersist', 'callback:PostLoad', 'listener:PostLoad'], Journal::$log);
+        self::assertSame(['PreFlush', 'OnFlush', 'PrePersist', 'PostPersist', 'PostFlush', 'OnClear', 'PostLoad'], array_map(Journal::short(...), $events->dispatched));
     }
 }

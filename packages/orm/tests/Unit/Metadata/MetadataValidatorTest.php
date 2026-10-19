@@ -30,6 +30,10 @@ use Prism\Orm\Tests\Unit\Mapping\Fixtures\FixtureStatus;
 use Prism\Orm\Tests\Unit\Mapping\Fixtures\Invoice;
 use Prism\Orm\Tests\Unit\Mapping\Fixtures\InvoiceLine;
 use Prism\Orm\Tests\Unit\Mapping\Fixtures\Tag;
+use Prism\Orm\Tests\Unit\Metadata\Fixtures\Callbacks\CallbackEntity;
+use Prism\Orm\Tests\Unit\Metadata\Fixtures\Callbacks\CheckedListener;
+use Prism\Orm\Tests\Unit\Metadata\Fixtures\Callbacks\EmptyListener;
+use Prism\Orm\Tests\Unit\Metadata\Fixtures\Callbacks\ListenedEntity;
 
 /**
  * Cas du validateur, chacun avec son message exact. Avec les 20 erreurs du driver, ils forment
@@ -92,6 +96,7 @@ final class MetadataValidatorTest extends TestCase
      */
     public static function cases(): iterable
     {
+        require_once __DIR__ . '/Fixtures/CallbackClasses.php';
         $client = static fn (): ClassMetadata => self::meta(Client::class, 'client');
         $tag = static fn (): ClassMetadata => self::meta(Tag::class, 'tag');
 
@@ -221,6 +226,37 @@ final class MetadataValidatorTest extends TestCase
         yield '24 index on an unknown field' => [
             static fn (): array => [self::meta(Invoice::class, 'invoice', [new FieldMapping('number', 'number', 'string')], [self::toOne(Invoice::class, 'client', Client::class)], [], [new IndexMapping(['client', 'number']), new IndexMapping(['missing'], true)]), $client()],
             [Invoice::class . ': #[UniqueConstraint] on "missing": "missing" is not a mapped field or an owning to-one relation.'],
+        ];
+
+        // callbacks et listeners d'entité (étape 7 de la phase 3)
+        yield '25 lifecycle callback signatures' => [
+            static fn (): array => [new ClassMetadata(CallbackEntity::class, 'callback_entity', new IdMapping('id'), [new FieldMapping('id', 'id', 'integer')], lifecycleCallbacks: [
+                'prePersist' => ['noArgument', 'anyObject', 'union', 'tooMany', 'shared', 'hidden'],
+                'postLoad' => ['wrongType'],
+            ])],
+            [
+                CallbackEntity::class . ': lifecycle callback tooMany() takes at most one argument: the event.',
+                CallbackEntity::class . ': lifecycle callback shared() must be a public, non-static method.',
+                CallbackEntity::class . ': lifecycle callback hidden() must be a public, non-static method.',
+                CallbackEntity::class . ': lifecycle callback wrongType(): parameter $event must accept Prism\\Orm\\Event\\PostLoadEvent, which #[PostLoad] passes.',
+            ],
+        ];
+        // une interface n'est pas une classe instanciable
+        $missing = \Countable::class;
+        yield '26 entity listener signatures' => [
+            static fn (): array => [new ClassMetadata(ListenedEntity::class, 'listened_entity', new IdMapping('id'), [new FieldMapping('id', 'id', 'integer')], entityListeners: [$missing, EmptyListener::class, CheckedListener::class], entityListenerCallbacks: [
+                $missing => [],
+                EmptyListener::class => [],
+                CheckedListener::class => ['prePersist' => ['valid', 'wrongEntity', 'wrongEvent', 'tooMany', 'hidden'], 'postLoad' => ['load']],
+            ])],
+            [
+                ListenedEntity::class . ': entity listener Countable does not exist or is not a class.',
+                ListenedEntity::class . ': entity listener ' . EmptyListener::class . ' has no method with a lifecycle attribute (#[PrePersist], #[PostLoad]…).',
+                ListenedEntity::class . ': entity listener method ' . CheckedListener::class . '::wrongEntity(): parameter $entity must accept ' . ListenedEntity::class . ', which #[PrePersist] passes.',
+                ListenedEntity::class . ': entity listener method ' . CheckedListener::class . '::wrongEvent(): parameter $event must accept Prism\\Orm\\Event\\PrePersistEvent, which #[PrePersist] passes.',
+                ListenedEntity::class . ': entity listener method ' . CheckedListener::class . '::tooMany() takes at most two arguments: the entity and the event.',
+                ListenedEntity::class . ': entity listener method ' . CheckedListener::class . '::hidden() must be a public, non-static method.',
+            ],
         ];
     }
 

@@ -29,19 +29,24 @@ final class ClassMetadata
     /** @var array<string, AssociationMapping> */
     private readonly array $associations;
 
+    /** @var array<value-of<LifecycleEvent>, list<array{class-string, string}>> listener et méthode, par événement */
+    private readonly array $listenerCallbacks;
+
     /** Reflection créée au premier usage, jamais sérialisée (reconstruite après le cache). */
     private readonly ReflectionCache $reflection;
 
     /**
-     * @param class-string<T>                               $className
-     * @param list<FieldMapping>                            $fields
-     * @param list<EmbeddedMapping>                         $embedded
-     * @param list<AssociationMapping>                      $associations
-     * @param list<IndexMapping>                            $indexes
-     * @param array<value-of<LifecycleEvent>, list<string>> $lifecycleCallbacks méthodes par événement
-     * @param list<class-string>                            $entityListeners
-     * @param array<string, string>                         $tableOptions
-     * @param class-string|null                             $repositoryClass
+     * @param class-string<T>                                                    $className
+     * @param list<FieldMapping>                                                 $fields
+     * @param list<EmbeddedMapping>                                              $embedded
+     * @param list<AssociationMapping>                                           $associations
+     * @param list<IndexMapping>                                                 $indexes
+     * @param array<value-of<LifecycleEvent>, list<string>>                      $lifecycleCallbacks      méthodes par événement
+     * @param list<class-string>                                                 $entityListeners
+     * @param array<string, string>                                              $tableOptions
+     * @param class-string|null                                                  $repositoryClass
+     * @param array<class-string, array<value-of<LifecycleEvent>, list<string>>> $entityListenerCallbacks
+     *                                                                                                    méthodes de chaque listener d'entité, par événement
      */
     public function __construct(
         public readonly string $className,
@@ -58,11 +63,21 @@ final class ClassMetadata
         public readonly bool $readOnly = false,
         public readonly ?string $repositoryClass = null,
         public readonly array $tableOptions = [],
+        public readonly array $entityListenerCallbacks = [],
     ) {
         $this->fields = self::byName($className, $fields, static fn (FieldMapping $f): string => $f->fieldName);
         $this->embedded = self::byName($className, $embedded, static fn (EmbeddedMapping $e): string => $e->fieldName);
         $this->associations = self::byName($className, $associations, static fn (AssociationMapping $a): string => $a->fieldName);
         $this->reflection = new ReflectionCache();
+        $byEvent = [];
+        foreach ($entityListenerCallbacks as $listener => $events) {
+            foreach ($events as $event => $methods) {
+                foreach ($methods as $method) {
+                    $byEvent[$event][] = [$listener, $method];
+                }
+            }
+        }
+        $this->listenerCallbacks = $byEvent;
 
         foreach (array_merge(array_keys($this->embedded), array_keys($this->associations)) as $name) {
             if (isset($this->fields[$name]) || (isset($this->embedded[$name]) && isset($this->associations[$name]))) {
@@ -189,6 +204,16 @@ final class ClassMetadata
     public function getLifecycleCallbacks(LifecycleEvent $event): array
     {
         return $this->lifecycleCallbacks[$event->value] ?? [];
+    }
+
+    /**
+     * Méthodes des listeners d'entité pour cet événement, dans l'ordre de #[EntityListeners].
+     *
+     * @return list<array{class-string, string}> listener et méthode
+     */
+    public function getEntityListenerCallbacks(LifecycleEvent $event): array
+    {
+        return $this->listenerCallbacks[$event->value] ?? [];
     }
 
     /**

@@ -8,9 +8,17 @@ use Prism\Dbal\LockMode;
 use Prism\Dbal\Query\Order;
 use Prism\Dbal\Type\ConversionContext;
 use Prism\Dbal\Type\TypeRegistry;
+use Prism\Orm\Event\DefaultEntityListenerResolver;
+use Prism\Orm\Event\EntityListenerResolver;
+use Prism\Orm\Event\LifecycleDispatcher;
+use Prism\Orm\Event\OnClearEvent;
+use Prism\Orm\Event\OnFlushEvent;
+use Prism\Orm\Event\PostFlushEvent;
+use Prism\Orm\Event\PostLoadEvent;
 use Prism\Orm\Event\PostPersistEvent;
 use Prism\Orm\Event\PostRemoveEvent;
 use Prism\Orm\Event\PostUpdateEvent;
+use Prism\Orm\Event\PreFlushEvent;
 use Prism\Orm\Event\PrePersistEvent;
 use Prism\Orm\Event\PreRemoveEvent;
 use Prism\Orm\Event\PreUpdateEvent;
@@ -23,6 +31,7 @@ use Prism\Orm\Exception\ReentrantFlushException;
 use Prism\Orm\Exception\TransactionRequiredException;
 use Prism\Orm\Hydrator\ObjectHydrator;
 use Prism\Orm\Lazy\LazyFactory;
+use Prism\Orm\Mapping\LifecycleEvent;
 use Prism\Orm\Mapping\TrackingPolicy;
 use Prism\Orm\Metadata\ClassMetadata;
 use Prism\Orm\Metadata\FieldMapping;
@@ -36,8 +45,11 @@ use Psr\EventDispatcher\EventDispatcherInterface;
  * Comportements fixés par les scénarios de référence (tests/Unit/UnitOfWork) :
  * - une opération qui laisse l'entité dans son état est sans effet ; les autres transitions
  *   absentes de RG-03.2 lèvent InvalidEntityStateException ;
- * - PrePersist est publié pendant le flush, avant l'INSERT ; PreRemove par remove() ;
- * - Post* est publié après le commit, jamais pendant la transaction ;
+ * - flush : PreFlush, OnFlush, puis dans la transaction PrePersist (avant l'INSERT) et
+ *   PreUpdate, puis après le commit Post* et PostFlush ; PreRemove est publié par remove() ;
+ * - tout flush() pendant un flush, PostFlush compris, lève ReentrantFlushException ;
+ * - pour une entité : callbacks, listeners d'entité, puis dispatcher PSR-14 ; PostLoad suit
+ *   chaque hydratation ;
  * - une entité supprimée par le flush, ou persistée puis retirée avant tout flush, redevient NEW ;
  * - une ligne relue ne réécrit jamais une entité déjà gérée : seul refresh() la réécrit ;
  * - une référence (ghost) non chargée n'a pas de snapshot : le flush ne la compare pas.
@@ -84,16 +96,20 @@ final class UnitOfWork
 
     private readonly LazyFactory $lazy;
 
+    private readonly LifecycleDispatcher $lifecycle;
+
     public function __construct(
         private readonly MetadataFactory $metadata,
         private readonly PersisterProvider $persisters,
         private readonly ConversionContext $conversion,
         private readonly TypeRegistry $types,
-        private readonly ?EventDispatcherInterface $events = null,
+        ?EventDispatcherInterface $events = null,
+        ?EntityListenerResolver $listeners = null,
     ) {
         $this->detached = new \WeakMap();
         $this->hydrator = new ObjectHydrator($conversion, $types);
         $this->lazy = new LazyFactory();
+        $this->lifecycle = new LifecycleDispatcher($listeners ?? new DefaultEntityListenerResolver(), $events);
     }
 
     /**
@@ -148,7 +164,7 @@ final class UnitOfWork
                 }
                 // la version et les listeners lisent l'entité : une référence est chargée d'abord
                 $this->lazy->initialize($entity);
-                $this->events?->dispatch(new PreRemoveEvent($entity, $this));
+                $this->lifecycle->lifecycle($this->metadataOf($entity), LifecycleEvent::PreRemove, $entity, fn (): PreRemoveEvent => new PreRemoveEvent($entity, $this));
                 $this->states[$oid] = EntityState::Removed;
                 $this->deletions[$oid] = $entity;
         }
@@ -186,6 +202,8 @@ final class UnitOfWork
         $this->insertions = [];
         $this->deletions = [];
         $this->persisted = [];
+
+        $this->lifecycle->dispatch(new OnClearEvent($this));
     }
 
     /**
@@ -348,6 +366,7 @@ final class UnitOfWork
             if (($this->entities[$oid] ?? null) === $ghost) {
                 $this->snapshots[$oid] = $this->databaseRow($metadata, $ghost);
             }
+            $this->postLoad($metadata, $ghost);
         });
         $this->track($ghost, EntityState::Managed);
         $this->identityMap[$class][$key] = $ghost;
@@ -379,6 +398,7 @@ final class UnitOfWork
         }
         $this->hydrator->refresh($entity, $metadata, $row);
         $this->snapshots[$oid] = $this->databaseRow($metadata, $entity);
+        $this->postLoad($metadata, $entity);
     }
 
     /**
@@ -433,12 +453,60 @@ final class UnitOfWork
             throw ReentrantFlushException::create();
         }
 
-        $updates = $this->pendingUpdates();
-        if ([] === $this->insertions && [] === $this->deletions && [] === $updates) {
-            return;
-        }
-
         $this->flushing = true;
+        try {
+            $this->lifecycle->dispatch(new PreFlushEvent($this));
+            $this->lifecycle->dispatch(new OnFlushEvent($this));
+
+            // calculés après OnFlush : ses modifications sont prises en compte
+            $updates = $this->pendingUpdates();
+            if ([] !== $this->insertions || [] !== $this->deletions || [] !== $updates) {
+                $this->executeFlush($updates);
+            }
+
+            $this->lifecycle->dispatch(new PostFlushEvent($this));
+        } finally {
+            $this->flushing = false;
+        }
+    }
+
+    /**
+     * Entités à insérer au prochain flush, dans l'ordre de persist().
+     *
+     * @return list<object>
+     */
+    public function getScheduledInsertions(): array
+    {
+        return array_values($this->insertions);
+    }
+
+    /**
+     * Entités gérées dont les changements seront écrits au prochain flush (calculés à l'appel).
+     *
+     * @return list<object>
+     */
+    public function getScheduledUpdates(): array
+    {
+        return array_map(fn (int $oid): object => $this->entities[$oid], array_keys($this->pendingUpdates()));
+    }
+
+    /**
+     * Entités à supprimer au prochain flush.
+     *
+     * @return list<object>
+     */
+    public function getScheduledDeletions(): array
+    {
+        return array_values($this->deletions);
+    }
+
+    /**
+     * La transaction du flush, puis l'état de l'UnitOfWork et les événements Post*.
+     *
+     * @param array<int, array<string, mixed>> $updates
+     */
+    private function executeFlush(array $updates): void
+    {
         /** @var list<array{object, \ReflectionProperty, mixed}> valeurs écrites sur les entités, à rétablir si rollback */
         $written = [];
 
@@ -452,8 +520,6 @@ final class UnitOfWork
             }
 
             throw $e;
-        } finally {
-            $this->flushing = false;
         }
 
         $this->afterCommit(...$done);
@@ -468,8 +534,8 @@ final class UnitOfWork
     {
         $inserted = [];
         foreach ($this->insertions as $entity) {
-            $this->events?->dispatch(new PrePersistEvent($entity, $this));
             $metadata = $this->metadataOf($entity);
+            $this->lifecycle->lifecycle($metadata, LifecycleEvent::PrePersist, $entity, fn (): PrePersistEvent => new PrePersistEvent($entity, $this));
             $idField = $metadata->getIdField();
 
             if (null !== $generated = $this->persisters->nextId($metadata)) {
@@ -500,7 +566,7 @@ final class UnitOfWork
             $entity = $this->entities[$oid];
             $metadata = $this->metadataOf($entity);
 
-            $this->events?->dispatch(new PreUpdateEvent($entity, $this->changeSet($metadata, $oid, $changes), $this));
+            $this->lifecycle->lifecycle($metadata, LifecycleEvent::PreUpdate, $entity, fn (): PreUpdateEvent => new PreUpdateEvent($entity, $this->changeSet($metadata, $oid, $changes), $this));
             // RG-03.8 : une modification faite dans PreUpdate est prise en compte
             $changes = $this->changes($metadata, $entity);
             if ([] === $changes) {
@@ -581,13 +647,13 @@ final class UnitOfWork
         $this->persisted = [];
 
         foreach ($inserted as $entity) {
-            $this->events?->dispatch(new PostPersistEvent($entity, $this));
+            $this->lifecycle->lifecycle($this->metadataOf($entity), LifecycleEvent::PostPersist, $entity, fn (): PostPersistEvent => new PostPersistEvent($entity, $this));
         }
         foreach ($updated as [$entity]) {
-            $this->events?->dispatch(new PostUpdateEvent($entity, $this));
+            $this->lifecycle->lifecycle($this->metadataOf($entity), LifecycleEvent::PostUpdate, $entity, fn (): PostUpdateEvent => new PostUpdateEvent($entity, $this));
         }
         foreach ($deleted as $entity) {
-            $this->events?->dispatch(new PostRemoveEvent($entity, $this));
+            $this->lifecycle->lifecycle($this->metadataOf($entity), LifecycleEvent::PostRemove, $entity, fn (): PostRemoveEvent => new PostRemoveEvent($entity, $this));
         }
     }
 
@@ -753,8 +819,17 @@ final class UnitOfWork
         $this->snapshots[$oid] = $this->databaseRow($metadata, $entity);
         $this->identityMap[$metadata->className][$key] = $entity;
         $this->keys[$oid] = $key;
+        $this->postLoad($metadata, $entity);
 
         return $entity;
+    }
+
+    /**
+     * @param ClassMetadata<object> $metadata
+     */
+    private function postLoad(ClassMetadata $metadata, object $entity): void
+    {
+        $this->lifecycle->lifecycle($metadata, LifecycleEvent::PostLoad, $entity, fn (): PostLoadEvent => new PostLoadEvent($entity, $this));
     }
 
     /**
