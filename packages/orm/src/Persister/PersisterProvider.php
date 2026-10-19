@@ -19,6 +19,14 @@ interface PersisterProvider
     public function getPersister(ClassMetadata $metadata): EntityPersister;
 
     /**
+     * Identifiant généré avant l'INSERT (séquence, UUID v7), en valeur de la base ; null si la
+     * base l'attribue (IDENTITY) ou si l'application l'assigne.
+     *
+     * @param ClassMetadata<object> $metadata
+     */
+    public function nextId(ClassMetadata $metadata): int|string|null;
+
+    /**
      * Exécute $operations dans une transaction : commit si elles se terminent, rollback et
      * exception relancée sinon (RG-03.6).
      *
