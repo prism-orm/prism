@@ -462,6 +462,15 @@ abstract class AbstractPlatform
     }
 
     /**
+     * INSERT d'une ligne entièrement faite de valeurs par défaut (une table dont seul
+     * l'identifiant auto-incrémenté est une colonne).
+     */
+    public function getInsertDefaultValuesSql(string $table): string
+    {
+        return 'INSERT INTO ' . $this->quoteIdentifier($table) . ' DEFAULT VALUES';
+    }
+
+    /**
      * Requête qui renvoie la prochaine valeur d'une séquence (une ligne, une colonne).
      *
      * @throws InvalidSchemaException plateforme sans séquences

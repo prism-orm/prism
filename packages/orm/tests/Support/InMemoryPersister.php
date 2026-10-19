@@ -52,6 +52,7 @@ final class InMemoryPersister implements EntityPersister
 
     public function loadBy(array $criteria, array $orderBy = [], ?int $limit = null, int $offset = 0): array
     {
+        self::assertOrder($orderBy);
         $rows = $this->matching($criteria);
         $sort = [];
         foreach ($orderBy as $field => $order) {
@@ -96,6 +97,82 @@ final class InMemoryPersister implements EntityPersister
         $this->storage->log[] = ['LOCK', $this->table, [$mode->name]];
 
         return isset($this->storage->tables[$this->table][(string) (\is_int($id) || \is_string($id) ? $id : '')]);
+    }
+
+    public function loadByJoinTable(string $table, string $ownerColumn, string $targetColumn, mixed $ownerId, string $ownerType, array $orderBy = []): array
+    {
+        self::assertOrder($orderBy);
+        $ids = [];
+        foreach ($this->storage->pivots[$table] ?? [] as $row) {
+            if (self::scalar($row[$ownerColumn]) === self::scalar($ownerId)) {
+                $ids[] = self::scalar($row[$targetColumn]);
+            }
+        }
+        $rows = array_values(array_filter($this->storage->tables[$this->table] ?? [], fn (array $row): bool => \in_array(self::scalar($row[$this->idColumn]), $ids, true)));
+        $sort = [] === $orderBy ? [$this->idColumn => Order::Asc] : [];
+        foreach ($orderBy as $field => $order) {
+            $sort[$this->column($field)] = $order;
+        }
+        usort($rows, static function (array $a, array $b) use ($sort): int {
+            foreach ($sort as $column => $order) {
+                $result = ($a[$column] ?? null) <=> ($b[$column] ?? null);
+                if (0 !== $result) {
+                    return Order::Desc === $order ? -$result : $result;
+                }
+            }
+
+            return 0;
+        });
+        $this->storage->log[] = ['SELECT', $this->table, []];
+
+        return $rows;
+    }
+
+    public function countJoinTable(string $table, string $ownerColumn, mixed $ownerId, string $ownerType): int
+    {
+        $this->storage->log[] = ['COUNT', $table, []];
+
+        return \count(array_filter($this->storage->pivots[$table] ?? [], static fn (array $row): bool => self::scalar($row[$ownerColumn]) === self::scalar($ownerId)));
+    }
+
+    public function insertJoinRow(string $table, array $row, array $types): void
+    {
+        self::assertTyped($row, $types);
+        $this->storage->insertPivot($table, $row);
+    }
+
+    public function deleteJoinRows(string $table, array $criteria, array $types): int
+    {
+        self::assertTyped($criteria, $types);
+
+        return $this->storage->deletePivot($table, $criteria);
+    }
+
+    /**
+     * Comme le persister du DBAL : chaque colonne écrite a son type.
+     *
+     * @param array<string, mixed>  $values
+     * @param array<string, string> $types
+     */
+    private static function assertTyped(array $values, array $types): void
+    {
+        foreach (array_keys($values) as $column) {
+            if (!isset($types[$column])) {
+                throw new \LogicException(\sprintf('No type for the column "%s".', $column));
+            }
+        }
+    }
+
+    /**
+     * @param array<array-key, mixed> $orderBy
+     */
+    private static function assertOrder(array $orderBy): void
+    {
+        foreach ($orderBy as $order) {
+            if (!$order instanceof Order) {
+                throw new \LogicException(\sprintf('Expected a %s, got %s.', Order::class, get_debug_type($order)));
+            }
+        }
     }
 
     /**

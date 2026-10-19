@@ -34,6 +34,7 @@ use Prism\Orm\Tests\Unit\Metadata\Fixtures\Callbacks\CallbackEntity;
 use Prism\Orm\Tests\Unit\Metadata\Fixtures\Callbacks\CheckedListener;
 use Prism\Orm\Tests\Unit\Metadata\Fixtures\Callbacks\EmptyListener;
 use Prism\Orm\Tests\Unit\Metadata\Fixtures\Callbacks\ListenedEntity;
+use Prism\Orm\Tests\Unit\Metadata\Fixtures\Callbacks\UntypedCollections;
 
 /**
  * Cas du validateur, chacun avec son message exact. Avec les 20 erreurs du driver, ils forment
@@ -240,6 +241,15 @@ final class MetadataValidatorTest extends TestCase
                 CallbackEntity::class . ': lifecycle callback hidden() must be a public, non-static method.',
                 CallbackEntity::class . ': lifecycle callback wrongType(): parameter $event must accept Prism\\Orm\\Event\\PostLoadEvent, which #[PostLoad] passes.',
             ],
+        ];
+        yield '27 collection relations typed Collection' => [
+            static fn (): array => [self::meta(UntypedCollections::class, 'untyped', [], [
+                self::manyToMany(UntypedCollections::class, 'iterable', Tag::class, joinTable: 'pivot_iterable'),
+                self::manyToMany(UntypedCollections::class, 'array', Tag::class, joinTable: 'pivot_array'),
+                self::manyToMany(UntypedCollections::class, 'nullable', Tag::class, joinTable: 'pivot_nullable'),
+                self::manyToMany(UntypedCollections::class, 'typed', Tag::class, joinTable: 'pivot_typed'),
+            ]), self::meta(Tag::class, 'tag')],
+            array_map(static fn (string $field): string => UntypedCollections::class . '::$' . $field . ': a collection relation must be typed Prism\\Orm\\Collection\\Collection (not array, iterable or nullable), initialized with new ArrayCollection() in the constructor (ADR 0007).', ['iterable', 'array', 'nullable']),
         ];
         // une interface n'est pas une classe instanciable
         $missing = \Countable::class;
