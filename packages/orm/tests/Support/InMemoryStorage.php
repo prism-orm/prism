@@ -133,6 +133,7 @@ final class InMemoryStorage implements PersisterProvider
         if (!$this->inTransaction) {
             throw new \LogicException('INSERT outside of a transaction.');
         }
+        self::assertScalar($table, $row);
         if (null !== $this->failOnInsert && ++$this->inserts === $this->failOnInsert) {
             throw new \RuntimeException(\sprintf('Simulated failure on INSERT #%d into "%s".', $this->failOnInsert, $table));
         }
@@ -159,6 +160,7 @@ final class InMemoryStorage implements PersisterProvider
         if (!$this->inTransaction) {
             throw new \LogicException('UPDATE outside of a transaction.');
         }
+        self::assertScalar($table, $changes);
         $key = (string) self::key($id);
         $this->log[] = ['UPDATE', $table, array_keys($changes)];
         if (!isset($this->tables[$table][$key]) || (null !== $version && $this->tables[$table][$key][$version[0]] !== $version[1])) {
@@ -199,6 +201,20 @@ final class InMemoryStorage implements PersisterProvider
         $this->log[] = ['SELECT', $table, []];
 
         return $this->tables[$table][(string) self::key($id)] ?? null;
+    }
+
+    /**
+     * Comme une vraie base : seules des valeurs scalaires (ou NULL) sont écrites.
+     *
+     * @param array<string, mixed> $values
+     */
+    private static function assertScalar(string $table, array $values): void
+    {
+        foreach ($values as $column => $value) {
+            if (null !== $value && !\is_scalar($value)) {
+                throw new \LogicException(\sprintf('Cannot write a %s into "%s"."%s".', get_debug_type($value), $table, $column));
+            }
+        }
     }
 
     private static function key(mixed $id): string|int

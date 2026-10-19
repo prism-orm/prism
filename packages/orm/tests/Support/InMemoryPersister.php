@@ -55,7 +55,7 @@ final class InMemoryPersister implements EntityPersister
         $rows = $this->matching($criteria);
         $sort = [];
         foreach ($orderBy as $field => $order) {
-            $sort[$this->metadata->getField($field)->columnName] = $order;
+            $sort[$this->column($field)] = $order;
         }
         usort($rows, static function (array $a, array $b) use ($sort): int {
             foreach ($sort as $column => $order) {
@@ -108,7 +108,7 @@ final class InMemoryPersister implements EntityPersister
         $rows = [];
         foreach ($this->storage->tables[$this->table] ?? [] as $row) {
             foreach ($criteria as $field => $wanted) {
-                $stored = $row[$this->metadata->getField($field)->columnName] ?? null;
+                $stored = $row[$this->column($field)] ?? null;
                 $match = match (true) {
                     null === $wanted => null === $stored,
                     \is_array($wanted) => \in_array(self::scalar($stored), array_map(self::scalar(...), $wanted), true),
@@ -122,6 +122,16 @@ final class InMemoryPersister implements EntityPersister
         }
 
         return $rows;
+    }
+
+    // un champ, ou la colonne de jointure d'une relation ToOne possédée
+    private function column(string $field): string
+    {
+        if ($this->metadata->hasAssociation($field)) {
+            return (string) $this->metadata->getAssociation($field)->joinColumn;
+        }
+
+        return $this->metadata->getField($field)->columnName;
     }
 
     private static function scalar(mixed $value): ?string

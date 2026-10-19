@@ -20,4 +20,12 @@ final class InvalidArgumentException extends \InvalidArgumentException implement
     {
         return new self(\sprintf('Unknown entity %d in the commit order: add it with addNode() first.', $id));
     }
+
+    /**
+     * @param class-string $class
+     */
+    public static function unpersistedCriteria(string $class, string $field): self
+    {
+        return new self(\sprintf('The criteria on %s::$%s use an entity that has no identifier yet; flush it first.', $class, $field));
+    }
 }

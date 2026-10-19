@@ -136,4 +136,16 @@ final class HydratorTest extends TestCase
         self::assertNull($list[0]['warehouse'], 'RG-02.5');
         self::assertSame(['Desk', 'Chair'], array_column($list, 'name'));
     }
+
+    // phase 4 : une relation ToOne devient l'identifiant de sa cible
+    public function testArrayHydratorGivesTheIdentifierOfARelation(): void
+    {
+        $factory = new \Prism\Orm\Metadata\MetadataFactory(new AttributeDriver());
+        $order = $factory->getMetadataFor(\Prism\Orm\Tests\Unit\UnitOfWork\Fixtures\Relations\PurchaseOrder::class);
+        $customer = $factory->getMetadataFor(\Prism\Orm\Tests\Unit\UnitOfWork\Fixtures\Relations\Customer::class);
+
+        self::assertSame(['id' => 10, 'reference' => 'PO-10', 'customer' => 3], new ArrayHydrator($this->objects, $factory)->hydrate($order, ['id' => '10', 'reference' => 'PO-10', 'customer_id' => '3']));
+        self::assertSame(['id' => 3, 'name' => 'Ada', 'lastOrder' => null, 'referrer' => null], new ArrayHydrator($this->objects, $factory)->hydrate($customer, ['id' => 3, 'name' => 'Ada', 'last_order_id' => null, 'referrer_id' => null]));
+        self::assertSame('3', new ArrayHydrator($this->objects)->hydrate($order, ['id' => 10, 'reference' => 'PO-10', 'customer_id' => '3'])['customer'], 'without metadata factory: the database value');
+    }
 }

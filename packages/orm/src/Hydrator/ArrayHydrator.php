@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Prism\Orm\Hydrator;
 
 use Prism\Orm\Metadata\ClassMetadata;
+use Prism\Orm\Metadata\MetadataFactory;
 
 /**
  * Lignes en tableaux en lecture seule, indexés par nom de champ, sans entité ni UnitOfWork :
@@ -14,12 +15,16 @@ use Prism\Orm\Metadata\ClassMetadata;
  */
 final class ArrayHydrator
 {
-    public function __construct(private readonly ObjectHydrator $converter)
-    {
+    // la MetadataFactory type les colonnes de jointure ; sans elle, la valeur de la base est rendue
+    public function __construct(
+        private readonly ObjectHydrator $converter,
+        private readonly ?MetadataFactory $metadata = null,
+    ) {
     }
 
     /**
-     * Un embeddable devient un sous-tableau, ou null si toutes ses colonnes sont NULL (RG-02.5).
+     * Un embeddable devient un sous-tableau, ou null si toutes ses colonnes sont NULL (RG-02.5) ;
+     * une relation ToOne possédée devient l'identifiant de sa cible.
      *
      * @param ClassMetadata<object> $metadata
      * @param array<string, mixed>  $row      ligne telle que la base la renvoie
@@ -46,6 +51,17 @@ final class ArrayHydrator
                 $nested[$field->fieldName] = $metadata->toFieldValue($field, $values[$field->columnName]);
             }
             $result[$embedded->fieldName] = $embedded->nullable && [] === array_filter($nested, static fn (mixed $v): bool => null !== $v) ? null : $nested;
+        }
+        foreach ($metadata->getAssociations() as $association) {
+            $column = (string) $association->joinColumn;
+            if (!$association->isToOne() || !$association->isOwningSide() || !\array_key_exists($column, $row)) {
+                continue;
+            }
+            $id = $row[$column];
+            if (null !== $id && null !== $this->metadata) {
+                $id = $this->converter->toPhpValue($this->metadata->getMetadataFor($association->targetEntity)->getIdField()->type, $id);
+            }
+            $result[$association->fieldName] = $id;
         }
 
         return $result;
