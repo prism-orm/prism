@@ -256,9 +256,11 @@ abstract class AbstractPlatform
                 }
             }
         }
-        foreach ($diff->alteredTables as $table) {
-            foreach ($table->addedForeignKeys as $foreignKey) {
-                $sql[] = $this->getCreateForeignKeySql($table->name, $foreignKey);
+        if ($this->supportsAlterForeignKeys()) {
+            foreach ($diff->alteredTables as $table) {
+                foreach ($table->addedForeignKeys as $foreignKey) {
+                    $sql[] = $this->getCreateForeignKeySql($table->name, $foreignKey);
+                }
             }
         }
 
