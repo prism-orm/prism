@@ -26,6 +26,21 @@ final class MappingException extends \LogicException implements OrmException
         return new self(\sprintf('Invalid mapping for %s::$%s: %s', $class, $field, $reason));
     }
 
+    public static function notAnEntity(string $class): self
+    {
+        return new self(\sprintf('%s is not an entity: add #[Entity] to the class.', $class));
+    }
+
+    public static function unknownClass(string $class): self
+    {
+        return new self(\sprintf('Class %s does not exist or cannot be autoloaded.', $class));
+    }
+
+    public static function mutableDateTime(string $class, string $field): self
+    {
+        return new self(\sprintf('Invalid mapping for %s::$%s: \\DateTime is mutable and not supported, use \\DateTimeImmutable instead.', $class, $field));
+    }
+
     public static function unknownField(string $class, string $field): self
     {
         return new self(\sprintf('%s has no mapped field "%s".', $class, $field));
