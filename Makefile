@@ -12,7 +12,7 @@ URL_sqlite  := sqlite:///:memory:
 DATABASES := mysql mariadb pgsql sqlite
 
 .DEFAULT_GOAL := help
-.PHONY: help up down build install shell test test-unit test-db test-all-db stan cs cs-check infection bench coverage ci
+.PHONY: help up down build install shell test test-unit test-db test-all-db stan cs cs-check infection bench bench-baseline bench-compare coverage ci
 
 help: ## Affiche cette aide
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
@@ -58,7 +58,13 @@ cs-check: ## Vérifie le style sans corriger
 infection: ## Mutation testing (une classe : make infection FILTER=packages/dbal/src/Schema/Comparator.php)
 	$(RUN) vendor/bin/infection --threads=max --show-mutations $(if $(FILTER),--filter=$(FILTER))
 
-bench: ## Benchmarks PHPBench
-	$(RUN) vendor/bin/phpbench run --report=aggregate
+bench: ## Benchmarks et critères de la phase 3, sur MySQL par défaut : make bench [DB=mariadb|pgsql]
+	$(RUN) env DATABASE_URL='$(URL_$(DB))' vendor/bin/phpbench run --report=aggregate $(if $(FILTER),--filter=$(FILTER))
+
+bench-baseline: ## Enregistre la référence de bench-compare (avant une modification de l'UoW ou de l'hydratation)
+	$(RUN) env DATABASE_URL='$(URL_$(DB))' vendor/bin/phpbench run --report=aggregate --tag=baseline $(if $(FILTER),--filter=$(FILTER))
+
+bench-compare: ## Compare à la référence : échoue au-delà de 10 % de régression (RT-15)
+	$(RUN) env DATABASE_URL='$(URL_$(DB))' vendor/bin/phpbench run --report=aggregate --ref=baseline --assert='mode(variant.time.avg) <= mode(baseline.time.avg) +/- 10%' $(if $(FILTER),--filter=$(FILTER))
 
 ci: cs-check stan test ## Tout ce que la CI vérifie : à lancer avant de terminer une tâche
