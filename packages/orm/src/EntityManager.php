@@ -6,6 +6,7 @@ namespace Prism\Orm;
 
 use Prism\Dbal\Connection;
 use Prism\Dbal\LockMode;
+use Prism\Orm\Event\EntityListenerResolver;
 use Prism\Orm\Exception\MappingException;
 use Prism\Orm\Metadata\Driver\AttributeDriver;
 use Prism\Orm\Metadata\MetadataFactory;
@@ -17,7 +18,8 @@ use Psr\EventDispatcher\EventDispatcherInterface;
 /**
  * EntityManager d'une Connection : délègue le suivi à l'UnitOfWork et garde un repository par
  * entité. Sans MetadataFactory, les attributs sont relus sans cache ; sans dispatcher PSR-14,
- * aucun événement n'est publié (décision E).
+ * seuls les callbacks et les listeners d'entité sont appelés (décision E) ; sans résolveur, un
+ * listener d'entité est construit sans argument (DefaultEntityListenerResolver).
  *
  * @api
  */
@@ -34,9 +36,10 @@ final class EntityManager implements EntityManagerInterface
         private readonly Connection $connection,
         ?MetadataFactory $metadata = null,
         ?EventDispatcherInterface $events = null,
+        ?EntityListenerResolver $listeners = null,
     ) {
         $this->metadata = $metadata ?? new MetadataFactory(new AttributeDriver(), types: $connection->getTypeRegistry());
-        $this->unitOfWork = new UnitOfWork($this->metadata, new DbalPersisterProvider($connection), $connection->getConversionContext(), $connection->getTypeRegistry(), $events);
+        $this->unitOfWork = new UnitOfWork($this->metadata, new DbalPersisterProvider($connection), $connection->getConversionContext(), $connection->getTypeRegistry(), $events, $listeners);
     }
 
     public function persist(object $entity): void

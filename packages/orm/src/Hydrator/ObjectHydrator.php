@@ -6,15 +6,15 @@ namespace Prism\Orm\Hydrator;
 
 use Prism\Dbal\Type\ConversionContext;
 use Prism\Dbal\Type\TypeRegistry;
-use Prism\Orm\Mapping\LifecycleEvent;
 use Prism\Orm\Metadata\ClassMetadata;
 
 /**
  * Transforme une ligne de la base en entité : conversion par les Type du DBAL, instanciation
- * sans constructeur (RG-03.12), puis méthodes #[PostLoad].
+ * sans constructeur (RG-03.12).
  *
- * L'identity map n'est pas son affaire : l'UnitOfWork décide de réutiliser une instance ou d'en
- * hydrater une nouvelle (RG-03.3).
+ * L'identity map et les événements ne sont pas son affaire : l'UnitOfWork décide de réutiliser
+ * une instance ou d'en hydrater une nouvelle (RG-03.3), puis publie PostLoad (callbacks
+ * #[PostLoad] compris).
  *
  * @internal
  */
@@ -38,7 +38,6 @@ final class ObjectHydrator
     {
         $entity = new \ReflectionClass($metadata->className)->newInstanceWithoutConstructor();
         $metadata->hydrateRow($entity, $this->toPhpRow($metadata, $row));
-        $this->postLoad($metadata, $entity);
 
         return $entity;
     }
@@ -69,7 +68,6 @@ final class ObjectHydrator
         }
 
         $metadata->hydrateRow($entity, $row);
-        $this->postLoad($metadata, $entity);
     }
 
     /**
@@ -90,16 +88,6 @@ final class ObjectHydrator
         }
 
         return $converted;
-    }
-
-    /**
-     * @param ClassMetadata<object> $metadata
-     */
-    private function postLoad(ClassMetadata $metadata, object $entity): void
-    {
-        foreach ($metadata->getLifecycleCallbacks(LifecycleEvent::PostLoad) as $method) {
-            new \ReflectionMethod($entity, $method)->invoke($entity);
-        }
     }
 
     /**

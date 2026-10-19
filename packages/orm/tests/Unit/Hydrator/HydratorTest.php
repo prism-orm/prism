@@ -60,14 +60,13 @@ final class HydratorTest extends TestCase
         self::assertSame('DSK-1', $product->sku);
     }
 
-    // RG-03.12
-    public function testConstructorIsNeverCalledAndPostLoadRunsOnce(): void
+    // RG-03.12 ; #[PostLoad] est publié par l'UnitOfWork (UnitOfWorkEventsTest)
+    public function testConstructorIsNeverCalledNorAnyCallback(): void
     {
         $product = $this->objects->hydrate($this->metadata, self::row());
 
         self::assertSame(0, Product::$constructed);
-        self::assertSame(1, $product->postLoads);
-        self::assertSame('Desk (DSK-1)', $product->label, '#[PostLoad] sees the hydrated values');
+        self::assertSame(0, $product->postLoads);
     }
 
     public function testBinaryStreamFromTheDriverIsRead(): void
@@ -99,7 +98,7 @@ final class HydratorTest extends TestCase
     }
 
     // RG-02.6 : refresh() ne réécrit jamais une propriété readonly
-    public function testRefreshKeepsReadonlyPropertiesAndRunsPostLoadAgain(): void
+    public function testRefreshKeepsReadonlyProperties(): void
     {
         $product = $this->objects->hydrate($this->metadata, self::row());
         $product->name = 'Edited in memory';
@@ -109,8 +108,7 @@ final class HydratorTest extends TestCase
         self::assertSame('Desk XL', $product->name);
         self::assertSame('DSK-1', $product->sku);
         self::assertSame('c', $product->warehouse?->city);
-        self::assertSame(2, $product->postLoads);
-        self::assertSame('Desk XL (DSK-1)', $product->label);
+        self::assertSame(0, $product->postLoads);
     }
 
     public function testToPhpRowConvertsWithoutHydrating(): void
