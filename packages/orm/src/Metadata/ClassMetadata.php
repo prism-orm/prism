@@ -14,7 +14,7 @@ use Prism\Orm\Mapping\TrackingPolicy;
  * Seules les incohérences internes sont refusées ici ; les vérifications croisées (colonnes en
  * double, cible absente, mappedBy incohérent) relèvent du MetadataValidator.
  *
- * @template T of object
+ * @template-covariant T of object
  *
  * @api
  */

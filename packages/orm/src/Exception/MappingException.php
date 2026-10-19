@@ -41,6 +41,14 @@ final class MappingException extends \LogicException implements OrmException
         return new self(\sprintf('Invalid mapping for %s::$%s: \\DateTime is mutable and not supported, use \\DateTimeImmutable instead.', $class, $field));
     }
 
+    /**
+     * @param non-empty-list<\Stringable> $errors
+     */
+    public static function invalidMapping(array $errors): self
+    {
+        return new self(\sprintf("The mapping is invalid (%d error%s):\n- %s", \count($errors), 1 === \count($errors) ? '' : 's', implode("\n- ", array_map(static fn (\Stringable $e): string => (string) $e, $errors))));
+    }
+
     public static function unknownField(string $class, string $field): self
     {
         return new self(\sprintf('%s has no mapped field "%s".', $class, $field));
