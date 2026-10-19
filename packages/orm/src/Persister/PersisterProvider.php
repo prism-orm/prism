@@ -26,6 +26,8 @@ interface PersisterProvider
      */
     public function nextId(ClassMetadata $metadata): int|string|null;
 
+    public function isTransactionActive(): bool;
+
     /**
      * Exécute $operations dans une transaction : commit si elles se terminent, rollback et
      * exception relancée sinon (RG-03.6).

@@ -36,7 +36,12 @@ final class InMemoryStorage implements PersisterProvider
 
     public function getPersister(ClassMetadata $metadata): EntityPersister
     {
-        return new InMemoryPersister($this, $metadata->tableName, $metadata->getIdField()->columnName, GenerationStrategy::Identity === $metadata->id->strategy);
+        return new InMemoryPersister($this, $metadata);
+    }
+
+    public function isTransactionActive(): bool
+    {
+        return $this->inTransaction;
     }
 
     // SEQUENCE : identifiant connu avant l'INSERT, compteur rétabli par le rollback
@@ -54,6 +59,7 @@ final class InMemoryStorage implements PersisterProvider
     {
         $tables = $this->tables;
         $sequences = $this->sequences;
+        $outer = $this->inTransaction;
         $this->inTransaction = true;
         ++$this->transactions;
 
@@ -65,7 +71,7 @@ final class InMemoryStorage implements PersisterProvider
             $this->sequences = $sequences;
             throw $e;
         } finally {
-            $this->inTransaction = false;
+            $this->inTransaction = $outer;
         }
 
         return $result;
@@ -94,6 +100,12 @@ final class InMemoryStorage implements PersisterProvider
     public function row(string $table, int|string $id): array
     {
         return $this->tables[$table][(string) $id] ?? throw new \LogicException(\sprintf('No row %s in "%s".', $id, $table));
+    }
+
+    // ligne supprimée hors de l'UnitOfWork (autre processus)
+    public function deleteRow(string $table, int|string $id): void
+    {
+        unset($this->tables[$table][(string) $id]);
     }
 
     public function setColumn(string $table, int|string $id, string $column, mixed $value): void
