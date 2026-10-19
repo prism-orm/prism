@@ -55,8 +55,8 @@ cs: ## Corrige le style (PHP-CS-Fixer)
 cs-check: ## Vérifie le style sans corriger
 	$(RUN) vendor/bin/php-cs-fixer fix --dry-run --diff
 
-infection: ## Mutation testing
-	$(RUN) vendor/bin/infection --threads=max --show-mutations
+infection: ## Mutation testing (une classe : make infection FILTER=packages/dbal/src/Schema/Comparator.php)
+	$(RUN) vendor/bin/infection --threads=max --show-mutations $(if $(FILTER),--filter=$(FILTER))
 
 bench: ## Benchmarks PHPBench
 	$(RUN) vendor/bin/phpbench run --report=aggregate
