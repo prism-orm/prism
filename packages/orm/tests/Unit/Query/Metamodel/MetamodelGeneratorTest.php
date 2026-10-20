@@ -28,6 +28,7 @@ use Prism\Orm\Query\Metamodel\MetamodelGenerator;
 use Prism\Orm\Query\Metamodel\MixedField;
 use Prism\Orm\Query\Metamodel\Relation;
 use Prism\Orm\Query\Metamodel\StringField;
+use Prism\Orm\Tests\Functional\PersisterFixtures;
 use Prism\Orm\Tests\Unit\Mapping\Fixtures\Address;
 use Prism\Orm\Tests\Unit\Mapping\Fixtures\Client;
 use Prism\Orm\Tests\Unit\Mapping\Fixtures\FixtureStatus;
@@ -251,12 +252,83 @@ final class MetamodelGeneratorTest extends TestCase
     public function testCommand(): void
     {
         $tester = new CommandTester(new MetamodelGenerateCommand(new MetadataFactory(new AttributeDriver([\dirname(__DIR__, 2) . '/Mapping/Fixtures']))));
+        $options = ['--dir' => $this->dir . '/var', '--ide-stub' => $this->dir . '/.prism/metamodel.php', '--phpstorm-meta' => $this->dir . '/.phpstorm.meta.php'];
 
-        self::assertSame(0, $tester->execute(['--dir' => $this->dir]));
+        self::assertSame(0, $tester->execute($options));
         self::assertStringContainsString('written', $tester->getDisplay());
-        self::assertFileExists($this->dir . '/Prism/Orm/Tests/Unit/Mapping/Fixtures/Invoice_.php');
-        self::assertSame(0, $tester->execute(['--dir' => $this->dir]));
+        self::assertFileExists($this->dir . '/var/Prism/Orm/Tests/Unit/Mapping/Fixtures/Invoice_.php');
+        self::assertFileExists($this->dir . '/.prism/metamodel.php');
+        self::assertFileExists($this->dir . '/.phpstorm.meta.php/prism.php');
+        self::assertSame(0, $tester->execute($options));
         self::assertStringContainsString('0 written', $tester->getDisplay());
+        self::assertStringNotContainsString('.prism', $tester->getDisplay(), 'unchanged helpers are not listed');
+    }
+
+    public function testCommandWithoutIdeHelpers(): void
+    {
+        $tester = new CommandTester(new MetamodelGenerateCommand(new MetadataFactory(new AttributeDriver([\dirname(__DIR__, 2) . '/Mapping/Fixtures']))));
+
+        self::assertSame(0, $tester->execute(['--dir' => $this->dir . '/var', '--ide-stub' => $this->dir . '/stub.php', '--phpstorm-meta' => $this->dir . '/meta', '--no-ide' => true]));
+        self::assertFileDoesNotExist($this->dir . '/stub.php');
+        self::assertDirectoryDoesNotExist($this->dir . '/meta');
+    }
+
+    // ---------------------------------------------------------------- aide aux IDE (RG-05.2)
+
+    public function testStubIsTheReference(): void
+    {
+        $stub = new MetamodelGenerator()->renderStub(self::invoiceAndClient());
+
+        self::assertStringEqualsFile(__DIR__ . '/Expected/stub.txt', $stub);
+    }
+
+    public function testStubIsValidPhpAndHoldsEachClassOnce(): void
+    {
+        $file = $this->dir . '/stub.php';
+        new MetamodelGenerator()->generateIdeHelpers(self::metadata([Invoice::class, Client::class, AllTypes::class]), $file, null);
+
+        exec(\sprintf('%s -l %s 2>&1', escapeshellarg(\PHP_BINARY), escapeshellarg($file)), $output, $status);
+        self::assertSame(0, $status, implode("\n", $output));
+        $stub = (string) file_get_contents($file);
+        self::assertSame(1, substr_count($stub, 'final class Address_ '), 'an embeddable shared by entities is declared once');
+        self::assertSame(4, substr_count($stub, 'final class '));
+        self::assertStringContainsString("namespace Prism\\Orm\\Tests\\Unit\\Query\\Metamodel\\Fixtures {\n", $stub);
+    }
+
+    public function testPhpStormMetaMapsEntitiesToTheirRepository(): void
+    {
+        $meta = new MetamodelGenerator()->renderPhpStormMeta(self::metadata([Invoice::class, PersisterFixtures\Customer::class]));
+
+        self::assertStringEqualsFile(__DIR__ . '/Expected/phpstorm-meta.txt', $meta);
+        self::assertStringNotContainsString('override(', new MetamodelGenerator()->renderPhpStormMeta(self::invoiceAndClient()), 'no repository declared: nothing to override');
+    }
+
+    public function testIdeHelpersAreNotRewrittenWhenUnchanged(): void
+    {
+        $generator = new MetamodelGenerator();
+        $stub = $this->dir . '/.prism/metamodel.php';
+        $meta = $this->dir . '/.phpstorm.meta.php';
+
+        $first = $generator->generateIdeHelpers(self::invoiceAndClient(), $stub, $meta);
+        self::assertSame([$stub, $meta . '/prism.php'], $first->written);
+        touch($stub, 1_000_000);
+        $second = $generator->generateIdeHelpers(self::invoiceAndClient(), $stub, $meta . '/');
+
+        self::assertSame([], $second->written);
+        self::assertSame([$stub, $meta . '/prism.php'], $second->unchanged);
+        clearstatcache();
+        self::assertSame(1_000_000, filemtime($stub), 'mtime kept');
+        self::assertSame([], $generator->generateIdeHelpers(self::invoiceAndClient(), null, null)->written);
+    }
+
+    public function testUnwritableIdeHelperFails(): void
+    {
+        mkdir($this->dir);
+        file_put_contents($this->dir . '/.phpstorm.meta.php', '<?php // a file, not a directory');
+
+        $this->expectException(MetamodelException::class);
+
+        new MetamodelGenerator()->generateIdeHelpers(self::invoiceAndClient(), null, $this->dir . '/.phpstorm.meta.php');
     }
 
     // ---------------------------------------------------------------- outils
