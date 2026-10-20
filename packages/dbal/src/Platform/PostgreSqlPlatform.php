@@ -24,6 +24,19 @@ final class PostgreSqlPlatform extends AbstractPlatform
     }
 
     // au-delà, PostgreSQL tronque l'identifiant sans erreur : Prism refuse avant
+    // colonne JSONB : une clé ou un index par argument, un index s'écrit comme une clé
+    public function getJsonExtractTextSql(string $expression, array $path): string
+    {
+        $keys = array_map(fn (string|int $key): string => $this->quoteStringLiteral((string) $key), self::validJsonPath($path));
+
+        return \sprintf('jsonb_extract_path_text(%s, %s)', $expression, implode(', ', $keys));
+    }
+
+    public function getCastSql(string $expression, string $type): string
+    {
+        return \sprintf('CAST(%s AS %s)', $expression, 'integer' === $type ? 'BIGINT' : 'NUMERIC');
+    }
+
     public function getMaxIdentifierLength(): int
     {
         return 63;

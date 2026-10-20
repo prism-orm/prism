@@ -37,6 +37,12 @@ final class SqlitePlatform extends AbstractPlatform
     }
 
     // aucun verrou de ligne : une transaction en écriture verrouille toute la base (décision C)
+    // json_extract rend la valeur JSON native (un nombre reste un nombre) : ramenée au texte, comme ailleurs
+    public function getJsonExtractTextSql(string $expression, array $path): string
+    {
+        return \sprintf('CAST(json_extract(%s, %s) AS TEXT)', $expression, $this->getJsonPathLiteral($path));
+    }
+
     public function getLockSql(LockMode $mode): string
     {
         return '';

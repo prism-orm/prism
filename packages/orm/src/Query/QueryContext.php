@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Prism\Orm\Query;
 
+use Prism\Dbal\Platform\AbstractPlatform;
 use Prism\Dbal\Query\Expression;
 use Prism\Dbal\Query\ExpressionBuilder;
 use Prism\Dbal\Query\QueryBuilder;
@@ -99,6 +100,11 @@ final class QueryContext
     public function metadataOf(Metamodel $metamodel): ClassMetadata
     {
         return $this->owner($metamodel);
+    }
+
+    public function platform(): AbstractPlatform
+    {
+        return $this->qb->getConnection()->getPlatform();
     }
 
     public function expr(): ExpressionBuilder

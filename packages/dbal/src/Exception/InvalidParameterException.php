@@ -5,7 +5,8 @@ declare(strict_types=1);
 namespace Prism\Dbal\Exception;
 
 /**
- * Paramètre non liable (type non scalaire, clés positionnelles et nommées mélangées) ou nom de savepoint invalide.
+ * Paramètre non liable (type non scalaire, clés positionnelles et nommées mélangées), nom de savepoint
+ * ou chemin JSON invalide.
  *
  * @api
  */
@@ -24,6 +25,11 @@ final class InvalidParameterException extends \InvalidArgumentException implemen
     public static function nulByteInLiteral(): self
     {
         return new self('Cannot quote a string literal containing a NUL byte.');
+    }
+
+    public static function invalidJsonPath(string $reason): self
+    {
+        return new self(\sprintf('Invalid JSON path: %s.', $reason));
     }
 
     public static function mixedKeys(): self
