@@ -10,7 +10,8 @@ use Prism\Dbal\ParameterType;
 /**
  * Conditions dont le premier argument est toujours une colonne (SQL brut) et le second toujours
  * une valeur, liée en paramètre (RG-01.4). Pour comparer deux colonnes, écrire le SQL brut :
- * 'c.id = i.client_id'.
+ * 'c.id = i.client_id'. Les fonctions d'agrégat rendent leur SQL standard, pour select(),
+ * having() et orderBy().
  *
  * @api
  */
@@ -111,6 +112,34 @@ final class ExpressionBuilder
     public function or(Expression|string ...$conditions): Expression
     {
         return $this->composite('OR', $conditions);
+    }
+
+    /**
+     * COUNT(expression), ou COUNT(DISTINCT expression) ; COUNT(*) sans expression.
+     */
+    public function count(?string $expression = null, bool $distinct = false): string
+    {
+        return 'COUNT(' . ($distinct ? 'DISTINCT ' : '') . ($expression ?? '*') . ')';
+    }
+
+    public function sum(string $expression): string
+    {
+        return 'SUM(' . $expression . ')';
+    }
+
+    public function avg(string $expression): string
+    {
+        return 'AVG(' . $expression . ')';
+    }
+
+    public function min(string $expression): string
+    {
+        return 'MIN(' . $expression . ')';
+    }
+
+    public function max(string $expression): string
+    {
+        return 'MAX(' . $expression . ')';
     }
 
     private function compare(string $column, string $operator, mixed $value, ParameterType|string|null $type): Expression

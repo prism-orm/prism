@@ -100,4 +100,12 @@ final class ExpressionBuilderTest extends TestCase
 
         self::assertSame('NOT ((a = :prism_1) OR (b IS NULL))', $this->where($e->not($e->or($e->eq('a', 1), 'b IS NULL'))));
     }
+
+    public function testAggregates(): void
+    {
+        $e = $this->qb->expr();
+
+        self::assertSame(['COUNT(*)', 'COUNT(o.id)', 'COUNT(DISTINCT o.client_id)'], [$e->count(), $e->count('o.id'), $e->count('o.client_id', distinct: true)]);
+        self::assertSame(['SUM(o.total)', 'AVG(o.total)', 'MIN(o.total)', 'MAX(o.total)'], [$e->sum('o.total'), $e->avg('o.total'), $e->min('o.total'), $e->max('o.total')]);
+    }
 }
