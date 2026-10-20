@@ -1,4 +1,8 @@
 # Règle RT-11 : niveau max, strict-rules, aucune baseline sur dbal et orm.
+# L'extension de Prism s'applique aussi à son propre code (ADR 0011).
+includes:
+    - packages/phpstan/extension.neon
+
 parameters:
     level: max
     tmpDir: var/phpstan
@@ -12,7 +16,13 @@ parameters:
         - packages/migrations/tests
         - packages/bundle/src
         - packages/bundle/tests
+        - packages/phpstan/src
+        - packages/phpstan/tests
         - benchmarks
+    # cas de la suite de l'extension : du code volontairement faux, analysé par RuleTestCase
+    excludePaths:
+        - packages/phpstan/tests/data
+        - packages/phpstan/tests/Fixtures/Initialized
     checkUninitializedProperties: true
     # PHPBench appelle setUp() (BeforeMethods) avant chaque mesure, comme un constructeur
     additionalConstructors:

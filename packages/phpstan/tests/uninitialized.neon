@@ -1,0 +1,6 @@
+# Tests des propriétés mappées : PHPStan vérifie l'initialisation des propriétés
+includes:
+    - ../extension.neon
+
+parameters:
+    checkUninitializedProperties: true

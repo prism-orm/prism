@@ -118,11 +118,12 @@ final class JsonPathTest extends MappingSchemaTestCase
         $t = AllTypes_::as('t');
 
         $tally = $this->em->query($t)->where($t->id->eq(1))
-            ->selectInto(Tally::class, count: $t->json->path('lines', 0, 'qty')->asInt(), city: $t->json->path('customer', 'city')->asString(), amount: $t->json->path('amount')->asDecimal())
+            ->selectInto(Tally::class, count: $t->id, qty: $t->json->path('lines', 0, 'qty')->asInt(), city: $t->json->path('customer', 'city')->asString(), amount: $t->json->path('amount')->asDecimal())
             ->getOneOrNull();
 
         self::assertNotNull($tally);
-        self::assertSame(3, $tally->count);
+        self::assertSame(1, $tally->count);
+        self::assertSame(3, $tally->extra['qty']);
         self::assertSame('Lyon', $tally->extra['city']);
         self::assertIsString($tally->extra['amount']);
         self::assertEqualsWithDelta(10.5, (float) $tally->extra['amount'], 0.0001, 'its scale depends on the platform');

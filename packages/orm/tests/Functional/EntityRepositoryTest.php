@@ -81,6 +81,8 @@ final class EntityRepositoryTest extends MappingSchemaTestCase
     {
         $repository = $this->em->getRepository(Customer::class);
 
+        // l'extension PHPStan le déduit déjà de #[Entity(repositoryClass:)] ; vérifié ici à l'exécution
+        // @phpstan-ignore staticMethod.alreadyNarrowedType
         self::assertInstanceOf(CustomerRepository::class, $repository);
         self::assertSame($repository, $this->em->getRepository(Customer::class));
         self::assertSame(['Bernard', 'Dupont', 'Petit'], self::names($repository->inCity('Paris')));
@@ -92,6 +94,7 @@ final class EntityRepositoryTest extends MappingSchemaTestCase
     {
         $this->expectException(MappingException::class);
 
+        // @phpstan-ignore prism.findBy.unknownField (refusé aussi à l'exécution)
         $this->em->getRepository(Customer::class)->findBy(['country' => 'FR']);
     }
 
