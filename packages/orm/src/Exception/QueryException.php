@@ -129,4 +129,27 @@ final class QueryException extends \LogicException implements OrmException
     {
         return new self(\sprintf('Invalid JSON path %s on $%s: give one or more keys of letters, digits and underscores, or array indexes from 0.', json_encode($keys, \JSON_THROW_ON_ERROR), $field));
     }
+
+    public static function invalidPage(int $page, int $perPage): self
+    {
+        return new self(\sprintf('A page starts at 1 and holds at least 1 entity, got page %d of %d.', $page, $perPage));
+    }
+
+    public static function paginatedWithLimit(): self
+    {
+        return new self('paginate() sets the limit and the offset of the page: remove limit() and offset() from the query.');
+    }
+
+    /**
+     * @param class-string $entity
+     */
+    public static function paginationWithoutOrder(string $entity): self
+    {
+        return new self(\sprintf('Pages of %s need a deterministic order: add an orderBy(); its identifier is added as the last criterion.', $entity));
+    }
+
+    public static function paginatedOrderingOnCollection(): self
+    {
+        return new self('With a joined collection, a page is ordered by fields of the root or of a ToOne relation: an order on the collection, or on a computed expression, does not order the root entities.');
+    }
 }

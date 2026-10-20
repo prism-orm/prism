@@ -6,6 +6,7 @@ namespace Prism\Orm\Query;
 
 use Prism\Dbal\Connection;
 use Prism\Dbal\ParameterType;
+use Prism\Dbal\Query\Expression;
 use Prism\Dbal\Query\Order;
 use Prism\Dbal\Query\QueryBuilder;
 use Prism\Orm\EntityManagerInterface;
@@ -15,7 +16,9 @@ use Prism\Orm\Mapping\Order as MappingOrder;
 use Prism\Orm\Metadata\AssociationMapping;
 use Prism\Orm\Metadata\ClassMetadata;
 use Prism\Orm\Metadata\MetadataFactory;
+use Prism\Orm\Query\Metamodel\Field;
 use Prism\Orm\Query\Metamodel\Metamodel;
+use Prism\Orm\Query\Metamodel\MixedField;
 
 /**
  * Requête typée (pilier 2) sur une entité racine, sans chaîne de nom de champ :
@@ -383,6 +386,68 @@ final class EntityQueryBuilder
         return $this->build($this->limit, $this->offset)[0]->getParameterTypes();
     }
 
+    /**
+     * Une page de la requête (RG-05.9). Le tri doit être déterministe : l'identifiant de la
+     * racine y est ajouté en dernier critère. Avec une jointure de collection, les identifiants
+     * de la page sont lus d'abord, puis leurs entités, collections complètes.
+     *
+     * @return Paginator<T>
+     *
+     * @throws QueryException page invalide, requête sans tri, déjà limitée ou groupée, tri sur
+     *                        une collection
+     */
+    public function paginate(int $page, int $perPage = 20): Paginator
+    {
+        if ($page < 1 || $perPage < 1) {
+            throw QueryException::invalidPage($page, $perPage);
+        }
+        if (null !== $this->limit || 0 !== $this->offset) {
+            throw QueryException::paginatedWithLimit();
+        }
+        if ([] === $this->orderBy) {
+            throw QueryException::paginationWithoutOrder($this->root->entity);
+        }
+        $metadata = $this->metadata->getMetadataFor($this->root->entity);
+        $id = new MixedField($this->root, $metadata->id->fieldName);
+        $ordered = $this;
+        if ([] === array_filter($this->orderBy, static fn (Ordering $o): bool => $o->operand instanceof Field && $o->operand->owner === $ordered->root && $o->operand->path === $id->path)) {
+            $ordered = $this->addOrderBy($id->asc());
+        }
+        $offset = ($page - 1) * $perPage;
+        $count = $ordered->countQuery(...);
+
+        $collections = $this->collectionAliases();
+        if ([] === $collections) {
+            return new Paginator($ordered->limit($perPage)->offset($offset)->getResult(), $page, $perPage, $count);
+        }
+        foreach ($ordered->orderBy as $ordering) {
+            if (!$ordering->operand instanceof Field || \in_array($ordering->operand->owner->alias, $collections, true)) {
+                throw QueryException::paginatedOrderingOnCollection();
+            }
+        }
+
+        // les identifiants de la page, une fois chacun, dans l'ordre ; puis leurs entités
+        $qb = $this->em->getConnection()->createQueryBuilder();
+        $context = new QueryContext($qb, $this->metadata);
+        [$qb] = $this->from($context, $qb);
+        $idColumn = $id->toSql($context);
+        $orderings = array_map(static fn (Ordering $o): string => $o->operand->toSql($context), $ordered->orderBy);
+        $qb = $qb->select($idColumn)->groupBy(...array_values(array_unique([$idColumn, ...$orderings])));
+        if (null !== $this->where) {
+            $qb = $qb->where($this->where->compile($context));
+        }
+        foreach ($ordered->orderBy as $i => $ordering) {
+            $qb = $qb->addOrderBy($orderings[$i], $ordering->order);
+        }
+        $ids = $qb->limit($perPage)->offset($offset)->executeQuery()->fetchFirstColumn();
+        if ([] === $ids) {
+            return new Paginator([], $page, $perPage, $count);
+        }
+        $items = $ordered->andWhere(Condition::of(static fn (QueryContext $c): Expression => $c->expr()->in($id->toSql($c), $ids)))->getResult();
+
+        return new Paginator($items, $page, $perPage, $count);
+    }
+
     public function getConnection(): Connection
     {
         return $this->em->getConnection();
@@ -414,6 +479,47 @@ final class EntityQueryBuilder
         return $this->with(static function (self $qb) use ($target, $left, $fetch): void {
             $qb->joins[] = [$target, $left, $fetch];
         });
+    }
+
+    /**
+     * Les entités de toutes les pages : une fois chacune, même si une jointure multiplie les lignes.
+     *
+     * @throws QueryException
+     */
+    private function countQuery(): int
+    {
+        $qb = $this->em->getConnection()->createQueryBuilder();
+        $context = new QueryContext($qb, $this->metadata);
+        [$qb, $metadata] = $this->from($context, $qb);
+        $qb = $qb->select([] === $this->joins ? $qb->expr()->count() : $qb->expr()->count($qb->column($metadata->getIdField()->columnName, $this->root->alias), distinct: true));
+        if (null !== $this->where) {
+            $qb = $qb->where($this->where->compile($context));
+        }
+        $count = $qb->executeQuery()->fetchOne();
+
+        return is_numeric($count) ? (int) $count : 0;
+    }
+
+    /**
+     * Les alias joints par une collection, et ceux joints depuis eux : chacun multiplie les lignes.
+     *
+     * @return list<string>
+     */
+    private function collectionAliases(): array
+    {
+        $aliases = [];
+        foreach ($this->joins as [$target]) {
+            $relation = $target->via();
+            if (null === $relation) {
+                continue;
+            }
+            $owner = $this->metadata->getMetadataFor($relation->owner->entity);
+            if (\in_array($relation->owner->alias, $aliases, true) || ($owner->hasAssociation($relation->path) && $owner->getAssociation($relation->path)->isCollection())) {
+                $aliases[] = $target->alias;
+            }
+        }
+
+        return $aliases;
     }
 
     /**
