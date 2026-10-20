@@ -38,6 +38,20 @@ abstract class AbstractMySqlPlatform extends AbstractPlatform
         return "'" . str_replace(['\\', "'"], ['\\\\', "''"], $value) . "'";
     }
 
+    // JSON_UNQUOTE rendrait « null » pour un null JSON : JSON_TYPE le ramène à NULL, comme ailleurs
+    public function getJsonExtractTextSql(string $expression, array $path): string
+    {
+        $extract = \sprintf('JSON_EXTRACT(%s, %s)', $expression, $this->getJsonPathLiteral($path));
+
+        return \sprintf("CASE JSON_TYPE(%s) WHEN 'NULL' THEN NULL ELSE JSON_UNQUOTE(%s) END", $extract, $extract);
+    }
+
+    // DECIMAL(65, 30) : la plus grande échelle de MySQL, sans perte ; la valeur garde 30 décimales
+    public function getCastSql(string $expression, string $type): string
+    {
+        return \sprintf('CAST(%s AS %s)', $expression, 'integer' === $type ? 'SIGNED' : 'DECIMAL(65, 30)');
+    }
+
     public function getMaxIdentifierLength(): int
     {
         return 64;
