@@ -7,6 +7,8 @@ namespace Prism\Orm\Console\Command;
 use Prism\Dbal\Connection;
 use Prism\Orm\Console\MappedSchema;
 use Prism\Orm\Exception\MappingException;
+use Prism\Orm\Metadata\MappingError;
+use Prism\Orm\Metadata\MappingSeverity;
 use Prism\Orm\Metadata\MetadataFactory;
 use Prism\Orm\Metadata\MetadataValidator;
 use Symfony\Component\Console\Attribute\AsCommand;
@@ -45,10 +47,17 @@ final class SchemaValidateCommand extends Command
 
         try {
             $metadata = $this->schema->getMetadataFactory()->getAllMetadata();
-            $errors = array_map(static fn ($e): string => (string) $e, new MetadataValidator($this->schema->getConnection()->getTypeRegistry())->validate($metadata));
+            $found = new MetadataValidator($this->schema->getConnection()->getTypeRegistry())->validate($metadata);
+            $errors = array_values(array_map(static fn (MappingError $e): string => (string) $e, array_filter($found, static fn (MappingError $e): bool => MappingSeverity::Error === $e->severity)));
+            $warnings = array_values(array_map(static fn (MappingError $e): string => (string) $e, array_filter($found, static fn (MappingError $e): bool => MappingSeverity::Warning === $e->severity)));
         } catch (MappingException $e) {
             // erreur du driver : une classe dont la metadata ne peut pas être construite
             $errors = [$e->getMessage()];
+            $warnings = [];
+        }
+        if ([] !== $warnings) {
+            $io->warning(\sprintf('%d mapping warning%s (RG-04.6).', \count($warnings), 1 === \count($warnings) ? '' : 's'));
+            $io->listing($warnings);
         }
 
         if ([] !== $errors) {

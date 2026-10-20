@@ -7,6 +7,8 @@ namespace Prism\Orm\Persister;
 use Prism\Dbal\Connection;
 use Prism\Orm\Id\IdGeneratorFactory;
 use Prism\Orm\Metadata\ClassMetadata;
+use Prism\Orm\Metadata\Driver\AttributeDriver;
+use Prism\Orm\Metadata\MetadataFactory;
 
 /**
  * Persisters sur une Connection du DBAL ; la transaction du flush est Connection::transactional()
@@ -21,14 +23,30 @@ final class DbalPersisterProvider implements PersisterProvider
 
     private readonly IdGeneratorFactory $generators;
 
-    public function __construct(private readonly Connection $connection)
-    {
+    private readonly MetadataFactory $metadata;
+
+    // la MetadataFactory type les colonnes de jointure comme l'identifiant de leur cible
+    public function __construct(
+        private readonly Connection $connection,
+        ?MetadataFactory $metadata = null,
+    ) {
         $this->generators = new IdGeneratorFactory($connection->getPlatform());
+        $this->metadata = $metadata ?? new MetadataFactory(new AttributeDriver(), types: $connection->getTypeRegistry());
     }
 
     public function getPersister(ClassMetadata $metadata): BasicEntityPersister
     {
-        return $this->persisters[$metadata->className] ??= new BasicEntityPersister($this->connection, $metadata);
+        if (!isset($this->persisters[$metadata->className])) {
+            $joins = [];
+            foreach ($metadata->getAssociations() as $association) {
+                if ($association->isToOne() && $association->isOwningSide()) {
+                    $joins[$association->fieldName] = [(string) $association->joinColumn, $this->metadata->getMetadataFor($association->targetEntity)->getIdField()->type];
+                }
+            }
+            $this->persisters[$metadata->className] = new BasicEntityPersister($this->connection, $metadata, $joins);
+        }
+
+        return $this->persisters[$metadata->className];
     }
 
     public function nextId(ClassMetadata $metadata): int|string|null

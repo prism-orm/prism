@@ -7,7 +7,7 @@ ORM PHP moderne pour les applications métier et l'IA.
 - Multi-tenancy et audit natifs
 - Type `vector` et recherche hybride
 
-> Statut : phase 0 (fondations). Rien n'est encore utilisable.
+> Statut : `0.4.0`, phases 0 à 4 livrées (DBAL, mapping, EntityManager, relations et anti-N+1). Versions `0.x` : l'API peut encore changer. Voir [CHANGELOG.md](CHANGELOG.md).
 
 ## Démarrer
 

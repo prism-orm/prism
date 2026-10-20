@@ -81,4 +81,31 @@ interface EntityPersister
      * @return bool faux si la ligne n'existe pas
      */
     public function lock(mixed $id, LockMode $mode): bool;
+
+    /**
+     * Lignes de cette entité liées aux propriétaires $ownerIds par la table pivot $table, en une
+     * jointure : chaque ligne avec l'identifiant de son propriétaire (valeur de la base).
+     *
+     * @param non-empty-list<mixed> $ownerIds
+     * @param array<string, Order>  $orderBy  champ de cette entité → sens
+     *
+     * @return list<array{mixed, array<string, mixed>}>
+     */
+    public function loadByJoinTable(string $table, string $ownerColumn, string $targetColumn, array $ownerIds, string $ownerType, array $orderBy = []): array;
+
+    public function countJoinTable(string $table, string $ownerColumn, mixed $ownerId, string $ownerType): int;
+
+    /**
+     * @param array<string, mixed>  $row   colonne → valeur de la base
+     * @param array<string, string> $types colonne → type DBAL
+     */
+    public function insertJoinRow(string $table, array $row, array $types): void;
+
+    /**
+     * Supprime les lignes pivot qui satisfont tous les critères.
+     *
+     * @param array<string, mixed>  $criteria colonne → valeur de la base
+     * @param array<string, string> $types    colonne → type DBAL
+     */
+    public function deleteJoinRows(string $table, array $criteria, array $types): int;
 }

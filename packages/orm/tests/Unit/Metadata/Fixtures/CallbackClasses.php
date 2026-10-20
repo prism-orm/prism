@@ -53,6 +53,27 @@ final class ListenedEntity
 {
 }
 
+// ADR 0007 : une seule forme acceptée, Collection non nullable
+final class UntypedCollections
+{
+    /** @var iterable<int, object> */
+    public iterable $iterable = [];
+
+    /** @var array<int, object> */
+    public array $array = [];
+
+    /** @var \Prism\Orm\Collection\Collection<int, object>|null */
+    public ?\Prism\Orm\Collection\Collection $nullable = null;
+
+    /** @var \Prism\Orm\Collection\Collection<int, object> */
+    public \Prism\Orm\Collection\Collection $typed;
+
+    public function __construct()
+    {
+        $this->typed = new \Prism\Orm\Collection\ArrayCollection();
+    }
+}
+
 final class EmptyListener
 {
 }

@@ -10,6 +10,7 @@ use Prism\Dbal\Type\ConversionContext;
 use Prism\Dbal\Type\Type;
 use Prism\Dbal\Type\TypeRegistry;
 use Prism\Orm\Exception\MappingException;
+use Prism\Orm\Mapping\Cascade;
 use Prism\Orm\Mapping\GenerationStrategy;
 use Prism\Orm\Mapping\OnDelete;
 use Prism\Orm\Mapping\Order;
@@ -23,6 +24,7 @@ use Prism\Orm\Metadata\IdMapping;
 use Prism\Orm\Metadata\IndexMapping;
 use Prism\Orm\Metadata\JoinTableMapping;
 use Prism\Orm\Metadata\MappingError;
+use Prism\Orm\Metadata\MappingSeverity;
 use Prism\Orm\Metadata\MetadataValidator;
 use Prism\Orm\Tests\Unit\Mapping\Fixtures\Address;
 use Prism\Orm\Tests\Unit\Mapping\Fixtures\Client;
@@ -34,6 +36,7 @@ use Prism\Orm\Tests\Unit\Metadata\Fixtures\Callbacks\CallbackEntity;
 use Prism\Orm\Tests\Unit\Metadata\Fixtures\Callbacks\CheckedListener;
 use Prism\Orm\Tests\Unit\Metadata\Fixtures\Callbacks\EmptyListener;
 use Prism\Orm\Tests\Unit\Metadata\Fixtures\Callbacks\ListenedEntity;
+use Prism\Orm\Tests\Unit\Metadata\Fixtures\Callbacks\UntypedCollections;
 
 /**
  * Cas du validateur, chacun avec son message exact. Avec les 20 erreurs du driver, ils forment
@@ -241,6 +244,15 @@ final class MetadataValidatorTest extends TestCase
                 CallbackEntity::class . ': lifecycle callback wrongType(): parameter $event must accept Prism\\Orm\\Event\\PostLoadEvent, which #[PostLoad] passes.',
             ],
         ];
+        yield '27 collection relations typed Collection' => [
+            static fn (): array => [self::meta(UntypedCollections::class, 'untyped', [], [
+                self::manyToMany(UntypedCollections::class, 'iterable', Tag::class, joinTable: 'pivot_iterable'),
+                self::manyToMany(UntypedCollections::class, 'array', Tag::class, joinTable: 'pivot_array'),
+                self::manyToMany(UntypedCollections::class, 'nullable', Tag::class, joinTable: 'pivot_nullable'),
+                self::manyToMany(UntypedCollections::class, 'typed', Tag::class, joinTable: 'pivot_typed'),
+            ]), self::meta(Tag::class, 'tag')],
+            array_map(static fn (string $field): string => UntypedCollections::class . '::$' . $field . ': a collection relation must be typed Prism\\Orm\\Collection\\Collection (not array, iterable or nullable), initialized with new ArrayCollection() in the constructor (ADR 0007).', ['iterable', 'array', 'nullable']),
+        ];
         // une interface n'est pas une classe instanciable
         $missing = \Countable::class;
         yield '26 entity listener signatures' => [
@@ -287,8 +299,13 @@ final class MetadataValidatorTest extends TestCase
         $driver = new AttributeDriver();
         $metadata = array_map($driver->loadMetadata(...), [Invoice::class, Client::class, InvoiceLine::class, Tag::class]);
 
-        self::assertCount(1, self::errors($metadata));
-        self::assertStringStartsWith(Invoice::class . '::$embedding: unknown type "vector"', self::errors($metadata)[0]);
+        $found = new MetadataValidator()->validate($metadata);
+        $errors = array_values(array_filter($found, static fn (MappingError $e): bool => MappingSeverity::Error === $e->severity));
+        $warnings = array_values(array_filter($found, static fn (MappingError $e): bool => MappingSeverity::Warning === $e->severity));
+        self::assertCount(1, $errors);
+        self::assertStringStartsWith(Invoice::class . '::$embedding: unknown type "vector"', (string) $errors[0]);
+        // RG-04.6 : Invoice::$lines (cascade remove, orphanRemoval) et InvoiceLine::$invoice (onDelete CASCADE)
+        self::assertSame([Invoice::class . '::$lines: cascade: remove repeats onDelete: CASCADE of ' . InvoiceLine::class . '::$invoice: the database already deletes these rows, without events. Keep one of them (RG-04.6).'], array_map(static fn (MappingError $e): string => (string) $e, $warnings));
 
         $vector = new class extends Type {
             public function getName(): string
@@ -306,7 +323,9 @@ final class MetadataValidatorTest extends TestCase
                 return $value;
             }
         };
-        self::assertSame([], self::errors($metadata, TypeRegistry::withDefaults()->register($vector)));
+        // l'avertissement RG-04.6 reste, il ne bloque pas
+        new MetadataValidator(TypeRegistry::withDefaults()->register($vector))->assertValid($metadata);
+        self::assertCount(1, self::errors($metadata, TypeRegistry::withDefaults()->register($vector)));
     }
 
     public function testAllErrorsAreReportedAtOnce(): void
@@ -330,5 +349,32 @@ final class MetadataValidatorTest extends TestCase
         $this->expectExceptionMessage("The mapping is invalid (1 error):\n- " . Client::class . ': table "SHARED"');
 
         new MetadataValidator()->assertValid([self::meta(Invoice::class, 'shared'), self::meta(Client::class, 'SHARED')]);
+    }
+
+    /**
+     * @param list<ClassMetadata<object>> $metadata
+     *
+     * @return list<string>
+     */
+    private static function warnings(array $metadata): array
+    {
+        return array_values(array_map(static fn (MappingError $e): string => (string) $e, array_filter(new MetadataValidator()->validate($metadata), static fn (MappingError $e): bool => MappingSeverity::Warning === $e->severity)));
+    }
+
+    // RG-04.6 : avertissements, qui ne bloquent pas
+    public function testRedundantAndContradictoryRemovalPoliciesAreWarnings(): void
+    {
+        $lines = static fn (bool $orphanRemoval, bool $cascadeRemove): AssociationMapping => new AssociationMapping(Invoice::class, 'lines', AssociationType::OneToMany, InvoiceLine::class, 'invoice', cascade: $cascadeRemove ? [Cascade::Remove] : [], orphanRemoval: $orphanRemoval);
+        $line = static fn (OnDelete $onDelete): ClassMetadata => self::meta(InvoiceLine::class, 'line', [], [self::toOne(InvoiceLine::class, 'invoice', Invoice::class, 'lines', onDelete: $onDelete)]);
+        $warnings = self::warnings(...);
+
+        $redundant = [self::meta(Invoice::class, 'invoice', [], [$lines(false, true)]), $line(OnDelete::Cascade)];
+        self::assertSame([Invoice::class . '::$lines: cascade: remove repeats onDelete: CASCADE of ' . InvoiceLine::class . '::$invoice: the database already deletes these rows, without events. Keep one of them (RG-04.6).'], $warnings($redundant));
+        new MetadataValidator()->assertValid($redundant);
+
+        $contradictory = [self::meta(Invoice::class, 'invoice', [], [$lines(true, false)]), $line(OnDelete::SetNull)];
+        self::assertSame([Invoice::class . '::$lines: orphanRemoval contradicts onDelete: SET NULL of ' . InvoiceLine::class . '::$invoice: the ORM deletes the rows the database would keep. Keep one of them (RG-04.6).'], $warnings($contradictory));
+
+        self::assertSame([], $warnings([self::meta(Invoice::class, 'invoice', [], [$lines(false, true)]), $line(OnDelete::Restrict)]), 'cascade: remove alone is fine');
     }
 }

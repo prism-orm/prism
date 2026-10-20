@@ -407,7 +407,17 @@ final class Connection
             throw QueryFailedException::fromPdo($e, $sql);
         }
 
-        $this->logger->debug('Query executed in {duration_ms} ms: {sql}', $this->context($sql, $bound) + ['duration_ms' => self::elapsed($start)]);
+        $duration = self::elapsed($start);
+        $this->logger->debug('Query executed in {duration_ms} ms: {sql}', $this->context($sql, $bound) + ['duration_ms' => $duration]);
+        if ([] !== $this->configuration->observers) {
+            $values = [];
+            foreach ($bound as [$name, $value]) {
+                $values[$name] = $value;
+            }
+            foreach ($this->configuration->observers as $observer) {
+                $observer->queryExecuted($sql, $values, $duration);
+            }
+        }
 
         return $statement;
     }

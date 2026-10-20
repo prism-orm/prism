@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace Prism\Orm\Metadata;
 
 use Prism\Dbal\Type\TypeRegistry;
+use Prism\Orm\Collection\Collection;
 use Prism\Orm\Exception\MappingException;
+use Prism\Orm\Mapping\Cascade;
 use Prism\Orm\Mapping\Entity;
 use Prism\Orm\Mapping\GenerationStrategy;
 use Prism\Orm\Mapping\LifecycleEvent;
@@ -77,7 +79,8 @@ final class MetadataValidator
      */
     public function assertValid(array $metadata): void
     {
-        $errors = $this->validate($metadata);
+        // les avertissements ne bloquent pas
+        $errors = array_values(array_filter($this->validate($metadata), static fn (MappingError $e): bool => MappingSeverity::Error === $e->severity));
         if ([] !== $errors) {
             throw MappingException::invalidMapping($errors);
         }
@@ -233,6 +236,10 @@ final class MetadataValidator
         foreach ($class->getAssociations() as $association) {
             $field = $association->fieldName;
 
+            if ($association->isCollection() && !self::isTypedCollection($class->className, $field)) {
+                $this->error($class->className, $field, \sprintf('a collection relation must be typed %s (not array, iterable or nullable), initialized with new ArrayCollection() in the constructor (ADR 0007).', Collection::class));
+            }
+
             if (OnDelete::SetNull === $association->onDelete && $association->isToOne() && $association->isOwningSide() && !$association->nullable) {
                 $this->error($class->className, $field, 'onDelete: SetNull needs a nullable relation; make the property nullable or choose another action.');
             }
@@ -256,6 +263,7 @@ final class MetadataValidator
             }
 
             $this->validateOtherSide($class, $association, $target);
+            $this->validateRemovalPolicy($class, $association, $target);
         }
     }
 
@@ -390,6 +398,21 @@ final class MetadataValidator
         }
     }
 
+    /**
+     * ADR 0007 : l'ORM suit l'instance de la collection, jamais un tableau copié.
+     *
+     * @param class-string $class
+     */
+    private static function isTypedCollection(string $class, string $field): bool
+    {
+        if (!property_exists($class, $field)) {
+            return false;
+        }
+        $type = new \ReflectionProperty($class, $field)->getType();
+
+        return $type instanceof \ReflectionNamedType && Collection::class === $type->getName() && !$type->allowsNull();
+    }
+
     // un paramètre sans type, object, mixed, ou une classe parente de celle passée
     private static function accepts(?\ReflectionType $type, string $class): bool
     {
@@ -448,5 +471,36 @@ final class MetadataValidator
     private function error(string $class, ?string $field, string $message): void
     {
         $this->errors[] = new MappingError($class, $field, $message);
+    }
+
+    /**
+     * @param class-string $class
+     */
+    private function warning(string $class, string $field, string $message): void
+    {
+        $this->errors[] = new MappingError($class, $field, $message, MappingSeverity::Warning);
+    }
+
+    /**
+     * RG-04.6 : la suppression des enfants d'un OneToMany réglée deux fois, ou de deux façons
+     * contraires, par l'ORM (cascade: remove, orphanRemoval) et par la base (onDelete).
+     *
+     * @param ClassMetadata<object> $class
+     * @param ClassMetadata<object> $target
+     */
+    private function validateRemovalPolicy(ClassMetadata $class, AssociationMapping $association, ClassMetadata $target): void
+    {
+        if (AssociationType::OneToMany !== $association->type || !$target->hasAssociation((string) $association->mappedBy)) {
+            return;
+        }
+        $owning = $target->getAssociation((string) $association->mappedBy);
+        $other = $target->className . '::$' . $owning->fieldName;
+
+        if (OnDelete::Cascade === $owning->onDelete && ($association->orphanRemoval || \in_array(Cascade::Remove, $association->cascade, true))) {
+            $this->warning($class->className, $association->fieldName, \sprintf('cascade: remove repeats onDelete: CASCADE of %s: the database already deletes these rows, without events. Keep one of them (RG-04.6).', $other));
+        }
+        if (OnDelete::SetNull === $owning->onDelete && $association->orphanRemoval) {
+            $this->warning($class->className, $association->fieldName, \sprintf('orphanRemoval contradicts onDelete: SET NULL of %s: the ORM deletes the rows the database would keep. Keep one of them (RG-04.6).', $other));
+        }
     }
 }

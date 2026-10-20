@@ -19,6 +19,12 @@ use Prism\Dbal\Schema\TableDiff;
  */
 abstract class AbstractMySqlPlatform extends AbstractPlatform
 {
+    // MySQL et MariaDB n'ont pas DEFAULT VALUES
+    public function getInsertDefaultValuesSql(string $table): string
+    {
+        return 'INSERT INTO ' . $this->quoteIdentifier($table) . ' () VALUES ()';
+    }
+
     /**
      * Le backslash est un caractère d'échappement avec le sql_mode par défaut : il est doublé.
      * Un serveur en NO_BACKSLASH_ESCAPES n'est pas encore géré (voir docs/BACKLOG.md).

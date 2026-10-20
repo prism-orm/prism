@@ -24,6 +24,9 @@ use Prism\Orm\Metadata\FieldMapping;
  */
 final class BasicEntityPersister implements EntityPersister
 {
+    // colonne du propriétaire dans le résultat d'une jointure sur une table pivot
+    private const string OWNER_ALIAS = 'prism_owner';
+
     private readonly string $idColumn;
 
     /** @var array<string, ParameterType> type de liaison par colonne */
@@ -31,18 +34,29 @@ final class BasicEntityPersister implements EntityPersister
 
     private readonly bool $identity;
 
+    /** @var array<string, FieldMapping> colonne de jointure de chaque relation possédée, typée comme l'identifiant visé */
+    private readonly array $joins;
+
     /**
-     * @param ClassMetadata<object> $metadata
+     * @param ClassMetadata<object>                $metadata
+     * @param array<string, array{string, string}> $joinColumns relation ToOne possédée → colonne et type
      */
     public function __construct(
         private readonly Connection $connection,
         private readonly ClassMetadata $metadata,
+        array $joinColumns = [],
     ) {
         $this->idColumn = $metadata->getIdField()->columnName;
         $bindings = [];
         foreach ($metadata->getColumnTypes() as $column => $type) {
             $bindings[$column] = $connection->getTypeRegistry()->get($type)->getBindingType();
         }
+        $joins = [];
+        foreach ($joinColumns as $field => [$column, $type]) {
+            $joins[$field] = new FieldMapping($field, $column, $type, true);
+            $bindings[$column] = $connection->getTypeRegistry()->get($type)->getBindingType();
+        }
+        $this->joins = $joins;
         $this->bindings = $bindings;
         $this->identity = GenerationStrategy::Identity === GenerationStrategyResolver::resolve($metadata->id->strategy, $connection->getPlatform());
     }
@@ -54,11 +68,16 @@ final class BasicEntityPersister implements EntityPersister
             unset($row[$this->idColumn]);
         }
 
-        $qb = $this->connection->createQueryBuilder()->insert($this->metadata->tableName);
-        foreach ($row as $column => $value) {
-            $qb = $qb->set($column, $value, $this->binding($column, $value));
+        if ([] === $row) {
+            // seul l'identifiant, attribué par la base
+            $this->connection->executeStatement($this->connection->getPlatform()->getInsertDefaultValuesSql($this->metadata->tableName));
+        } else {
+            $qb = $this->connection->createQueryBuilder()->insert($this->metadata->tableName);
+            foreach ($row as $column => $value) {
+                $qb = $qb->set($column, $value, $this->binding($column, $value));
+            }
+            $qb->executeStatement();
         }
-        $qb->executeStatement();
 
         return $this->identity && !\array_key_exists($this->idColumn, $row) ? new IdentityGenerator()->generate($this->connection) : null;
     }
@@ -141,6 +160,60 @@ final class BasicEntityPersister implements EntityPersister
         return false !== $this->whereKey($qb, $id, null)->lock($mode)->executeQuery()->fetchOne();
     }
 
+    public function loadByJoinTable(string $table, string $ownerColumn, string $targetColumn, array $ownerIds, string $ownerType, array $orderBy = []): array
+    {
+        $qb = $this->connection->createQueryBuilder();
+        $owner = $this->connection->getPlatform()->quoteIdentifier(self::OWNER_ALIAS);
+        $qb = $qb->select($qb->column($ownerColumn, 'p') . ' AS ' . $owner, ...array_map(static fn (string $column): string => $qb->column($column, 't'), array_keys($this->bindings)))
+            ->from($this->metadata->tableName, 't')
+            ->join($table, 'p', $qb->column($targetColumn, 'p') . ' = ' . $qb->column($this->idColumn, 't'));
+        $qb = $qb->where($qb->expr()->in($qb->column($ownerColumn, 'p'), $ownerIds, $this->bindingOf($ownerType)));
+        foreach ($orderBy as $field => $order) {
+            $qb = $qb->addOrderBy($qb->column($this->field($field)->columnName, 't'), $order);
+        }
+
+        $rows = [];
+        foreach ($qb->executeQuery()->fetchAllAssociative() as $row) {
+            $ownerId = $row[self::OWNER_ALIAS];
+            unset($row[self::OWNER_ALIAS]);
+            $rows[] = [$ownerId, $row];
+        }
+
+        return $rows;
+    }
+
+    public function countJoinTable(string $table, string $ownerColumn, mixed $ownerId, string $ownerType): int
+    {
+        $qb = $this->connection->createQueryBuilder();
+        $count = $qb->select('COUNT(*)')->from($table)->where($qb->expr()->eq($qb->column($ownerColumn), $ownerId, $this->bindingOf($ownerType)))->executeQuery()->fetchOne();
+
+        return is_numeric($count) ? (int) $count : 0;
+    }
+
+    public function insertJoinRow(string $table, array $row, array $types): void
+    {
+        $qb = $this->connection->createQueryBuilder()->insert($table);
+        foreach ($row as $column => $value) {
+            $qb = $qb->set($column, $value, $this->bindingOf($types[$column]));
+        }
+        $qb->executeStatement();
+    }
+
+    public function deleteJoinRows(string $table, array $criteria, array $types): int
+    {
+        $qb = $this->connection->createQueryBuilder()->delete($table);
+        foreach ($criteria as $column => $value) {
+            $qb = $qb->andWhere($qb->expr()->eq($qb->column($column), $value, $this->bindingOf($types[$column])));
+        }
+
+        return $qb->executeStatement();
+    }
+
+    private function bindingOf(string $type): ParameterType
+    {
+        return $this->connection->getTypeRegistry()->get($type)->getBindingType();
+    }
+
     private function select(): QueryBuilder
     {
         $qb = $this->connection->createQueryBuilder();
@@ -182,8 +255,12 @@ final class BasicEntityPersister implements EntityPersister
         return $qb;
     }
 
+    // un champ, ou une relation ToOne possédée par sa colonne de jointure (critère : identifiant visé)
     private function field(string $name): FieldMapping
     {
+        if (isset($this->joins[$name])) {
+            return $this->joins[$name];
+        }
         if (!$this->metadata->hasField($name)) {
             throw MappingException::unknownField($this->metadata->className, $name);
         }

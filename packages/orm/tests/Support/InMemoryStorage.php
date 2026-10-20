@@ -23,6 +23,9 @@ final class InMemoryStorage implements PersisterProvider
     /** @var list<array{string, string, list<string>}> opération, table, colonnes */
     public array $log = [];
 
+    /** @var array<string, list<array<string, mixed>>> table pivot → lignes */
+    public array $pivots = [];
+
     public bool $inTransaction = false;
 
     public int $transactions = 0;
@@ -58,6 +61,7 @@ final class InMemoryStorage implements PersisterProvider
     public function transactional(\Closure $operations): mixed
     {
         $tables = $this->tables;
+        $pivots = $this->pivots;
         $sequences = $this->sequences;
         $outer = $this->inTransaction;
         $this->inTransaction = true;
@@ -68,6 +72,7 @@ final class InMemoryStorage implements PersisterProvider
         } catch (\Throwable $e) {
             // rollback : la base revient à son état d'avant la transaction
             $this->tables = $tables;
+            $this->pivots = $pivots;
             $this->sequences = $sequences;
             throw $e;
         } finally {
@@ -102,6 +107,63 @@ final class InMemoryStorage implements PersisterProvider
         return $this->tables[$table][(string) $id] ?? throw new \LogicException(\sprintf('No row %s in "%s".', $id, $table));
     }
 
+    /**
+     * @param array<string, mixed> $row
+     */
+    public function seedPivot(string $table, array $row): void
+    {
+        $this->pivots[$table][] = $row;
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    public function pivotRows(string $table): array
+    {
+        return $this->pivots[$table] ?? [];
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     *
+     * @internal appelé par InMemoryPersister
+     */
+    public function insertPivot(string $table, array $row): void
+    {
+        if (!$this->inTransaction) {
+            throw new \LogicException('INSERT outside of a transaction.');
+        }
+        self::assertScalar($table, $row);
+        $this->pivots[$table][] = $row;
+        $this->log[] = ['INSERT', $table, array_keys($row)];
+    }
+
+    /**
+     * @param array<string, mixed> $criteria
+     *
+     * @internal appelé par InMemoryPersister
+     */
+    public function deletePivot(string $table, array $criteria): int
+    {
+        if (!$this->inTransaction) {
+            throw new \LogicException('DELETE outside of a transaction.');
+        }
+        $this->log[] = ['DELETE', $table, array_keys($criteria)];
+        $kept = array_values(array_filter($this->pivots[$table] ?? [], static function (array $row) use ($criteria): bool {
+            foreach ($criteria as $column => $value) {
+                if ((string) self::key($row[$column] ?? null) !== (string) self::key($value)) {
+                    return true;
+                }
+            }
+
+            return false;
+        }));
+        $deleted = \count($this->pivots[$table] ?? []) - \count($kept);
+        $this->pivots[$table] = $kept;
+
+        return $deleted;
+    }
+
     // ligne supprimée hors de l'UnitOfWork (autre processus)
     public function deleteRow(string $table, int|string $id): void
     {
@@ -133,6 +195,7 @@ final class InMemoryStorage implements PersisterProvider
         if (!$this->inTransaction) {
             throw new \LogicException('INSERT outside of a transaction.');
         }
+        self::assertScalar($table, $row);
         if (null !== $this->failOnInsert && ++$this->inserts === $this->failOnInsert) {
             throw new \RuntimeException(\sprintf('Simulated failure on INSERT #%d into "%s".', $this->failOnInsert, $table));
         }
@@ -159,6 +222,7 @@ final class InMemoryStorage implements PersisterProvider
         if (!$this->inTransaction) {
             throw new \LogicException('UPDATE outside of a transaction.');
         }
+        self::assertScalar($table, $changes);
         $key = (string) self::key($id);
         $this->log[] = ['UPDATE', $table, array_keys($changes)];
         if (!isset($this->tables[$table][$key]) || (null !== $version && $this->tables[$table][$key][$version[0]] !== $version[1])) {
@@ -199,6 +263,20 @@ final class InMemoryStorage implements PersisterProvider
         $this->log[] = ['SELECT', $table, []];
 
         return $this->tables[$table][(string) self::key($id)] ?? null;
+    }
+
+    /**
+     * Comme une vraie base : seules des valeurs scalaires (ou NULL) sont écrites.
+     *
+     * @param array<string, mixed> $values
+     */
+    private static function assertScalar(string $table, array $values): void
+    {
+        foreach ($values as $column => $value) {
+            if (null !== $value && !\is_scalar($value)) {
+                throw new \LogicException(\sprintf('Cannot write a %s into "%s"."%s".', get_debug_type($value), $table, $column));
+            }
+        }
     }
 
     private static function key(mixed $id): string|int

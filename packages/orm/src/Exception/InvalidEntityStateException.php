@@ -17,4 +17,12 @@ final class InvalidEntityStateException extends \LogicException implements OrmEx
     {
         return new self(\sprintf('Cannot %s a %s entity of class %s: %s', $operation, strtoupper($state->name), $entity::class, $hint));
     }
+
+    /**
+     * @param class-string $source
+     */
+    public static function detachedReference(object $target, string $source, string $field): self
+    {
+        return new self(\sprintf('Cannot reference a DETACHED entity of class %s from %s::$%s: load it again with find() or getReference().', $target::class, $source, $field));
+    }
 }
