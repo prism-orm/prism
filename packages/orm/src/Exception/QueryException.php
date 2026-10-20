@@ -121,4 +121,12 @@ final class QueryException extends \LogicException implements OrmException
     {
         return new self(\sprintf('A row cannot build %s: %s', $dto, $error->getMessage()), previous: $error);
     }
+
+    /**
+     * @param list<string|int> $keys
+     */
+    public static function invalidJsonPath(string $field, array $keys): self
+    {
+        return new self(\sprintf('Invalid JSON path %s on $%s: give one or more keys of letters, digits and underscores, or array indexes from 0.', json_encode($keys, \JSON_THROW_ON_ERROR), $field));
+    }
 }
