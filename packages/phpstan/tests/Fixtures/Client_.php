@@ -1,0 +1,47 @@
+<?php
+
+declare(strict_types=1);
+
+// Généré par Prism (db:metamodel:generate) : ne pas modifier.
+
+namespace Prism\PHPStan\Tests\Fixtures;
+
+use Prism\Orm\Query\Metamodel as M;
+
+/**
+ * @extends M\Metamodel<\Prism\PHPStan\Tests\Fixtures\Client>
+ */
+final class Client_ extends M\Metamodel
+{
+    public readonly M\IntField $id;
+
+    public readonly M\StringField $name;
+
+    public readonly M\StringField $email;
+
+    /** @var M\CollectionRelation<\Prism\PHPStan\Tests\Fixtures\Invoice_> */
+    public readonly M\CollectionRelation $invoices;
+
+    /** @var M\Relation<\Prism\PHPStan\Tests\Fixtures\Contract_> */
+    public readonly M\Relation $contract;
+
+    public function __construct(string $alias = 'client')
+    {
+        parent::__construct($alias);
+        $this->id = new M\IntField($this, 'id');
+        $this->name = new M\StringField($this, 'name');
+        $this->email = new M\StringField($this, 'email');
+        $this->invoices = new M\CollectionRelation($this, 'invoices', \Prism\PHPStan\Tests\Fixtures\Invoice_::class);
+        $this->contract = new M\Relation($this, 'contract', \Prism\PHPStan\Tests\Fixtures\Contract_::class);
+    }
+
+    public static function as(string $alias): self
+    {
+        return new self($alias);
+    }
+
+    protected static function entityClass(): string
+    {
+        return \Prism\PHPStan\Tests\Fixtures\Client::class;
+    }
+}

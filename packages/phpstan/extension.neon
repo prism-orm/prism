@@ -1,2 +1,29 @@
-# Extension PHPStan de Prism (phase 5 : QueryBuilder typé, findBy, repositories)
-services: []
+# Extension PHPStan de Prism (ADR 0011) : findBy(), selectInto(), getRepository(), propriétés mappées
+parameters:
+    prism:
+        # metamodel généré (ADR 0009), chargé pendant l'analyse s'il existe
+        metamodelDir: %currentWorkingDirectory%/var/cache/prism/metamodel
+
+parametersSchema:
+    prism: structure([
+        metamodelDir: string()
+    ])
+
+services:
+    -
+        class: Prism\PHPStan\MetadataProvider
+        arguments:
+            metamodelDir: %prism.metamodelDir%
+    - Prism\PHPStan\SelectionType
+    -
+        class: Prism\PHPStan\Rule\FindByRule
+        tags: [phpstan.rules.rule]
+    -
+        class: Prism\PHPStan\Rule\SelectIntoRule
+        tags: [phpstan.rules.rule]
+    -
+        class: Prism\PHPStan\Type\RepositoryReturnTypeExtension
+        tags: [phpstan.broker.dynamicMethodReturnTypeExtension]
+    -
+        class: Prism\PHPStan\Properties\MappedPropertiesExtension
+        tags: [phpstan.properties.readWriteExtension]

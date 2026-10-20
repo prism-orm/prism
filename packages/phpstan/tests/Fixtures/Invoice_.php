@@ -1,0 +1,65 @@
+<?php
+
+declare(strict_types=1);
+
+// Généré par Prism (db:metamodel:generate) : ne pas modifier.
+
+namespace Prism\PHPStan\Tests\Fixtures;
+
+use Prism\Orm\Query\Metamodel as M;
+
+/**
+ * @extends M\Metamodel<\Prism\PHPStan\Tests\Fixtures\Invoice>
+ */
+final class Invoice_ extends M\Metamodel
+{
+    public readonly M\IntField $id;
+
+    public readonly M\StringField $reference;
+
+    public readonly M\DecimalField $total;
+
+    public readonly M\FloatField $discount;
+
+    /** @var M\EnumField<\Prism\PHPStan\Tests\Fixtures\Status> */
+    public readonly M\EnumField $status;
+
+    public readonly M\DateTimeField $issuedAt;
+
+    public readonly M\DateTimeField $paidAt;
+
+    public readonly M\JsonField $meta;
+
+    public readonly \Prism\PHPStan\Tests\Fixtures\Address_ $billing;
+
+    public readonly \Prism\PHPStan\Tests\Fixtures\Address_ $shipping;
+
+    /** @var M\Relation<\Prism\PHPStan\Tests\Fixtures\Client_> */
+    public readonly M\Relation $client;
+
+    public function __construct(string $alias = 'invoice')
+    {
+        parent::__construct($alias);
+        $this->id = new M\IntField($this, 'id');
+        $this->reference = new M\StringField($this, 'reference');
+        $this->total = new M\DecimalField($this, 'total');
+        $this->discount = new M\FloatField($this, 'discount');
+        $this->status = new M\EnumField($this, 'status', \Prism\PHPStan\Tests\Fixtures\Status::class);
+        $this->issuedAt = new M\DateTimeField($this, 'issuedAt');
+        $this->paidAt = new M\DateTimeField($this, 'paidAt');
+        $this->meta = new M\JsonField($this, 'meta');
+        $this->billing = new \Prism\PHPStan\Tests\Fixtures\Address_($this, 'billing');
+        $this->shipping = new \Prism\PHPStan\Tests\Fixtures\Address_($this, 'shipping');
+        $this->client = new M\Relation($this, 'client', \Prism\PHPStan\Tests\Fixtures\Client_::class);
+    }
+
+    public static function as(string $alias): self
+    {
+        return new self($alias);
+    }
+
+    protected static function entityClass(): string
+    {
+        return \Prism\PHPStan\Tests\Fixtures\Invoice::class;
+    }
+}
