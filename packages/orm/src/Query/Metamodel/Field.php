@@ -4,10 +4,8 @@ declare(strict_types=1);
 
 namespace Prism\Orm\Query\Metamodel;
 
-use Prism\Dbal\Query\Expression;
-use Prism\Dbal\Query\Order;
-use Prism\Orm\Query\Condition;
-use Prism\Orm\Query\Ordering;
+use Prism\Orm\Query\Expression\IntExpression;
+use Prism\Orm\Query\Operand;
 use Prism\Orm\Query\QueryContext;
 
 /**
@@ -15,12 +13,12 @@ use Prism\Orm\Query\QueryContext;
  * (« total », « billingAddress.city »). La colonne est résolue par la ClassMetadata à la
  * compilation, jamais générée (ADR 0009).
  *
- * Chaque classe de champ n'expose que les comparaisons de son type, avec des valeurs de ce type
- * (RG-05.3) ; toutes ont isNull(), isNotNull(), asc() et desc().
+ * Tout champ se compte ; les champs numériques, de date et de texte ont aussi leurs agrégats
+ * typés (ADR 0010).
  *
  * @api
  */
-abstract class Field
+abstract class Field extends Operand
 {
     /**
      * @param Metamodel<object> $owner
@@ -31,44 +29,70 @@ abstract class Field
     ) {
     }
 
-    public function isNull(): Condition
+    /**
+     * @internal
+     */
+    public function toSql(QueryContext $context): string
     {
-        return Condition::of(fn (QueryContext $c): Expression => $c->expr()->isNull($c->column($this)));
-    }
-
-    public function isNotNull(): Condition
-    {
-        return Condition::of(fn (QueryContext $c): Expression => $c->expr()->isNotNull($c->column($this)));
-    }
-
-    public function asc(): Ordering
-    {
-        return new Ordering($this, Order::Asc);
-    }
-
-    public function desc(): Ordering
-    {
-        return new Ordering($this, Order::Desc);
+        return $context->column($this);
     }
 
     /**
-     * @param 'eq'|'neq'|'lt'|'lte'|'gt'|'gte' $operator
+     * @internal
      */
-    protected function compare(string $operator, mixed $value): Condition
+    public function typeOf(QueryContext $context): string
     {
-        return Condition::of(fn (QueryContext $c): Expression => $c->compare($this, $operator, $value));
+        return $context->fieldType($this);
     }
 
     /**
-     * @param list<mixed> $values
+     * @internal
      */
-    protected function within(array $values, bool $negated = false): Condition
+    public function toPhp(QueryContext $context, mixed $value): mixed
     {
-        return Condition::of(fn (QueryContext $c): Expression => $c->within($this, $values, $negated));
+        return $context->fieldValue($this, $value);
     }
 
-    protected function range(mixed $low, mixed $high): Condition
+    /**
+     * COUNT du champ : les valeurs non nulles.
+     */
+    public function count(): IntExpression
     {
-        return Condition::of(fn (QueryContext $c): Expression => $c->between($this, $low, $high));
+        return new IntExpression(fn (QueryContext $c): string => $c->expr()->count($this->toSql($c)), static fn (): string => 'integer', aggregate: true);
+    }
+
+    /**
+     * COUNT(DISTINCT) du champ : les valeurs distinctes non nulles.
+     */
+    public function countDistinct(): IntExpression
+    {
+        return new IntExpression(fn (QueryContext $c): string => $c->expr()->count($this->toSql($c), distinct: true), static fn (): string => 'integer', aggregate: true);
+    }
+
+    /**
+     * SQL d'un agrégat du champ.
+     *
+     * @param 'sum'|'avg'|'min'|'max' $function
+     *
+     * @return \Closure(QueryContext): string
+     */
+    protected function aggregated(string $function): \Closure
+    {
+        return fn (QueryContext $c): string => match ($function) {
+            'sum' => $c->expr()->sum($this->toSql($c)),
+            'avg' => $c->expr()->avg($this->toSql($c)),
+            'min' => $c->expr()->min($this->toSql($c)),
+            'max' => $c->expr()->max($this->toSql($c)),
+        };
+    }
+
+    /**
+     * Le Type du champ, pour un agrégat qui le garde.
+     *
+     * @return \Closure(QueryContext): string
+     */
+    protected function ownType(): \Closure
+    {
+        return fn (QueryContext $c): string => $this->typeOf($c);
     }
 }

@@ -4,7 +4,8 @@ declare(strict_types=1);
 
 namespace Prism\Orm\Query\Metamodel;
 
-use Prism\Orm\Query\Condition;
+use Prism\Orm\Query\Comparison\FloatComparisons;
+use Prism\Orm\Query\Expression\FloatExpression;
 
 /**
  * Champ de type float : valeurs float.
@@ -13,53 +14,37 @@ use Prism\Orm\Query\Condition;
  */
 final class FloatField extends Field
 {
-    public function eq(float $value): Condition
-    {
-        return $this->compare('eq', $value);
-    }
+    use FloatComparisons;
 
-    public function neq(float $value): Condition
+    /**
+     * SUM du champ ; null sans valeur.
+     */
+    public function sum(): FloatExpression
     {
-        return $this->compare('neq', $value);
-    }
-
-    public function lt(float $value): Condition
-    {
-        return $this->compare('lt', $value);
-    }
-
-    public function lte(float $value): Condition
-    {
-        return $this->compare('lte', $value);
-    }
-
-    public function gt(float $value): Condition
-    {
-        return $this->compare('gt', $value);
-    }
-
-    public function gte(float $value): Condition
-    {
-        return $this->compare('gte', $value);
-    }
-
-    /** @param list<float> $values */
-    public function in(array $values): Condition
-    {
-        return $this->within($values);
-    }
-
-    /** @param list<float> $values */
-    public function notIn(array $values): Condition
-    {
-        return $this->within($values, negated: true);
+        return new FloatExpression($this->aggregated('sum'), $this->ownType(), aggregate: true);
     }
 
     /**
-     * Bornes comprises.
+     * AVG du champ ; null sans valeur.
      */
-    public function between(float $low, float $high): Condition
+    public function avg(): FloatExpression
     {
-        return $this->range($low, $high);
+        return new FloatExpression($this->aggregated('avg'), $this->ownType(), aggregate: true);
+    }
+
+    /**
+     * MIN du champ ; null sans valeur.
+     */
+    public function min(): FloatExpression
+    {
+        return new FloatExpression($this->aggregated('min'), $this->ownType(), aggregate: true);
+    }
+
+    /**
+     * MAX du champ ; null sans valeur.
+     */
+    public function max(): FloatExpression
+    {
+        return new FloatExpression($this->aggregated('max'), $this->ownType(), aggregate: true);
     }
 }

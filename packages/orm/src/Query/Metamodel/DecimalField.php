@@ -4,7 +4,8 @@ declare(strict_types=1);
 
 namespace Prism\Orm\Query\Metamodel;
 
-use Prism\Orm\Query\Condition;
+use Prism\Orm\Query\Comparison\DecimalComparisons;
+use Prism\Orm\Query\Expression\DecimalExpression;
 
 /**
  * Champ de type decimal : valeurs numeric-string, jamais float (RG-01.5).
@@ -13,62 +14,37 @@ use Prism\Orm\Query\Condition;
  */
 final class DecimalField extends Field
 {
-    /** @param numeric-string $value */
-    public function eq(string $value): Condition
-    {
-        return $this->compare('eq', $value);
-    }
+    use DecimalComparisons;
 
-    /** @param numeric-string $value */
-    public function neq(string $value): Condition
+    /**
+     * SUM du champ ; null sans valeur.
+     */
+    public function sum(): DecimalExpression
     {
-        return $this->compare('neq', $value);
-    }
-
-    /** @param numeric-string $value */
-    public function lt(string $value): Condition
-    {
-        return $this->compare('lt', $value);
-    }
-
-    /** @param numeric-string $value */
-    public function lte(string $value): Condition
-    {
-        return $this->compare('lte', $value);
-    }
-
-    /** @param numeric-string $value */
-    public function gt(string $value): Condition
-    {
-        return $this->compare('gt', $value);
-    }
-
-    /** @param numeric-string $value */
-    public function gte(string $value): Condition
-    {
-        return $this->compare('gte', $value);
-    }
-
-    /** @param list<numeric-string> $values */
-    public function in(array $values): Condition
-    {
-        return $this->within($values);
-    }
-
-    /** @param list<numeric-string> $values */
-    public function notIn(array $values): Condition
-    {
-        return $this->within($values, negated: true);
+        return new DecimalExpression($this->aggregated('sum'), $this->ownType(), aggregate: true);
     }
 
     /**
-     * Bornes comprises.
-     *
-     * @param numeric-string $low
-     * @param numeric-string $high
+     * AVG du champ (échelle selon la base, ADR 0010) ; null sans valeur.
      */
-    public function between(string $low, string $high): Condition
+    public function avg(): DecimalExpression
     {
-        return $this->range($low, $high);
+        return new DecimalExpression($this->aggregated('avg'), $this->ownType(), aggregate: true);
+    }
+
+    /**
+     * MIN du champ ; null sans valeur.
+     */
+    public function min(): DecimalExpression
+    {
+        return new DecimalExpression($this->aggregated('min'), $this->ownType(), aggregate: true);
+    }
+
+    /**
+     * MAX du champ ; null sans valeur.
+     */
+    public function max(): DecimalExpression
+    {
+        return new DecimalExpression($this->aggregated('max'), $this->ownType(), aggregate: true);
     }
 }
