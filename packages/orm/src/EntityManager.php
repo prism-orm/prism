@@ -11,6 +11,8 @@ use Prism\Orm\Exception\MappingException;
 use Prism\Orm\Metadata\Driver\AttributeDriver;
 use Prism\Orm\Metadata\MetadataFactory;
 use Prism\Orm\Persister\DbalPersisterProvider;
+use Prism\Orm\Query\EntityQueryBuilder;
+use Prism\Orm\Query\Metamodel\Metamodel;
 use Prism\Orm\Repository\EntityRepository;
 use Prism\Orm\UnitOfWork\UnitOfWork;
 use Psr\EventDispatcher\EventDispatcherInterface;
@@ -131,6 +133,18 @@ final class EntityManager implements EntityManagerInterface
 
         /** @var EntityRepository<T> */
         return $this->repositories[$class];
+    }
+
+    /**
+     * @template T of object
+     *
+     * @param Metamodel<T> $root
+     *
+     * @return EntityQueryBuilder<T>
+     */
+    public function query(Metamodel $root): EntityQueryBuilder
+    {
+        return new EntityQueryBuilder($this, $this->metadata, $root);
     }
 
     public function getConnection(): Connection

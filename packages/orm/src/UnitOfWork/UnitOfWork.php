@@ -402,9 +402,24 @@ final class UnitOfWork
     public function findBy(string $class, array $criteria, array $orderBy = [], ?int $limit = null, int $offset = 0): array
     {
         $metadata = $this->metadata->getMetadataFor($class);
-        $rows = $this->persisters->getPersister($metadata)->loadBy($this->criteria($metadata, $criteria), $orderBy, $limit, $offset);
 
-        // RG-04.9 : une requête, une cohorte
+        return $this->hydrate($metadata, $this->persisters->getPersister($metadata)->loadBy($this->criteria($metadata, $criteria), $orderBy, $limit, $offset));
+    }
+
+    /**
+     * Entités gérées des lignes d'une requête : identity map, une cohorte (RG-04.9).
+     *
+     * @template T of object
+     *
+     * @param ClassMetadata<T>           $metadata
+     * @param list<array<string, mixed>> $rows     lignes telles que la base les renvoie
+     *
+     * @return list<T>
+     *
+     * @internal le QueryBuilder typé y passe ses lignes
+     */
+    public function hydrate(ClassMetadata $metadata, array $rows): array
+    {
         $cohort = new Cohort();
         $entities = array_map(fn (array $row): object => $this->register($metadata, $row, $cohort), $rows);
         $this->completeCohort($metadata, $cohort->members());

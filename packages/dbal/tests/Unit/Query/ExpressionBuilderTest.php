@@ -77,4 +77,27 @@ final class ExpressionBuilderTest extends TestCase
     {
         return substr($this->qb->where($expression)->toSql(), \strlen('SELECT * FROM "t" WHERE '));
     }
+
+    public function testBetweenBindsBothBounds(): void
+    {
+        $qb = $this->qb->where($this->qb->expr()->between('total', '10.00', '20.00', 'decimal'));
+
+        self::assertSame('total BETWEEN :prism_1 AND :prism_2', $this->where($this->qb->expr()->between('total', '10.00', '20.00', 'decimal')));
+        self::assertSame(['prism_1' => '10.00', 'prism_2' => '20.00'], $qb->getParameters());
+        self::assertSame(['prism_1' => 'decimal', 'prism_2' => 'decimal'], $qb->getParameterTypes());
+    }
+
+    public function testBetweenRefusesANullBound(): void
+    {
+        $this->expectException(InvalidQueryException::class);
+
+        $this->qb->expr()->between('total', null, 1);
+    }
+
+    public function testNotWrapsItsCondition(): void
+    {
+        $e = $this->qb->expr();
+
+        self::assertSame('NOT ((a = :prism_1) OR (b IS NULL))', $this->where($e->not($e->or($e->eq('a', 1), 'b IS NULL'))));
+    }
 }

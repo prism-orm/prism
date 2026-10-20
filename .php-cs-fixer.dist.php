@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 $finder = new PhpCsFixer\Finder()
     ->in([__DIR__ . '/packages', __DIR__ . '/benchmarks'])
+    // metamodel généré (ADR 0009) : gardé tel que le générateur l'écrit
+    ->notName('*_.php')
     ->append([__FILE__]);
 
 return new PhpCsFixer\Config()

@@ -9,7 +9,7 @@ namespace Prism\Orm\Query\Metamodel;
  * expose chaque champ et chaque relation d'Order comme une propriété typée, et
  * Order_::as('o') la crée pour l'alias o.
  *
- * @template T of object
+ * @template-covariant T of object
  *
  * @api
  */

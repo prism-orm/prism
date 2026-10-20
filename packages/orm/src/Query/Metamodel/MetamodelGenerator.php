@@ -34,13 +34,15 @@ final class MetamodelGenerator
 
     /**
      * @param list<ClassMetadata<object>> $metadata
+     * @param string                      $namespacePrefix préfixe PSR-4 du dossier (« App\\ » pour src/) ;
+     *                                                     vide : un sous-dossier par segment de namespace
      *
      * @throws MetamodelException dossier non accessible en écriture
      */
-    public function generate(array $metadata, string $dir): GenerationResult
+    public function generate(array $metadata, string $dir, string $namespacePrefix = ''): GenerationResult
     {
         $dir = rtrim($dir, '/\\');
-        $files = $this->render($metadata);
+        $files = $this->render($metadata, $namespacePrefix);
         $written = [];
         $unchanged = [];
 
@@ -71,10 +73,10 @@ final class MetamodelGenerator
      *
      * @param list<ClassMetadata<object>> $metadata
      */
-    public function isFresh(array $metadata, string $dir): bool
+    public function isFresh(array $metadata, string $dir, string $namespacePrefix = ''): bool
     {
         $dir = rtrim($dir, '/\\');
-        $files = $this->render($metadata);
+        $files = $this->render($metadata, $namespacePrefix);
         foreach ($files as $relative => $content) {
             $path = $dir . '/' . $relative;
             if (!is_file($path) || file_get_contents($path) !== $content) {
@@ -92,13 +94,13 @@ final class MetamodelGenerator
      *
      * @return array<string, string>
      */
-    public function render(array $metadata): array
+    public function render(array $metadata, string $namespacePrefix = ''): array
     {
         $files = [];
         foreach ($metadata as $class) {
-            $files[self::pathOf($class->className . '_')] = $this->entity($class);
+            $files[self::pathOf($class->className . '_', $namespacePrefix)] = $this->entity($class);
             foreach ($class->getEmbedded() as $embedded) {
-                $files[self::pathOf($embedded->class . '_')] = $this->embeddable($embedded->class, $embedded->getFields());
+                $files[self::pathOf($embedded->class . '_', $namespacePrefix)] = $this->embeddable($embedded->class, $embedded->getFields());
             }
         }
         ksort($files);
@@ -243,8 +245,12 @@ final class MetamodelGenerator
         return false === $position ? [null, $class] : [substr($class, 0, $position), substr($class, $position + 1)];
     }
 
-    private static function pathOf(string $class): string
+    private static function pathOf(string $class, string $namespacePrefix): string
     {
+        if ('' !== $namespacePrefix && str_starts_with($class, $namespacePrefix)) {
+            $class = substr($class, \strlen($namespacePrefix));
+        }
+
         return str_replace('\\', '/', $class) . '.php';
     }
 
