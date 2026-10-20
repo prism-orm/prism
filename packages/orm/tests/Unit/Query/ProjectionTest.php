@@ -169,6 +169,7 @@ final class ProjectionTest extends TestCase
         $this->expectException(QueryException::class);
         $this->expectExceptionMessage('Each selection of selectInto(' . Tally::class . '::class, ...) is named after a parameter of its constructor, such as total: $o->total->sum().');
 
+        // @phpstan-ignore prism.selectInto.unnamed, prism.selectInto.missingParameter (refusé aussi à l'exécution)
         $this->em->query($this->t)->selectInto(Tally::class, $this->t->id->count());
     }
 
@@ -177,6 +178,7 @@ final class ProjectionTest extends TestCase
         $this->expectException(QueryException::class);
         $this->expectExceptionMessage('The selection "total" matches no parameter of ' . CustomerTotal::class . '::__construct() (customer, orders, last).');
 
+        // @phpstan-ignore prism.selectInto.unknownParameter (refusé aussi à l'exécution)
         $this->em->query($this->t)->selectInto(CustomerTotal::class, customer: $this->t->string, orders: $this->t->id, total: $this->t->decimal);
     }
 
@@ -185,6 +187,7 @@ final class ProjectionTest extends TestCase
         $this->expectException(QueryException::class);
         $this->expectExceptionMessage('The parameter $orders of ' . CustomerTotal::class . '::__construct() is required but not selected: select it as orders: ...');
 
+        // @phpstan-ignore prism.selectInto.missingParameter (refusé aussi à l'exécution)
         $this->em->query($this->t)->selectInto(CustomerTotal::class, customer: $this->t->string);
     }
 

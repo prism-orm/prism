@@ -184,6 +184,7 @@ final class ProjectionTest extends MappingSchemaTestCase
         $t = AllTypes_::as('t');
 
         try {
+            // @phpstan-ignore prism.selectInto.typeMismatch (refusé aussi à l'exécution)
             $this->em->query($t)->selectInto(WrongType::class, name: $t->string)->getResult();
             self::fail('Expected QueryException.');
         } catch (QueryException $e) {
