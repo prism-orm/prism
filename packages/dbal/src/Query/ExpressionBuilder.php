@@ -84,6 +84,25 @@ final class ExpressionBuilder
         return [] === $values ? Expression::of('1 = 1') : $this->list($column, 'NOT IN', $values, $type);
     }
 
+    /**
+     * column BETWEEN :low AND :high (bornes comprises).
+     *
+     * @throws InvalidQueryException borne nulle
+     */
+    public function between(string $column, mixed $low, mixed $high, ParameterType|string|null $type = null): Expression
+    {
+        if (null === $low || null === $high) {
+            throw InvalidQueryException::nullComparison('BETWEEN');
+        }
+
+        return Expression::of($column . ' BETWEEN ', new BoundValue($low, $type), ' AND ', new BoundValue($high, $type));
+    }
+
+    public function not(Expression|string $condition): Expression
+    {
+        return Expression::join('', Expression::of('NOT '), self::expression($condition)->wrapped());
+    }
+
     public function and(Expression|string ...$conditions): Expression
     {
         return $this->composite('AND', $conditions);
