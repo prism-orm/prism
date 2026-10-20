@@ -28,4 +28,9 @@ final class InvalidArgumentException extends \InvalidArgumentException implement
     {
         return new self(\sprintf('The criteria on %s::$%s use an entity that has no identifier yet; flush it first.', $class, $field));
     }
+
+    public static function threshold(int $threshold): self
+    {
+        return new self(\sprintf('The N+1 threshold must be at least 1, got %d.', $threshold));
+    }
 }
