@@ -4,9 +4,8 @@ declare(strict_types=1);
 
 namespace Prism\Orm\Query\Metamodel;
 
-use Prism\Dbal\Query\Expression;
-use Prism\Orm\Query\Condition;
-use Prism\Orm\Query\QueryContext;
+use Prism\Orm\Query\Comparison\StringComparisons;
+use Prism\Orm\Query\Expression\StringExpression;
 
 /**
  * Champ de type string, text, uuid : valeurs string.
@@ -15,61 +14,21 @@ use Prism\Orm\Query\QueryContext;
  */
 final class StringField extends Field
 {
-    public function eq(string $value): Condition
-    {
-        return $this->compare('eq', $value);
-    }
+    use StringComparisons;
 
-    public function neq(string $value): Condition
+    /**
+     * MIN du champ, dans l'ordre de la collation ; null sans valeur.
+     */
+    public function min(): StringExpression
     {
-        return $this->compare('neq', $value);
-    }
-
-    public function lt(string $value): Condition
-    {
-        return $this->compare('lt', $value);
-    }
-
-    public function lte(string $value): Condition
-    {
-        return $this->compare('lte', $value);
-    }
-
-    public function gt(string $value): Condition
-    {
-        return $this->compare('gt', $value);
-    }
-
-    public function gte(string $value): Condition
-    {
-        return $this->compare('gte', $value);
-    }
-
-    /** @param list<string> $values */
-    public function in(array $values): Condition
-    {
-        return $this->within($values);
-    }
-
-    /** @param list<string> $values */
-    public function notIn(array $values): Condition
-    {
-        return $this->within($values, negated: true);
+        return new StringExpression($this->aggregated('min'), $this->ownType(), aggregate: true);
     }
 
     /**
-     * Bornes comprises.
+     * MAX du champ, dans l'ordre de la collation ; null sans valeur.
      */
-    public function between(string $low, string $high): Condition
+    public function max(): StringExpression
     {
-        return $this->range($low, $high);
-    }
-
-    /**
-     * LIKE, avec les jokers % et _ ; le motif est lié en paramètre.
-     */
-    public function like(string $pattern): Condition
-    {
-        return Condition::of(fn (QueryContext $c): Expression => $c->expr()->like($c->column($this), $pattern));
+        return new StringExpression($this->aggregated('max'), $this->ownType(), aggregate: true);
     }
 }

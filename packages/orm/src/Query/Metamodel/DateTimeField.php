@@ -4,7 +4,8 @@ declare(strict_types=1);
 
 namespace Prism\Orm\Query\Metamodel;
 
-use Prism\Orm\Query\Condition;
+use Prism\Orm\Query\Comparison\DateTimeComparisons;
+use Prism\Orm\Query\Expression\DateTimeExpression;
 
 /**
  * Champ de type datetime_immutable, date_immutable, time_immutable : valeurs \\DateTimeImmutable.
@@ -13,53 +14,21 @@ use Prism\Orm\Query\Condition;
  */
 final class DateTimeField extends Field
 {
-    public function eq(\DateTimeImmutable $value): Condition
-    {
-        return $this->compare('eq', $value);
-    }
+    use DateTimeComparisons;
 
-    public function neq(\DateTimeImmutable $value): Condition
+    /**
+     * MIN du champ : la plus ancienne ; null sans valeur.
+     */
+    public function min(): DateTimeExpression
     {
-        return $this->compare('neq', $value);
-    }
-
-    public function lt(\DateTimeImmutable $value): Condition
-    {
-        return $this->compare('lt', $value);
-    }
-
-    public function lte(\DateTimeImmutable $value): Condition
-    {
-        return $this->compare('lte', $value);
-    }
-
-    public function gt(\DateTimeImmutable $value): Condition
-    {
-        return $this->compare('gt', $value);
-    }
-
-    public function gte(\DateTimeImmutable $value): Condition
-    {
-        return $this->compare('gte', $value);
-    }
-
-    /** @param list<\DateTimeImmutable> $values */
-    public function in(array $values): Condition
-    {
-        return $this->within($values);
-    }
-
-    /** @param list<\DateTimeImmutable> $values */
-    public function notIn(array $values): Condition
-    {
-        return $this->within($values, negated: true);
+        return new DateTimeExpression($this->aggregated('min'), $this->ownType(), aggregate: true);
     }
 
     /**
-     * Bornes comprises.
+     * MAX du champ : la plus récente ; null sans valeur.
      */
-    public function between(\DateTimeImmutable $low, \DateTimeImmutable $high): Condition
+    public function max(): DateTimeExpression
     {
-        return $this->range($low, $high);
+        return new DateTimeExpression($this->aggregated('max'), $this->ownType(), aggregate: true);
     }
 }

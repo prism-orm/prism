@@ -12,6 +12,8 @@ use Prism\Orm\EntityManagerInterface;
 use Prism\Orm\Exception\NonUniqueResultException;
 use Prism\Orm\Exception\QueryException;
 use Prism\Orm\Mapping\Order as MappingOrder;
+use Prism\Orm\Metadata\AssociationMapping;
+use Prism\Orm\Metadata\ClassMetadata;
 use Prism\Orm\Metadata\MetadataFactory;
 use Prism\Orm\Query\Metamodel\Metamodel;
 
@@ -33,6 +35,11 @@ use Prism\Orm\Query\Metamodel\Metamodel;
  * fetchJoin() hydrate en plus la relation jointe dans la même requête (RG-05.5) ; une condition
  * sur une collection chargée ainsi la charge filtrée, comme le SQL le dit.
  *
+ * selectInto() projette la requête dans un DTO, sans passer par l'UoW ; c'est la seule forme
+ * d'une requête groupée (ADR 0010) :
+ *
+ *     $em->query($o)->groupBy($o->status)->selectInto(StatusTotal::class, status: $o->status, total: $o->total->sum());
+ *
  * @template T of object
  *
  * @api
@@ -52,6 +59,11 @@ final class EntityQueryBuilder
     private array $joins = [];
 
     private bool $batch = true;
+
+    /** @var list<Operand> */
+    private array $groupBy = [];
+
+    private ?Condition $having = null;
 
     /**
      * @param Metamodel<T> $root
@@ -171,6 +183,110 @@ final class EntityQueryBuilder
     public function addOrderBy(Ordering ...$orderings): static
     {
         return $this->orderBy(...$this->orderBy, ...array_values($orderings));
+    }
+
+    /**
+     * Remplace le groupement : seule une projection selectInto() lit une requête groupée.
+     *
+     * @return static<T>
+     */
+    public function groupBy(Operand ...$operands): static
+    {
+        return $this->with(static function (self $qb) use ($operands): void {
+            $qb->groupBy = array_values($operands);
+        });
+    }
+
+    /**
+     * Remplace la condition sur les groupes : $o->total->sum()->gt('100.00').
+     *
+     * @return static<T>
+     */
+    public function having(Condition $condition): static
+    {
+        return $this->with(static function (self $qb) use ($condition): void {
+            $qb->having = $condition;
+        });
+    }
+
+    /**
+     * @return static<T>
+     */
+    public function andHaving(Condition $condition): static
+    {
+        return $this->having(null === $this->having ? $condition : Condition::all($this->having, $condition));
+    }
+
+    /**
+     * Projection dans un DTO (RG-05.6, RG-05.7) : chaque sélection est nommée comme le paramètre
+     * du constructeur qui la reçoit.
+     *
+     *     ->selectInto(CustomerTotal::class, customer: $c->name, total: $o->total->sum())
+     *
+     * @template D of object
+     *
+     * @param class-string<D> $dto
+     *
+     * @return Projection<D>
+     *
+     * @throws QueryException sélection sans nom, nom ou paramètre sans correspondance
+     */
+    public function selectInto(string $dto, Operand ...$selections): Projection
+    {
+        return new Projection($this, $dto, $selections);
+    }
+
+    /**
+     * La requête d'une projection : ses sélections nommées, et le nom de colonne de chacune.
+     * Une jointure chargée y est une jointure simple.
+     *
+     * @param array<string, Operand> $selections
+     *
+     * @return array{QueryBuilder, QueryContext, array<string, string>}
+     *
+     * @throws QueryException sélection ou tri ni agrégé ni groupé
+     *
+     * @internal la Projection l'exécute
+     */
+    public function compileProjection(array $selections, bool $one): array
+    {
+        $qb = $this->em->getConnection()->createQueryBuilder();
+        $context = new QueryContext($qb, $this->metadata);
+        [$qb] = $this->from($context, $qb);
+
+        // un champ à côté d'un agrégat est groupé : PostgreSQL et MySQL le refuseraient, SQLite non
+        $grouped = array_map(static fn (Operand $operand): string => $operand->toSql($context), $this->groupBy);
+        $aggregated = [] !== $grouped || null !== $this->having || [] !== array_filter($selections, static fn (Operand $operand): bool => $operand->isAggregate());
+        $check = static function (string $what, Operand $operand, string $sql) use ($aggregated, $grouped): void {
+            if ($aggregated && !$operand->isAggregate() && !\in_array($sql, $grouped, true)) {
+                throw QueryException::notGrouped($what, $sql);
+            }
+        };
+
+        $aliases = [];
+        $select = [];
+        foreach ($selections as $name => $operand) {
+            $check(\sprintf('The selection "%s"', $name), $operand, $sql = $operand->toSql($context));
+            // PostgreSQL tronque un identifiant au-delà de 63 octets
+            $aliases[$name] = \strlen($name) <= 63 ? $name : 'prism_' . \count($aliases);
+            $select[] = $sql . ' AS ' . $qb->column($aliases[$name]);
+        }
+        $qb = $qb->select(...$select);
+        if (null !== $this->where) {
+            $qb = $qb->where($this->where->compile($context));
+        }
+        if ([] !== $grouped) {
+            $qb = $qb->groupBy(...$grouped);
+        }
+        if (null !== $this->having) {
+            $qb = $qb->having($this->having->compile($context));
+        }
+        foreach ($this->orderBy as $ordering) {
+            $check('The ordering', $ordering->operand, $sql = $ordering->operand->toSql($context));
+            $qb = $qb->addOrderBy($sql, $ordering->order);
+        }
+
+        return [$qb->limit($one ? min(2, $this->limit ?? 2) : $this->limit)->offset($this->offset), $context, $aliases];
     }
 
     /**
@@ -328,21 +444,19 @@ final class EntityQueryBuilder
      */
     private function build(?int $limit, int $offset): array
     {
+        if ([] !== $this->groupBy || null !== $this->having || [] !== array_filter($this->orderBy, static fn (Ordering $o): bool => $o->operand->isAggregate())) {
+            throw QueryException::groupedEntityQuery($this->root->entity);
+        }
         if ((null !== $limit || 0 !== $offset) && null !== ($collection = $this->fetchedCollection())) {
             throw QueryException::limitWithCollectionFetchJoin($collection);
         }
         $qb = $this->em->getConnection()->createQueryBuilder();
         $context = new QueryContext($qb, $this->metadata);
-        $metadata = $context->add($this->root);
+        [$qb, $metadata, $joined] = $this->from($context, $qb);
         $nodes = [$this->root->alias => new Node($metadata, null, null)];
         $orderBy = [];
 
-        $qb = $qb->from($metadata->tableName, $this->root->alias);
-        foreach ($this->joins as [$target, $left, $fetch]) {
-            [$association, $joins] = $context->join($target);
-            foreach ($joins as [$table, $alias, $on]) {
-                $qb = $left ? $qb->leftJoin($table, $alias, $on) : $qb->join($table, $alias, $on);
-            }
+        foreach ($joined as [$target, $fetch, $association]) {
             if (!$fetch) {
                 continue;
             }
@@ -374,13 +488,36 @@ final class EntityQueryBuilder
             $qb = $qb->where($this->where->compile($context));
         }
         foreach ($this->orderBy as $ordering) {
-            $qb = $qb->addOrderBy($context->column($ordering->field), $ordering->order);
+            $qb = $qb->addOrderBy($ordering->operand->toSql($context), $ordering->order);
         }
         foreach ($orderBy as [$column, $order]) {
             $qb = $qb->addOrderBy($column, $order);
         }
 
         return [$qb->limit($limit)->offset($offset), $nodes];
+    }
+
+    /**
+     * FROM la racine et ses jointures.
+     *
+     * @return array{QueryBuilder, ClassMetadata<object>, list<array{Metamodel<object>, bool, AssociationMapping}>} requête, metadata de la racine, puis metamodel joint, chargé, relation
+     *
+     * @throws QueryException
+     */
+    private function from(QueryContext $context, QueryBuilder $qb): array
+    {
+        $metadata = $context->add($this->root);
+        $qb = $qb->from($metadata->tableName, $this->root->alias);
+        $joined = [];
+        foreach ($this->joins as [$target, $left, $fetch]) {
+            [$association, $joins] = $context->join($target);
+            foreach ($joins as [$table, $alias, $on]) {
+                $qb = $left ? $qb->leftJoin($table, $alias, $on) : $qb->join($table, $alias, $on);
+            }
+            $joined[] = [$target, $fetch, $association];
+        }
+
+        return [$qb, $metadata, $joined];
     }
 
     /**

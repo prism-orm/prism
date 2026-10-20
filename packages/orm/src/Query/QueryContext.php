@@ -19,7 +19,8 @@ use Prism\Orm\Query\Metamodel\Metamodel;
 
 /**
  * Compilation d'une requête typée : les alias de la requête et leur metadata. Résout un champ
- * en colonne citée et convertit ses valeurs par le Type du champ (ADR 0009, RG-05.4).
+ * en colonne citée et convertit ses valeurs par le Type du champ, dans les deux sens
+ * (ADR 0009, ADR 0010, RG-05.4).
  *
  * @internal
  */
@@ -116,14 +117,46 @@ final class QueryContext
     }
 
     /**
+     * Le nom du Type DBAL d'un champ.
+     *
+     * @throws QueryException
+     */
+    public function fieldType(Field $field): string
+    {
+        return $this->mapping($field)->type;
+    }
+
+    /**
+     * Valeur PHP d'une colonne lue (projection) : convertie par le Type du champ, enum reconstruit.
+     *
+     * @throws QueryException
+     */
+    public function fieldValue(Field $field, mixed $value): mixed
+    {
+        $mapping = $this->mapping($field);
+
+        return $this->owner($field->owner)->toFieldValue($mapping, $this->convert($mapping->type, $value));
+    }
+
+    /**
+     * Valeur PHP d'une valeur lue, par un Type du DBAL.
+     */
+    public function convert(string $type, mixed $value): mixed
+    {
+        $connection = $this->qb->getConnection();
+
+        return $connection->getTypeRegistry()->get($type)->toPhp($value, $connection->getConversionContext());
+    }
+
+    /**
      * @param 'eq'|'neq'|'lt'|'lte'|'gt'|'gte' $operator
      *
      * @throws QueryException
      */
-    public function compare(Field $field, string $operator, mixed $value): Expression
+    public function compare(Operand $operand, string $operator, mixed $value): Expression
     {
         $e = $this->expr();
-        [$column, $value, $type] = [$this->column($field), self::scalar($value), $this->mapping($field)->type];
+        [$column, $value, $type] = [$operand->toSql($this), self::scalar($value), $operand->typeOf($this)];
 
         return match ($operator) {
             'eq' => $e->eq($column, $value, $type),
@@ -140,20 +173,20 @@ final class QueryContext
      *
      * @throws QueryException
      */
-    public function within(Field $field, array $values, bool $negated): Expression
+    public function within(Operand $operand, array $values, bool $negated): Expression
     {
         $values = array_map(self::scalar(...), $values);
-        $type = $this->mapping($field)->type;
+        [$column, $type] = [$operand->toSql($this), $operand->typeOf($this)];
 
-        return $negated ? $this->expr()->notIn($this->column($field), $values, $type) : $this->expr()->in($this->column($field), $values, $type);
+        return $negated ? $this->expr()->notIn($column, $values, $type) : $this->expr()->in($column, $values, $type);
     }
 
     /**
      * @throws QueryException
      */
-    public function between(Field $field, mixed $low, mixed $high): Expression
+    public function between(Operand $operand, mixed $low, mixed $high): Expression
     {
-        return $this->expr()->between($this->column($field), self::scalar($low), self::scalar($high), $this->mapping($field)->type);
+        return $this->expr()->between($operand->toSql($this), self::scalar($low), self::scalar($high), $operand->typeOf($this));
     }
 
     /**

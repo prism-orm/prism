@@ -75,4 +75,50 @@ final class QueryException extends \LogicException implements OrmException
     {
         return new self(\sprintf('A limit or an offset would cut the collection fetch-joined as "%s" and leave it partly loaded; use the Paginator, or join it without fetching.', $alias));
     }
+
+    /**
+     * @param class-string $entity
+     */
+    public static function groupedEntityQuery(string $entity): self
+    {
+        return new self(\sprintf('A query on %s with groupBy(), having() or an ordering on an aggregate returns groups, not entities: project it with selectInto().', $entity));
+    }
+
+    public static function notGrouped(string $what, string $sql): self
+    {
+        return new self(\sprintf('%s (%s) is neither an aggregate nor in groupBy(): group by it, or aggregate it.', $what, $sql));
+    }
+
+    /**
+     * @param class-string $dto
+     */
+    public static function unnamedSelection(string $dto): self
+    {
+        return new self(\sprintf('Each selection of selectInto(%s::class, ...) is named after a parameter of its constructor, such as total: $o->total->sum().', $dto));
+    }
+
+    /**
+     * @param class-string $dto
+     * @param list<string> $parameters
+     */
+    public static function unknownDtoParameter(string $dto, string $name, array $parameters): self
+    {
+        return new self(\sprintf('The selection "%s" matches no parameter of %s::__construct() (%s).', $name, $dto, [] === $parameters ? 'none' : implode(', ', $parameters)));
+    }
+
+    /**
+     * @param class-string $dto
+     */
+    public static function missingDtoParameter(string $dto, string $name): self
+    {
+        return new self(\sprintf('The parameter $%s of %s::__construct() is required but not selected: select it as %s: ...', $name, $dto, $name));
+    }
+
+    /**
+     * @param class-string $dto
+     */
+    public static function dtoTypeMismatch(string $dto, \TypeError $error): self
+    {
+        return new self(\sprintf('A row cannot build %s: %s', $dto, $error->getMessage()), previous: $error);
+    }
 }
