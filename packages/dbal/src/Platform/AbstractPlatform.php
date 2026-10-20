@@ -97,6 +97,65 @@ abstract class AbstractPlatform
     }
 
     /**
+     * Valeur scalaire d'un chemin JSON, en texte ; NULL si le chemin manque ou vaut null en JSON.
+     * Le chemin est une structure fixée par le code, pas une valeur : ses clés sont validées
+     * ([A-Za-z0-9_]+, index entiers) puis écrites en littéral (ADR 0010).
+     *
+     * @param list<string|int> $path
+     *
+     * @throws InvalidParameterException chemin vide, clé ou index invalide
+     */
+    abstract public function getJsonExtractTextSql(string $expression, array $path): string;
+
+    /**
+     * Conversion SQL d'une expression texte en entier ou en décimal.
+     *
+     * @param 'integer'|'decimal' $type
+     */
+    public function getCastSql(string $expression, string $type): string
+    {
+        return \sprintf('CAST(%s AS %s)', $expression, 'integer' === $type ? 'INTEGER' : 'NUMERIC');
+    }
+
+    /**
+     * Chemin JSON au format SQL/JSON, clés entre guillemets : $."lines"[0]."qty".
+     *
+     * @param list<string|int> $path
+     *
+     * @throws InvalidParameterException
+     */
+    protected function getJsonPathLiteral(array $path): string
+    {
+        $literal = '$';
+        foreach (self::validJsonPath($path) as $key) {
+            $literal .= \is_int($key) ? '[' . $key . ']' : '."' . $key . '"';
+        }
+
+        return $this->quoteStringLiteral($literal);
+    }
+
+    /**
+     * @param list<string|int> $path
+     *
+     * @return list<string|int>
+     *
+     * @throws InvalidParameterException
+     */
+    protected static function validJsonPath(array $path): array
+    {
+        if ([] === $path) {
+            throw InvalidParameterException::invalidJsonPath('it is empty');
+        }
+        foreach ($path as $key) {
+            if (\is_int($key) ? $key < 0 : 1 !== preg_match('/^[A-Za-z0-9_]+$/', $key)) {
+                throw InvalidParameterException::invalidJsonPath(\sprintf('%s is neither a key of letters, digits and underscores nor an array index', var_export($key, true)));
+            }
+        }
+
+        return $path;
+    }
+
+    /**
      * Ajoute LIMIT / OFFSET. Les bornes sont des int validés (>= 0) : aucune valeur utilisateur
      * n'atteint le SQL sous forme de texte.
      */

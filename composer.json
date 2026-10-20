@@ -45,6 +45,7 @@
             "Prism\\Orm\\Tests\\": "packages/orm/tests/",
             "Prism\\Migrations\\Tests\\": "packages/migrations/tests/",
             "Prism\\Bundle\\Tests\\": "packages/bundle/tests/",
+            "Prism\\PHPStan\\Tests\\": "packages/phpstan/tests/",
             "Prism\\Benchmarks\\": "benchmarks/"
         }
     },

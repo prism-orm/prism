@@ -14,6 +14,7 @@
             <directory>packages/orm/tests/Unit</directory>
             <directory>packages/migrations/tests/Unit</directory>
             <directory>packages/bundle/tests/Unit</directory>
+            <directory>packages/phpstan/tests/Unit</directory>
         </testsuite>
         <testsuite name="functional">
             <directory>packages/dbal/tests/Functional</directory>
@@ -32,6 +33,7 @@
             <directory>packages/orm/src</directory>
             <directory>packages/migrations/src</directory>
             <directory>packages/bundle/src</directory>
+            <directory>packages/phpstan/src</directory>
         </include>
     </source>
     <php>

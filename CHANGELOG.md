@@ -2,6 +2,28 @@
 
 Toutes les évolutions notables de Prism, par version. Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) ; versions [SemVer](https://semver.org/lang/fr/), en `0.x` jusqu'à la 1.0 (RT-16). Les règles citées (RG-xx, RT-xx) sont décrites dans `docs/ROADMAP.md`, les décisions (ADR) dans `docs/adr/`.
 
+## [0.5.0] — 2026-10-21
+
+Phase 5 : pilier 2, QueryBuilder typé et PHPStan.
+
+### Ajouté
+
+- Metamodel généré : une classe `Order_` par entité (et `Address_` par embeddable), une propriété typée par champ et relation (`StringField`, `DecimalField`, `EnumField<Status>`, `Relation<Client_>`, `CollectionRelation<Line_>`…) ; gabarits déterministes, fichiers réécrits seulement s'ils changent, chargement par `MetamodelAutoloader`, commande `db:metamodel:generate` (ADR 0009, RG-05.1, RG-05.2).
+- `EntityQueryBuilder` immuable, via `$em->query(Order_::as('o'))` : `where`, `andWhere`, `orWhere`, `orderBy`, `limit`, `offset` ; expressions typées `eq` à `between`, `in`, `like`, `isNull`, conditions `all`, `any`, `not` ; valeurs toujours liées et converties par le Type du champ ; `getResult(): list<T>`, `getOneOrNull(): ?T` ; `toSql()` et `getConnection()` restent accessibles (RG-05.3, RG-05.4, RG-05.6, RG-05.10).
+- Jointures sur les 4 sortes de relation (pivot pour ManyToMany), `fetchJoin()` et `leftFetchJoin()` sans requête ensuite, collections chargées dans leur ordre, racines sans doublon ; `withoutBatchFetch()` (RG-05.5, RG-04.13).
+- Agrégats typés (`count`, `countDistinct`, `sum`, `avg`, `min`, `max`), `groupBy`, `having`, tri sur un agrégat ; un champ ni agrégé ni groupé est refusé avant l'envoi, comme PostgreSQL et MySQL le feraient (ADR 0010).
+- Projection `selectInto(Dto::class, total: $o->total->sum(), …)` : arguments nommés comme le constructeur, vérifié par Reflection dès l'appel, valeurs converties par leur Type, hors de l'UoW (RG-05.6, RG-05.7).
+- Chemins JSON : `$o->meta->path('lines', 0, 'qty')->asInt()`, `asString()`, `asDecimal()` ; même résultat sur les 4 bases (null JSON et chemin absent à `NULL`), groupables et triables (ADR 0010).
+- `paginate(page:, perPage:)` : identifiant ajouté en dernier critère de tri, une requête par page, identifiants puis entités avec une collection jointe, `COUNT(DISTINCT)` paresseux (RG-05.9).
+- Extension PHPStan `prism-orm/phpstan` : clés de `findBy()`, `findOneBy()`, `count()`, `iterate()` ; noms et types des sélections de `selectInto()` ; `getRepository()` typé par le repository déclaré ; propriétés mappées des entités et embeddables considérées initialisées (ADR 0011, RG-05.7, RG-05.8). Suite de 71 cas.
+- Aide aux IDE : stub du metamodel (`.prism/metamodel.php`) et `.phpstorm.meta.php/prism.php`, écrits par `db:metamodel:generate` (RG-05.2).
+- DBAL : `between()`, `not()` et fonctions d'agrégat dans l'`ExpressionBuilder` ; `Platform::getJsonExtractTextSql()` et `getCastSql()`.
+
+### Modifié
+
+- `EntityManagerInterface` gagne `query()` : une implémentation tierce de l'interface doit l'ajouter (admis en `0.x`, ADR 0009).
+- `UnitOfWork::hydrate()` charge depuis la ligne lue une référence déjà connue mais non initialisée, au lieu de la recharger.
+
 ## [0.4.0] — 2026-10-20
 
 Phase 4 : relations, lazy loading et pilier 1 anti-N+1.

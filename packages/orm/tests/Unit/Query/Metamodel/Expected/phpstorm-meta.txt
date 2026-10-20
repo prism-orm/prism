@@ -1,0 +1,14 @@
+<?php
+
+// Généré par Prism (db:metamodel:generate) : ne pas modifier.
+// Repositories des entités pour PhpStorm.
+
+namespace PHPSTORM_META;
+
+override(\Prism\Orm\EntityManagerInterface::getRepository(0), map([
+    \Prism\Orm\Tests\Functional\PersisterFixtures\Customer::class => \Prism\Orm\Tests\Functional\PersisterFixtures\CustomerRepository::class,
+]));
+
+override(\Prism\Orm\EntityManager::getRepository(0), map([
+    \Prism\Orm\Tests\Functional\PersisterFixtures\Customer::class => \Prism\Orm\Tests\Functional\PersisterFixtures\CustomerRepository::class,
+]));

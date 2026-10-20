@@ -1,0 +1,29 @@
+<?php
+
+declare(strict_types=1);
+
+// Généré par Prism (db:metamodel:generate) : ne pas modifier.
+
+namespace Prism\Orm\Tests\Unit\Mapping\Fixtures;
+
+use Prism\Orm\Query\Metamodel as M;
+
+final class Address_ extends M\EmbeddableMetamodel
+{
+    public readonly M\StringField $street;
+
+    public readonly M\StringField $zip;
+
+    public readonly M\StringField $city;
+
+    /**
+     * @param M\Metamodel<object> $owner
+     */
+    public function __construct(M\Metamodel $owner, string $path)
+    {
+        parent::__construct($owner, $path);
+        $this->street = new M\StringField($owner, $path . '.street');
+        $this->zip = new M\StringField($owner, $path . '.zip');
+        $this->city = new M\StringField($owner, $path . '.city');
+    }
+}
