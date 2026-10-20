@@ -47,4 +47,32 @@ final class QueryException extends \LogicException implements OrmException
     {
         return new self(\sprintf('%s must be zero or positive, got %d.', $clause, $value));
     }
+
+    /**
+     * @param class-string $entity
+     */
+    public static function notJoinable(string $alias, string $entity): self
+    {
+        return new self(\sprintf('The alias "%s" (%s) is not a relation: join a metamodel obtained from one, such as $o->client->as(\'c\').', $alias, $entity));
+    }
+
+    public static function duplicateAlias(string $alias): self
+    {
+        return new self(\sprintf('The alias "%s" is already used in this query: give each join its own alias.', $alias));
+    }
+
+    public static function joinedFromUnknownAlias(string $alias, string $owner): self
+    {
+        return new self(\sprintf('The alias "%s" is joined from "%s", which is not part of this query yet: join "%s" first.', $alias, $owner, $owner));
+    }
+
+    public static function fetchJoinOfUnfetchedAlias(string $alias, string $owner): self
+    {
+        return new self(\sprintf('The alias "%s" is fetch-joined from "%s", which is not fetched: fetch-join "%s" too, or join "%s" without fetching.', $alias, $owner, $owner, $alias));
+    }
+
+    public static function limitWithCollectionFetchJoin(string $alias): self
+    {
+        return new self(\sprintf('A limit or an offset would cut the collection fetch-joined as "%s" and leave it partly loaded; use the Paginator, or join it without fetching.', $alias));
+    }
 }

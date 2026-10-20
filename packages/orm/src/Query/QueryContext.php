@@ -8,6 +8,8 @@ use Prism\Dbal\Query\Expression;
 use Prism\Dbal\Query\ExpressionBuilder;
 use Prism\Dbal\Query\QueryBuilder;
 use Prism\Orm\Exception\QueryException;
+use Prism\Orm\Metadata\AssociationMapping;
+use Prism\Orm\Metadata\AssociationType;
 use Prism\Orm\Metadata\ClassMetadata;
 use Prism\Orm\Metadata\FieldMapping;
 use Prism\Orm\Metadata\MetadataFactory;
@@ -43,6 +45,59 @@ final class QueryContext
         $this->aliases[$metamodel->alias] = [$metamodel, $metadata];
 
         return $metadata;
+    }
+
+    /**
+     * Les jointures SQL d'un metamodel joint, déduites de sa relation : une pour une relation
+     * ToOne ou OneToMany, deux par la table pivot pour une ManyToMany (alias « o__tags »).
+     *
+     * @param Metamodel<object> $target
+     *
+     * @return array{AssociationMapping, list<array{string, string, string}>} relation, puis table, alias, condition
+     *
+     * @throws QueryException metamodel non joignable, alias absent de la requête
+     */
+    public function join(Metamodel $target): array
+    {
+        $relation = $target->via() ?? throw QueryException::notJoinable($target->alias, $target->entity);
+        $owner = $relation->owner;
+        $ownerMetadata = $this->owner($owner);
+        $association = $ownerMetadata->getAssociation($relation->path);
+        $targetMetadata = $this->add($target);
+        $column = fn (string $alias, string $column): string => $this->qb->column($column, $alias);
+        $ownerId = $column($owner->alias, $ownerMetadata->getIdField()->columnName);
+        $targetId = $column($target->alias, $targetMetadata->getIdField()->columnName);
+
+        if ($association->isOwningSide() && $association->isToOne()) {
+            return [$association, [[$targetMetadata->tableName, $target->alias, $targetId . ' = ' . $column($owner->alias, (string) $association->joinColumn)]]];
+        }
+        if (AssociationType::ManyToMany !== $association->type) {
+            $owning = $targetMetadata->getAssociation((string) $association->mappedBy);
+
+            return [$association, [[$targetMetadata->tableName, $target->alias, $column($target->alias, (string) $owning->joinColumn) . ' = ' . $ownerId]]];
+        }
+
+        $joinTable = ($association->isOwningSide() ? $association : $targetMetadata->getAssociation((string) $association->mappedBy))->joinTable
+            ?? throw new \LogicException('A ManyToMany owning side has a join table.');
+        [$ownerColumn, $targetColumn] = $association->isOwningSide() ? [$joinTable->joinColumn, $joinTable->inverseJoinColumn] : [$joinTable->inverseJoinColumn, $joinTable->joinColumn];
+        $pivot = $owner->alias . '__' . $relation->path;
+
+        return [$association, [
+            [$joinTable->name, $pivot, $column($pivot, $ownerColumn) . ' = ' . $ownerId],
+            [$targetMetadata->tableName, $target->alias, $targetId . ' = ' . $column($pivot, $targetColumn)],
+        ]];
+    }
+
+    /**
+     * @param Metamodel<object> $metamodel
+     *
+     * @return ClassMetadata<object>
+     *
+     * @throws QueryException alias absent de la requête
+     */
+    public function metadataOf(Metamodel $metamodel): ClassMetadata
+    {
+        return $this->owner($metamodel);
     }
 
     public function expr(): ExpressionBuilder

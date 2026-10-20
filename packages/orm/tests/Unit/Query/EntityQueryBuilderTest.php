@@ -16,6 +16,7 @@ use Prism\Orm\Tests\Unit\Query\Metamodel\Fixtures\AllTypes_;
 use Prism\Orm\Tests\Unit\Query\Metamodel\Fixtures\Priority;
 use Prism\Orm\Tests\Unit\UnitOfWork\Fixtures\Batch\Customer;
 use Prism\Orm\Tests\Unit\UnitOfWork\Fixtures\Batch\Customer_;
+use Prism\Orm\Tests\Unit\UnitOfWork\Fixtures\Batch\Group_;
 use Prism\Orm\Tests\Unit\UnitOfWork\Fixtures\Batch\Order_;
 
 /**
@@ -177,6 +178,129 @@ final class EntityQueryBuilderTest extends TestCase
         $this->expectExceptionMessage('The condition on $customer uses a ' . Customer::class . ' that has no identifier yet; flush it first.');
 
         $this->em->query($o)->where($o->customer->eq(new Customer('Unsaved')))->toSql();
+    }
+
+    // ---------------------------------------------------------------- jointures
+
+    public function testJoinOnEachKindOfRelation(): void
+    {
+        $c = Customer_::as('c');
+        $from = 'SELECT "c"."id", "c"."name", "c"."country_id" FROM "customer" "c" ';
+
+        // ToOne possédée : la FK du propriétaire
+        self::assertSame($from . 'INNER JOIN "country" "n" ON "n"."id" = "c"."country_id"', $this->em->query($c)->join($c->country->as('n'))->toSql());
+        // OneToMany : la FK de la cible
+        self::assertSame($from . 'LEFT JOIN "order" "o" ON "o"."customer_id" = "c"."id"', $this->em->query($c)->leftJoin($c->orders->as('o'))->toSql());
+        // OneToOne inverse : la FK de la cible
+        self::assertSame($from . 'INNER JOIN "account" "a" ON "a"."customer_id" = "c"."id"', $this->em->query($c)->join($c->account->as('a'))->toSql());
+        // ManyToMany : par la table pivot, sous l'alias propriétaire__champ
+        self::assertSame(
+            $from . 'INNER JOIN "customer_group" "c__groups" ON "c__groups"."customer_id" = "c"."id" INNER JOIN "group" "g" ON "g"."id" = "c__groups"."group_id"',
+            $this->em->query($c)->join($c->groups->as('g'))->toSql(),
+        );
+        $g = Group_::as('g');
+        self::assertSame(
+            'SELECT "g"."id", "g"."name" FROM "group" "g" INNER JOIN "customer_group" "g__customers" ON "g__customers"."group_id" = "g"."id" INNER JOIN "customer" "c" ON "c"."id" = "g__customers"."customer_id"',
+            $this->em->query($g)->join($g->customers->as('c'))->toSql(),
+            'inverse side of a ManyToMany',
+        );
+    }
+
+    public function testConditionsAndOrderingOnAJoinedAlias(): void
+    {
+        $o = Order_::as('o');
+        $c = $o->customer->as('c');
+        $n = $c->country->as('n');
+
+        $qb = $this->em->query($o)->join($c)->leftJoin($n)->where($n->name->eq('France'))->orderBy($c->name->asc());
+
+        self::assertStringEndsWith('FROM "order" "o" INNER JOIN "customer" "c" ON "c"."id" = "o"."customer_id" LEFT JOIN "country" "n" ON "n"."id" = "c"."country_id" WHERE "n"."name" = :prism_1 ORDER BY "c"."name" ASC', $qb->toSql());
+        self::assertStringStartsWith('SELECT "o"."id", "o"."reference", ', $qb->toSql(), 'a plain join selects only the root');
+    }
+
+    // RG-05.5 : chaque colonne nommée alias__colonne, l'ordre de la collection chargée ajouté (RG-04.12)
+    public function testFetchJoinSelectsTheJoinedColumnsUnderTheirAlias(): void
+    {
+        $c = Customer_::as('c');
+        $o = $c->orders->as('o');
+
+        self::assertSame(
+            'SELECT "c"."id" AS "c__id", "c"."name" AS "c__name", "c"."country_id" AS "c__country_id", "o"."id" AS "o__id", "o"."reference" AS "o__reference", "o"."customer_id" AS "o__customer_id", "o"."seller_id" AS "o__seller_id", "o"."depot_id" AS "o__depot_id" FROM "customer" "c" LEFT JOIN "order" "o" ON "o"."customer_id" = "c"."id" ORDER BY "c"."name" ASC, "o"."reference" DESC',
+            $this->em->query($c)->leftFetchJoin($o)->orderBy($c->name->asc())->toSql(),
+        );
+        self::assertStringContainsString('INNER JOIN "order" "o"', $this->em->query($c)->fetchJoin($o)->toSql());
+    }
+
+    public function testLongColumnAliasStaysUnderTheIdentifierLimit(): void
+    {
+        $c = Customer_::as('c');
+        $n = $c->country->as(str_repeat('n', 60));
+
+        $sql = $this->em->query($c)->fetchJoin($n)->toSql();
+
+        self::assertStringContainsString('"' . str_repeat('n', 60) . '"."id" AS "prism_3"', $sql, 'PostgreSQL truncates identifiers beyond 63 bytes');
+    }
+
+    public function testJoinsAreImmutable(): void
+    {
+        $c = Customer_::as('c');
+        $base = $this->em->query($c);
+        $base->join($c->country->as('n'))->withoutBatchFetch();
+
+        self::assertStringEndsWith('FROM "customer" "c"', $base->toSql());
+    }
+
+    public function testJoiningTheRootIsRefused(): void
+    {
+        $this->expectException(QueryException::class);
+        $this->expectExceptionMessage('The alias "c" (' . Customer::class . ') is not a relation: join a metamodel obtained from one, such as $o->client->as(\'c\').');
+
+        $this->em->query(Customer_::as('o'))->join(Customer_::as('c'));
+    }
+
+    public function testDuplicateAliasIsRefused(): void
+    {
+        $c = Customer_::as('c');
+
+        $this->expectException(QueryException::class);
+        $this->expectExceptionMessage('The alias "c" is already used in this query: give each join its own alias.');
+
+        $this->em->query($c)->join($c->country->as('c'));
+    }
+
+    public function testJoinFromAnAliasOutsideTheQueryIsRefused(): void
+    {
+        $c = Customer_::as('c');
+        $n = Order_::as('o')->customer->as('x')->country->as('n');
+
+        $this->expectException(QueryException::class);
+        $this->expectExceptionMessage('The alias "n" is joined from "x", which is not part of this query yet: join "x" first.');
+
+        $this->em->query($c)->join($n);
+    }
+
+    public function testFetchJoinFromAPlainJoinIsRefused(): void
+    {
+        $o = Order_::as('o');
+        $c = $o->customer->as('c');
+
+        $this->expectException(QueryException::class);
+        $this->expectExceptionMessage('The alias "n" is fetch-joined from "c", which is not fetched: fetch-join "c" too, or join "n" without fetching.');
+
+        $this->em->query($o)->join($c)->fetchJoin($c->country->as('n'));
+    }
+
+    public function testLimitWithACollectionFetchJoinIsRefused(): void
+    {
+        $c = Customer_::as('c');
+        $o = Order_::as('o');
+        self::assertStringEndsWith('LIMIT 5', $this->em->query($o)->fetchJoin($o->customer->as('x'))->limit(5)->toSql(), 'a ToOne does not multiply the rows');
+        self::assertStringEndsWith('LIMIT 5', $this->em->query($c)->join($c->orders->as('j'))->limit(5)->toSql(), 'a plain join does not load the collection');
+
+        $this->expectException(QueryException::class);
+        $this->expectExceptionMessage('A limit or an offset would cut the collection fetch-joined as "o" and leave it partly loaded; use the Paginator, or join it without fetching.');
+
+        $this->em->query($c)->leftFetchJoin($c->orders->as('o'))->offset(10)->toSql();
     }
 
     // ---------------------------------------------------------------- erreurs
