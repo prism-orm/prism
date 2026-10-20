@@ -47,15 +47,11 @@ final class MetamodelGenerator
         $unchanged = [];
 
         foreach ($files as $relative => $content) {
-            $path = $dir . '/' . $relative;
-            if (is_file($path) && file_get_contents($path) === $content) {
+            if (self::write($dir . '/' . $relative, $content)) {
+                $written[] = $relative;
+            } else {
                 $unchanged[] = $relative;
-                continue;
             }
-            if ((!is_dir(\dirname($path)) && !@mkdir(\dirname($path), 0o777, true)) || false === @file_put_contents($path, $content, \LOCK_EX)) {
-                throw MetamodelException::cannotWrite($path);
-            }
-            $written[] = $relative;
         }
 
         $deleted = [];
@@ -66,6 +62,89 @@ final class MetamodelGenerator
         }
 
         return new GenerationResult($written, $unchanged, $deleted);
+    }
+
+    /**
+     * Aide aux IDE (RG-05.2), qui excluent souvent var/ de leur index : tout le metamodel en un
+     * stub, et la correspondance entité → repository pour PhpStorm. Déterministe ; un fichier
+     * identique n'est pas réécrit.
+     *
+     * @param list<ClassMetadata<object>> $metadata
+     * @param string|null                 $stubFile fichier du stub ; null : aucun
+     * @param string|null                 $metaDir  dossier .phpstorm.meta.php, où prism.php est écrit ; null : aucun
+     *
+     * @throws MetamodelException fichier non accessible en écriture
+     */
+    public function generateIdeHelpers(array $metadata, ?string $stubFile, ?string $metaDir): GenerationResult
+    {
+        $files = [];
+        if (null !== $stubFile) {
+            $files[$stubFile] = $this->renderStub($metadata);
+        }
+        if (null !== $metaDir) {
+            $files[rtrim($metaDir, '/\\') . '/prism.php'] = $this->renderPhpStormMeta($metadata);
+        }
+        $written = [];
+        $unchanged = [];
+        foreach ($files as $path => $content) {
+            if (self::write($path, $content)) {
+                $written[] = $path;
+            } else {
+                $unchanged[] = $path;
+            }
+        }
+
+        return new GenerationResult($written, $unchanged, []);
+    }
+
+    /**
+     * Le stub du metamodel : chaque classe dans son namespace, en un seul fichier. Les IDE
+     * l'indexent ; l'application ne le charge jamais (il n'est dans aucun autoload).
+     *
+     * @param list<ClassMetadata<object>> $metadata
+     */
+    public function renderStub(array $metadata): string
+    {
+        $classes = [];
+        foreach ($metadata as $class) {
+            $classes[$class->className] = $this->entity($class);
+            foreach ($class->getEmbedded() as $embedded) {
+                $classes[$embedded->class] = $this->embeddable($embedded->class, $embedded->getFields());
+            }
+        }
+        ksort($classes);
+
+        $blocks = [];
+        foreach ($classes as [$namespace, $body]) {
+            $indented = preg_replace('/^(?=.)/m', '    ', "use Prism\\Orm\\Query\\Metamodel as M;\n\n" . $body);
+            $blocks[] = 'namespace ' . ($namespace ?? '') . (null === $namespace ? '' : ' ') . "{\n" . $indented . "}\n";
+        }
+
+        return "<?php\n\ndeclare(strict_types=1);\n\n" . self::HEADER . "\n// Stub du metamodel pour les IDE (RG-05.2) : jamais chargé, l'application utilise les classes générées.\n\n"
+            . implode("\n", $blocks);
+    }
+
+    /**
+     * La correspondance entité → repository pour PhpStorm : getRepository(Invoice::class) rend
+     * InvoiceRepository, comme pour l'extension PHPStan (ADR 0011).
+     *
+     * @param list<ClassMetadata<object>> $metadata
+     */
+    public function renderPhpStormMeta(array $metadata): string
+    {
+        $map = [];
+        foreach ($metadata as $class) {
+            if (null !== $class->repositoryClass) {
+                $map[$class->className] = \sprintf("    \\%s::class => \\%s::class,\n", $class->className, $class->repositoryClass);
+            }
+        }
+        ksort($map);
+        $overrides = '';
+        foreach ([] === $map ? [] : ['EntityManagerInterface', 'EntityManager'] as $manager) {
+            $overrides .= \sprintf("\noverride(\\Prism\\Orm\\%s::getRepository(0), map([\n%s]));\n", $manager, implode('', $map));
+        }
+
+        return "<?php\n\n" . self::HEADER . "\n// Repositories des entités pour PhpStorm.\n\nnamespace PHPSTORM_META;\n" . $overrides;
     }
 
     /**
@@ -98,9 +177,9 @@ final class MetamodelGenerator
     {
         $files = [];
         foreach ($metadata as $class) {
-            $files[self::pathOf($class->className . '_', $namespacePrefix)] = $this->entity($class);
+            $files[self::pathOf($class->className . '_', $namespacePrefix)] = self::file(...$this->entity($class));
             foreach ($class->getEmbedded() as $embedded) {
-                $files[self::pathOf($embedded->class . '_', $namespacePrefix)] = $this->embeddable($embedded->class, $embedded->getFields());
+                $files[self::pathOf($embedded->class . '_', $namespacePrefix)] = self::file(...$this->embeddable($embedded->class, $embedded->getFields()));
             }
         }
         ksort($files);
@@ -110,8 +189,10 @@ final class MetamodelGenerator
 
     /**
      * @param ClassMetadata<object> $class
+     *
+     * @return array{string|null, string} namespace, classe
      */
-    private function entity(ClassMetadata $class): string
+    private function entity(ClassMetadata $class): array
     {
         [$namespace, $short] = self::split($class->className);
         $properties = [];
@@ -132,7 +213,7 @@ final class MetamodelGenerator
             $assignments[] = \sprintf('$this->%s = new %s($this, \'%s\', \\%s_::class);', $association->fieldName, $type, $association->fieldName, $association->targetEntity);
         }
 
-        return self::file($namespace, \sprintf(<<<'PHP'
+        return [$namespace, \sprintf(<<<'PHP'
             /**
              * @extends M\Metamodel<\%1$s>
              */
@@ -155,14 +236,16 @@ final class MetamodelGenerator
                 }
             }
 
-            PHP, $class->className, $short, self::block($properties, 1), lcfirst($short), self::block($assignments, 2, separated: false)));
+            PHP, $class->className, $short, self::block($properties, 1), lcfirst($short), self::block($assignments, 2, separated: false))];
     }
 
     /**
      * @param class-string       $class
      * @param list<FieldMapping> $fields
+     *
+     * @return array{string|null, string} namespace, classe
      */
-    private function embeddable(string $class, array $fields): string
+    private function embeddable(string $class, array $fields): array
     {
         [$namespace, $short] = self::split($class);
         $properties = [];
@@ -173,7 +256,7 @@ final class MetamodelGenerator
             $assignments[] = \sprintf('$this->%s = new %s($owner, $path . \'.%s\'%s);', $field->fieldName, $type, $field->fieldName, $extra);
         }
 
-        return self::file($namespace, \sprintf(<<<'PHP'
+        return [$namespace, \sprintf(<<<'PHP'
             final class %1$s_ extends M\EmbeddableMetamodel
             {
             %2$s
@@ -186,7 +269,7 @@ final class MetamodelGenerator
             %3$s    }
             }
 
-            PHP, $short, self::block($properties, 1), self::block($assignments, 2, separated: false)));
+            PHP, $short, self::block($properties, 1), self::block($assignments, 2, separated: false))];
     }
 
     /**
@@ -233,6 +316,23 @@ final class MetamodelGenerator
         }
 
         return $head . "use Prism\\Orm\\Query\\Metamodel as M;\n\n" . $body;
+    }
+
+    /**
+     * Écrit le fichier s'il change ; faux s'il est déjà identique.
+     *
+     * @throws MetamodelException
+     */
+    private static function write(string $path, string $content): bool
+    {
+        if (is_file($path) && file_get_contents($path) === $content) {
+            return false;
+        }
+        if ((!is_dir(\dirname($path)) && !@mkdir(\dirname($path), 0o777, true)) || false === @file_put_contents($path, $content, \LOCK_EX)) {
+            throw MetamodelException::cannotWrite($path);
+        }
+
+        return true;
     }
 
     /**
