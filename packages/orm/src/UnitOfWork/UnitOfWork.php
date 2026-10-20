@@ -127,6 +127,9 @@ final class UnitOfWork
     /** @var array<int, array<string, object|null>> côté inverse d'un OneToOne au chargement (orphanRemoval) */
     private array $inverseSnapshots = [];
 
+    /** @var array<int, array<string, true>> OneToOne inverses qu'une jointure va charger, par spl_object_id */
+    private array $fetchedInverse = [];
+
     /** @var array<class-string, bool> la classe a-t-elle des relations ? (évite leur traitement à chaque hydratation) */
     private array $hasRelations = [];
 
@@ -324,6 +327,7 @@ final class UnitOfWork
         $this->collectionSnapshots = [];
         $this->collectionInstances = [];
         $this->inverseSnapshots = [];
+        $this->fetchedInverse = [];
         $this->prefetched = [];
         $this->batch->clear();
         $this->insertions = [];
@@ -413,18 +417,78 @@ final class UnitOfWork
      *
      * @param ClassMetadata<T>           $metadata
      * @param list<array<string, mixed>> $rows     lignes telles que la base les renvoie
+     * @param bool                       $batch    false : pas de cohorte, chaque relation se
+     *                                             charge seule (RG-04.13)
+     * @param list<string>               $fetched  relations chargées par une jointure, que la
+     *                                             fin de cohorte ne charge pas (RG-05.5)
      *
      * @return list<T>
      *
      * @internal le QueryBuilder typé y passe ses lignes
      */
-    public function hydrate(ClassMetadata $metadata, array $rows): array
+    public function hydrate(ClassMetadata $metadata, array $rows, bool $batch = true, array $fetched = []): array
     {
-        $cohort = new Cohort();
-        $entities = array_map(fn (array $row): object => $this->register($metadata, $row, $cohort), $rows);
-        $this->completeCohort($metadata, $cohort->members());
+        $cohort = $batch ? new Cohort() : null;
+        $fresh = [];
+        $entities = [];
+        foreach ($rows as $row) {
+            $known = isset($this->identityMap[$metadata->className][self::key($this->toPhp($metadata->getIdField(), $row[$metadata->getIdField()->columnName] ?? null))]);
+            $entities[] = $entity = $this->register($metadata, $row, $cohort);
+            if (!$known) {
+                $fresh[] = $entity;
+                foreach ($fetched as $field) {
+                    if ($metadata->getAssociation($field)->isToOne()) {
+                        $this->fetchedInverse[spl_object_id($entity)][$field] = true;
+                    }
+                }
+            }
+        }
+        $this->completeCohort($metadata, null === $cohort ? $fresh : $cohort->members(), fetched: $fetched);
 
         return $entities;
+    }
+
+    /**
+     * Côté inverse d'un OneToOne chargé par une jointure (RG-05.5), sans requête. Seule une
+     * entité que la requête vient d'hydrater est remplie : une entité déjà connue a déjà le sien.
+     *
+     * @internal le QueryBuilder typé y passe la cible d'un fetchJoin()
+     */
+    public function initializeInverseToOne(object $owner, string $field, ?object $target): void
+    {
+        $oid = spl_object_id($owner);
+        if (!isset($this->fetchedInverse[$oid][$field])) {
+            return;
+        }
+        unset($this->fetchedInverse[$oid][$field]);
+        $metadata = $this->metadataOf($owner);
+        $this->property($metadata->className, $field)->setValue($owner, $target);
+        if ($metadata->getAssociation($field)->orphanRemoval) {
+            $this->inverseSnapshots[$oid][$field] = $target;
+        }
+    }
+
+    /**
+     * Collection chargée par une jointure (RG-05.5) : remplie et marquée chargée, sans requête.
+     * Une collection déjà chargée, ou remplacée par l'application, n'est pas touchée.
+     *
+     * @param list<object> $elements
+     *
+     * @internal le QueryBuilder typé y passe les éléments d'un fetchJoin()
+     */
+    public function initializeCollection(object $owner, string $field, array $elements): void
+    {
+        $metadata = $this->metadataOf($owner);
+        $collection = $this->read($owner, $metadata->className, $field);
+        if (!$collection instanceof PersistentCollection || $collection->isInitialized()) {
+            return;
+        }
+        $association = $metadata->getAssociation($field);
+        $collection->initializeWith($this->indexed($elements, $association, $this->metadata->getMetadataFor($association->targetEntity)));
+        $oid = spl_object_id($owner);
+        if (($this->entities[$oid] ?? null) === $owner) {
+            $this->collectionSnapshots[$oid][$field] = $elements;
+        }
     }
 
     /**
@@ -1073,8 +1137,15 @@ final class UnitOfWork
         $idField = $metadata->getIdField();
         $key = self::key($this->toPhp($idField, $row[$idField->columnName] ?? null));
         if (isset($this->identityMap[$metadata->className][$key])) {
-            /** @var T */
-            return $this->identityMap[$metadata->className][$key];
+            /** @var T $known */
+            $known = $this->identityMap[$metadata->className][$key];
+            // une référence encore à charger : la ligne lue la charge, sans nouvelle requête
+            if ($this->lazy->isUninitialized($known)) {
+                $this->prefetched[$metadata->className][$key] = [$row, $cohort ?? new Cohort()];
+                $this->lazy->initialize($known);
+            }
+
+            return $known;
         }
 
         $values = $this->hydrator->toPhpRow($metadata, $row);
@@ -1224,22 +1295,25 @@ final class UnitOfWork
 
     /**
      * Fin d'hydratation d'une cohorte : le côté inverse de ses OneToOne en une requête IN par
-     * lot, puis ses relations Fetch::Eager, par lot.
+     * lot, puis ses relations Fetch::Eager, par lot. Les relations chargées par une jointure
+     * sont laissées au QueryBuilder typé.
      *
      * @param ClassMetadata<object> $metadata
      * @param list<object>          $members
+     * @param list<string>          $fetched
      */
-    private function completeCohort(ClassMetadata $metadata, array $members, bool $refresh = false): void
+    private function completeCohort(ClassMetadata $metadata, array $members, bool $refresh = false, array $fetched = []): void
     {
         if ([] === $members || !$this->hasRelations($metadata)) {
             return;
         }
-        foreach ($metadata->getAssociations() as $association) {
+        $associations = array_filter($metadata->getAssociations(), static fn (AssociationMapping $a): bool => !\in_array($a->fieldName, $fetched, true));
+        foreach ($associations as $association) {
             if ($association->isToOne() && !$association->isOwningSide()) {
                 $this->loadInverseToOne($metadata, $association, $members, $refresh);
             }
         }
-        foreach ($metadata->getAssociations() as $association) {
+        foreach ($associations as $association) {
             if (Fetch::Eager !== $association->fetch) {
                 continue;
             }
@@ -1893,7 +1967,7 @@ final class UnitOfWork
         if (isset($this->keys[$oid])) {
             unset($this->identityMap[$entity::class][$this->keys[$oid]]);
         }
-        unset($this->collectionSnapshots[$oid], $this->collectionInstances[$oid], $this->inverseSnapshots[$oid], $this->prefetched[$entity::class][$this->keys[$oid] ?? '']);
+        unset($this->collectionSnapshots[$oid], $this->collectionInstances[$oid], $this->inverseSnapshots[$oid], $this->fetchedInverse[$oid], $this->prefetched[$entity::class][$this->keys[$oid] ?? '']);
         $this->batch->forget($entity);
         unset($this->keys[$oid], $this->states[$oid], $this->entities[$oid], $this->snapshots[$oid], $this->insertions[$oid], $this->deletions[$oid], $this->persisted[$oid]);
 
