@@ -1,0 +1,92 @@
+<?php
+
+declare(strict_types=1);
+
+// Généré par Prism (db:metamodel:generate) : ne pas modifier.
+
+namespace Prism\Orm\Tests\Unit\Mapping\Fixtures;
+
+use Prism\Orm\Query\Metamodel as M;
+
+/**
+ * @extends M\Metamodel<\Prism\Orm\Tests\Unit\Mapping\Fixtures\Invoice>
+ */
+final class Invoice_ extends M\Metamodel
+{
+    public readonly M\IntField $id;
+
+    public readonly M\IntField $version;
+
+    public readonly M\StringField $number;
+
+    /** @var M\EnumField<\Prism\Orm\Tests\Unit\Mapping\Fixtures\FixtureStatus> */
+    public readonly M\EnumField $status;
+
+    public readonly M\DecimalField $total;
+
+    public readonly M\StringField $notes;
+
+    public readonly M\StringField $iban;
+
+    public readonly M\DateTimeField $issuedAt;
+
+    public readonly M\DateTimeField $createdAt;
+
+    public readonly M\DateTimeField $updatedAt;
+
+    public readonly M\StringField $createdBy;
+
+    public readonly M\StringField $updatedBy;
+
+    public readonly M\DateTimeField $deletedAt;
+
+    public readonly M\MixedField $embedding;
+
+    public readonly \Prism\Orm\Tests\Unit\Mapping\Fixtures\Address_ $billingAddress;
+
+    /** @var M\Relation<\Prism\Orm\Tests\Unit\Mapping\Fixtures\Client_> */
+    public readonly M\Relation $client;
+
+    /** @var M\Relation<\Prism\Orm\Tests\Unit\Mapping\Fixtures\Invoice_> */
+    public readonly M\Relation $creditNote;
+
+    /** @var M\CollectionRelation<\Prism\Orm\Tests\Unit\Mapping\Fixtures\InvoiceLine_> */
+    public readonly M\CollectionRelation $lines;
+
+    /** @var M\CollectionRelation<\Prism\Orm\Tests\Unit\Mapping\Fixtures\Tag_> */
+    public readonly M\CollectionRelation $tags;
+
+    public function __construct(string $alias = 'invoice')
+    {
+        parent::__construct($alias);
+        $this->id = new M\IntField($this, 'id');
+        $this->version = new M\IntField($this, 'version');
+        $this->number = new M\StringField($this, 'number');
+        $this->status = new M\EnumField($this, 'status', \Prism\Orm\Tests\Unit\Mapping\Fixtures\FixtureStatus::class);
+        $this->total = new M\DecimalField($this, 'total');
+        $this->notes = new M\StringField($this, 'notes');
+        $this->iban = new M\StringField($this, 'iban');
+        $this->issuedAt = new M\DateTimeField($this, 'issuedAt');
+        $this->createdAt = new M\DateTimeField($this, 'createdAt');
+        $this->updatedAt = new M\DateTimeField($this, 'updatedAt');
+        $this->createdBy = new M\StringField($this, 'createdBy');
+        $this->updatedBy = new M\StringField($this, 'updatedBy');
+        $this->deletedAt = new M\DateTimeField($this, 'deletedAt');
+        $this->embedding = new M\MixedField($this, 'embedding');
+        $this->billingAddress = new \Prism\Orm\Tests\Unit\Mapping\Fixtures\Address_($this, 'billingAddress');
+        $this->client = new M\Relation($this, 'client', \Prism\Orm\Tests\Unit\Mapping\Fixtures\Client_::class);
+        $this->creditNote = new M\Relation($this, 'creditNote', \Prism\Orm\Tests\Unit\Mapping\Fixtures\Invoice_::class);
+        $this->lines = new M\CollectionRelation($this, 'lines', \Prism\Orm\Tests\Unit\Mapping\Fixtures\InvoiceLine_::class);
+        $this->tags = new M\CollectionRelation($this, 'tags', \Prism\Orm\Tests\Unit\Mapping\Fixtures\Tag_::class);
+    }
+
+    public static function as(string $alias): self
+    {
+        return new self($alias);
+    }
+
+    protected static function entityClass(): string
+    {
+        return \Prism\Orm\Tests\Unit\Mapping\Fixtures\Invoice::class;
+    }
+}
