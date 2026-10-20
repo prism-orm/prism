@@ -12,6 +12,8 @@ use Prism\Orm\Exception\MappingException;
 use Prism\Orm\Exception\OptimisticLockException;
 use Prism\Orm\Exception\ReentrantFlushException;
 use Prism\Orm\Exception\TransactionRequiredException;
+use Prism\Orm\Query\EntityQueryBuilder;
+use Prism\Orm\Query\Metamodel\Metamodel;
 use Prism\Orm\Repository\EntityRepository;
 use Prism\Orm\UnitOfWork\UnitOfWork;
 
@@ -126,6 +128,17 @@ interface EntityManagerInterface
      * @throws MappingException classe non mappée, ou repositoryClass qui n'étend pas EntityRepository
      */
     public function getRepository(string $class): EntityRepository;
+
+    /**
+     * Requête typée sur l'entité de $root (pilier 2, ADR 0009).
+     *
+     * @template T of object
+     *
+     * @param Metamodel<T> $root
+     *
+     * @return EntityQueryBuilder<T>
+     */
+    public function query(Metamodel $root): EntityQueryBuilder;
 
     public function getConnection(): Connection;
 
