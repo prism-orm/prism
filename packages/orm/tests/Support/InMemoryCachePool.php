@@ -45,6 +45,11 @@ final class InMemoryCachePool implements CacheItemPoolInterface
         return $items;
     }
 
+    public function size(): int
+    {
+        return \count($this->items);
+    }
+
     public function hasItem(string $key): bool
     {
         self::assertKey($key);

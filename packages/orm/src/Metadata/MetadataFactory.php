@@ -113,6 +113,14 @@ final class MetadataFactory
     }
 
     /**
+     * Vrai si la metadata est mise en cache (PSR-6).
+     */
+    public function hasCache(): bool
+    {
+        return null !== $this->cache;
+    }
+
+    /**
      * Oublie les metadata en mémoire et supprime celles du cache (et seulement elles).
      */
     public function clear(): void

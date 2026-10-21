@@ -152,6 +152,14 @@ final class EntityManager implements EntityManagerInterface
         return $this->connection;
     }
 
+    /**
+     * Le mapping des entités, pour les outils (bin/prism, commandes db:*).
+     */
+    public function getMetadataFactory(): MetadataFactory
+    {
+        return $this->metadata;
+    }
+
     public function getUnitOfWork(): UnitOfWork
     {
         return $this->unitOfWork;
