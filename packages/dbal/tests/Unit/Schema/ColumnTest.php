@@ -28,6 +28,17 @@ final class ColumnTest extends TestCase
         self::assertTrue(new Column('id', 'integer')->withAutoincrement(true)->autoincrement);
     }
 
+    public function testFixedLengthIsKeptByTheWithersExceptWithType(): void
+    {
+        $code = new Column('code', 'string', length: 3, fixed: true);
+
+        self::assertTrue($code->withName('iso')->withNullable(true)->withDefault('EUR')->withAutoincrement(false)->fixed);
+        self::assertFalse($code->withType('string', 3)->fixed, 'a new type starts with a variable length');
+        self::assertTrue($code->withType('binary', 3, fixed: true)->fixed);
+        self::assertFalse($code->withFixed(false)->fixed);
+        self::assertFalse(new Column('name', 'string', length: 3)->fixed);
+    }
+
     /**
      * @return iterable<string, array{\Closure(): mixed, string}>
      */
@@ -44,6 +55,8 @@ final class ColumnTest extends TestCase
         yield 'infinite default' => [static fn (): Column => new Column('a', 'float', default: \INF), 'the default value must be finite'];
         yield 'autoincrement string' => [static fn (): Column => new Column('a', 'string', autoincrement: true), 'only integer, smallint and bigint'];
         yield 'nullable autoincrement' => [static fn (): Column => new Column('a', 'integer', nullable: true, autoincrement: true), 'NOT NULL and has no default'];
+        yield 'fixed integer' => [static fn (): Column => new Column('a', 'integer', fixed: true), 'only string and binary columns can have a fixed length'];
+        yield 'fixed without length' => [static fn (): Column => new Column('a', 'string', fixed: true), 'a fixed-length column needs a length'];
         yield 'empty index name' => [static fn (): Index => new Index('', ['a']), 'The index name must not be empty'];
         yield 'index without columns' => [static fn (): Index => new Index('i', []), 'expected a non-empty list of column names'];
         yield 'index column twice' => [static fn (): Index => new Index('i', ['a', 'A']), 'column "A" is listed twice'];

@@ -148,6 +148,8 @@ final class DiffTranslator
             || $smaller($from->length, $to->length)
             || $smaller($from->precision, $to->precision)
             || $smaller($from->scale, $to->scale)
-            || ($from->nullable && !$to->nullable);
+            || ($from->nullable && !$to->nullable)
+            // CHAR complète par des espaces, que MySQL retire à la lecture : un aller-retour non garanti
+            || $from->fixed !== $to->fixed;
     }
 }

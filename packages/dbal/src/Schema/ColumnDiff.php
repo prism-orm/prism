@@ -12,7 +12,7 @@ namespace Prism\Dbal\Schema;
 final class ColumnDiff
 {
     /**
-     * @param list<'type'|'nullable'|'default'|'length'|'precision'|'scale'|'autoincrement'> $changedProperties
+     * @param list<'type'|'nullable'|'default'|'length'|'precision'|'scale'|'autoincrement'|'fixed'> $changedProperties
      */
     public function __construct(
         public readonly Column $from,

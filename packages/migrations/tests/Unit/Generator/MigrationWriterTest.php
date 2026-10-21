@@ -56,6 +56,16 @@ final class MigrationWriterTest extends TestCase
         self::assertSame($code, new MigrationWriter()->write(self::migration(), 'App\\Migrations', 'Version20261021143000'), 'deterministic');
     }
 
+    public function testFixedLengthIsWrittenOnlyWhenSet(): void
+    {
+        $migration = new GeneratedMigration([new Operation\AddColumn('client', new Column('code', 'string', length: 3, fixed: true)), new Operation\AddColumn('client', new Column('ref', 'string', length: 3))], [], ['example'], []);
+
+        $code = new MigrationWriter()->write($migration, 'App\\Migrations', 'Version20261021143000');
+
+        self::assertStringContainsString("\$m->addColumn('client', new Column('code', 'string', length: 3, fixed: true));", $code);
+        self::assertStringContainsString("\$m->addColumn('client', new Column('ref', 'string', length: 3));", $code);
+    }
+
     public function testIrreversibleMigrationThrowsInItsDown(): void
     {
         $code = new MigrationWriter()->write(self::migration(reversible: false), 'App\\Migrations', 'Version20261021143000');

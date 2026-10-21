@@ -31,7 +31,7 @@ use Symfony\Component\Console\Tester\CommandTester;
  */
 final class ImportTest extends TestCase
 {
-    private const array TABLES = ['shop_list', 'shop_profile', 'shop_customer', 'shop_country', 'shop_log', 'shop_pair'];
+    private const array TABLES = ['shop_list', 'shop_profile', 'shop_customer', 'shop_country', 'shop_log', 'shop_pair', 'shop_wallet', 'shop_currency'];
 
     private Connection $connection;
 
@@ -131,6 +131,19 @@ final class ImportTest extends TestCase
     }
 
     /**
+     * Le diff appliqué à la base, qui égale alors les entités : un diff après import doit
+     * s'exécuter (une colonne CHAR visée par une clé étrangère restait VARCHAR, refusé par MySQL).
+     */
+    private static function assertDiffApplies(Connection $connection, Schema $target): void
+    {
+        $names = array_map(static fn (Table $t): string => $t->name, $target->getTables());
+        $schemaManager = $connection->createSchemaManager();
+        $schemaManager->migrate(new Comparator($connection->getPlatform())->compare(self::only($schemaManager->introspect(), $names), $target));
+
+        self::assertTrue(new Comparator($connection->getPlatform())->compare(self::only($schemaManager->introspect(), $names), $target)->isEmpty(), 'the database now equals the entities');
+    }
+
+    /**
      * @param list<string> $tables
      */
     private static function only(Schema $schema, array $tables): Schema
@@ -154,6 +167,26 @@ final class ImportTest extends TestCase
         self::assertOnlyReported(new Comparator($this->connection->getPlatform())->compare(self::only($actual, $imported), $target), $result);
         // la colonne de jointure n'a pas d'index déclaré (l'index implicite de MySQL n'est pas introspecté)
         self::assertStringContainsString('indexes every join column', $result->approximations['shop_customer.country_id'] ?? '');
+        self::assertDiffApplies($this->connection, $target);
+    }
+
+    // une clé primaire CHAR(3) et la clé étrangère qui la vise, avec un défaut à retirer
+    public function testFixedLengthKeysSurviveTheFirstDiff(): void
+    {
+        foreach ($this->connection->getPlatform()->getCreateSchemaSql(EntityImporterTest::fixedSchema()) as $sql) {
+            $this->connection->executeStatement($sql);
+        }
+        $schemaManager = $this->connection->createSchemaManager();
+        $actual = self::only($schemaManager->introspect(), ['shop_currency', 'shop_wallet']);
+
+        $result = new EntityImporter()->import($actual, 'Prism\\Orm\\Tests\\Generated\\Fixed' . bin2hex(random_bytes(4)), 'shop_', $schemaManager->getIntrospectionNotes());
+
+        self::assertTrue($actual->getTable('shop_wallet')->getColumn('currency_code')->fixed);
+        self::assertStringContainsString('#[Prism\\Column(length: 3, fixed: true)]', $result->entities['Currency.php']);
+        $target = $this->entitySchema($this->connection, $result);
+        self::assertTrue($target->getTable('shop_wallet')->getColumn('currency_code')->fixed, 'the join column takes the type of the identifier');
+        self::assertOnlyReported(new Comparator($this->connection->getPlatform())->compare($actual, $target), $result);
+        self::assertDiffApplies($this->connection, $target);
     }
 
     // critère de sortie de la phase 6 : schéma ERP réel anonymisé, 165 tables
@@ -184,6 +217,7 @@ final class ImportTest extends TestCase
             self::assertCount(119, $target->getTables());
             $imported = array_map(static fn (Table $t): string => $t->name, $target->getTables());
             self::assertOnlyReported(new Comparator($erp->getPlatform())->compare(self::only($actual, $imported), $target), $result);
+            self::assertDiffApplies($erp, $target);
             $erp->close();
         } finally {
             $server->executeStatement('DROP DATABASE ' . $database);

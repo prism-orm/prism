@@ -20,7 +20,7 @@ use Prism\Dbal\Platform\AbstractPlatform;
  */
 final class Comparator
 {
-    private const array COLUMN_PROPERTIES = ['type', 'nullable', 'default', 'length', 'precision', 'scale', 'autoincrement'];
+    private const array COLUMN_PROPERTIES = ['type', 'nullable', 'default', 'length', 'precision', 'scale', 'autoincrement', 'fixed'];
 
     public function __construct(private readonly AbstractPlatform $platform)
     {
@@ -104,7 +104,7 @@ final class Comparator
     }
 
     /**
-     * @return list<'type'|'nullable'|'default'|'length'|'precision'|'scale'|'autoincrement'>
+     * @return list<'type'|'nullable'|'default'|'length'|'precision'|'scale'|'autoincrement'|'fixed'>
      */
     private static function changedProperties(Column $from, Column $to): array
     {

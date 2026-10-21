@@ -33,6 +33,8 @@ use Prism\Orm\Tests\Unit\Mapping\Fixtures\InvoiceLine;
 use Prism\Orm\Tests\Unit\Mapping\Fixtures\Tag;
 use Prism\Orm\Tests\Unit\Metadata\Fixtures\Inferred;
 use Prism\Orm\Tests\Unit\Metadata\Fixtures\Person;
+use Prism\Orm\Tests\Unit\Tools\Fixtures\Currency;
+use Prism\Orm\Tests\Unit\Tools\Fixtures\Wallet;
 use Prism\Orm\Tools\SchemaTool;
 
 final class SchemaToolTest extends TestCase
@@ -117,6 +119,17 @@ final class SchemaToolTest extends TestCase
 
         self::assertSame([[['name'], true]], array_values(self::indexes($schema->getTable('label'))), '#[Column(unique: true)]');
         self::assertSame([], $schema->getSequences(), 'Auto is IDENTITY on MariaDB');
+    }
+
+    public function testFixedLengthReachesTheJoinAndPivotColumns(): void
+    {
+        $schema = self::schema(new MariaDbPlatform('11.8'), [Currency::class, Wallet::class]);
+        $describe = static fn (Table $t): array => array_map(static fn (Column $c): array => [$c->name, $c->type, $c->length, $c->fixed], $t->getColumns());
+
+        self::assertSame([['code', 'string', 3, true], ['digest', 'binary', 16, true]], $describe($schema->getTable('currency')));
+        // une clé étrangère CHAR(3) vers CHAR(3) : MySQL et MariaDB refusent sinon de modifier la colonne
+        self::assertSame([['id', 'integer', null, false], ['currency_id', 'string', 3, true]], $describe($schema->getTable('wallet')));
+        self::assertSame([['wallet_id', 'integer', null, false], ['currency_id', 'string', 3, true]], $describe($schema->getTable('wallet_currency')));
     }
 
     // RG-02.4 : Auto vaut SEQUENCE sous PostgreSQL, IDENTITY ailleurs

@@ -61,6 +61,19 @@ final class SchemaManager
     }
 
     /**
+     * Les colonnes des tables introspectées que Prism a lues avec une perte (un ENUM MySQL lu
+     * comme un string), par « table.colonne ». db:import les signale.
+     *
+     * @return array<string, string>
+     *
+     * @phpstan-impure suit les introspections faites
+     */
+    public function getIntrospectionNotes(): array
+    {
+        return $this->introspector?->notes() ?? [];
+    }
+
+    /**
      * Diff qui mène du schéma réel de la base au schéma cible.
      *
      * @throws InvalidSchemaException

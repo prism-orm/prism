@@ -46,13 +46,21 @@ final class EntityImporter
     /** @var array<string, string> */
     private array $approximations = [];
 
+    /** @var array<string, string> */
+    private array $notes = [];
+
     public function __construct(?NamingStrategy $naming = null)
     {
         $this->naming = $naming ?? new UnderscoreNamingStrategy();
     }
 
-    public function import(Schema $schema, string $namespace, string $stripPrefix = ''): ImportResult
+    /**
+     * @param array<string, string> $notes colonnes lues avec une perte, par « table.colonne »
+     *                                     (SchemaManager::getIntrospectionNotes()) : signalées
+     */
+    public function import(Schema $schema, string $namespace, string $stripPrefix = '', array $notes = []): ImportResult
     {
+        $this->notes = array_change_key_case($notes);
         $skipped = [];
         /** @var array<string, string> $classes table → classe (nom court) */
         $classes = [];
@@ -141,9 +149,15 @@ final class EntityImporter
         $members = [];
         foreach ($table->getColumns() as $column) {
             $key = strtolower($column->name);
-            $members[] = isset($relations[$key])
+            $member = isset($relations[$key])
                 ? $this->relation($table, $column, $properties[$key], $relations[$key], $classes)
                 : $this->field($column, $properties[$key], $key === $id);
+            $note = $this->notes[strtolower($table->name . '.' . $column->name)] ?? null;
+            if (null !== $note) {
+                $this->approximate($table->name . '.' . $column->name, $note);
+                $member = self::indent(['// approximation : ' . $note]) . "\n" . $member;
+            }
+            $members[] = $member;
         }
 
         $notes = [];
@@ -177,6 +191,9 @@ final class EntityImporter
         }
         if (null !== $column->length) {
             $arguments[] = 'length: ' . $column->length;
+        }
+        if ($column->fixed) {
+            $arguments[] = 'fixed: true';
         }
         if (null !== $column->precision) {
             $arguments[] = 'precision: ' . $column->precision;
