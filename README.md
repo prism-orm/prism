@@ -7,7 +7,7 @@ ORM PHP moderne pour les applications métier et l'IA.
 - Multi-tenancy et audit natifs
 - Type `vector` et recherche hybride
 
-> Statut : `0.4.0`, phases 0 à 4 livrées (DBAL, mapping, EntityManager, relations et anti-N+1). Versions `0.x` : l'API peut encore changer. Voir [CHANGELOG.md](CHANGELOG.md).
+> Statut : `0.6.0`, phases 0 à 6 livrées (DBAL, mapping, EntityManager, relations et anti-N+1, QueryBuilder typé et PHPStan, migrations et console). Versions `0.x` : l'API peut encore changer. Voir [CHANGELOG.md](CHANGELOG.md).
 
 ## Démarrer
 
@@ -32,4 +32,4 @@ make ci         # style + PHPStan + tests sur les 4 bases
 | `packages/bundle` | `Prism\Bundle` | Intégration Symfony |
 | `packages/phpstan` | `Prism\PHPStan` | Extension PHPStan |
 
-Roadmap : [docs/ROADMAP.md](docs/ROADMAP.md) · Décisions : [docs/adr](docs/adr)
+Roadmap : [docs/ROADMAP.md](docs/ROADMAP.md) · Commandes `db:*` : [docs/commands.md](docs/commands.md) · Décisions : [docs/adr](docs/adr)
