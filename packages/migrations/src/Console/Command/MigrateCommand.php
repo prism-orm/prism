@@ -9,6 +9,7 @@ use Prism\Migrations\Console\MigrationOutput;
 use Prism\Migrations\Exception\MigrationsException;
 use Prism\Migrations\MigrationsConfiguration;
 use Prism\Migrations\Migrator;
+use Prism\Orm\EntityManagerInterface;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputArgument;
@@ -26,9 +27,13 @@ use Symfony\Component\Console\Style\SymfonyStyle;
 #[AsCommand(name: 'db:migrations:migrate', description: 'Run the pending migrations, or migrate to a version')]
 final class MigrateCommand extends Command
 {
+    /**
+     * @param EntityManagerInterface|null $entityManager pour les migrations de données (RG-06.8)
+     */
     public function __construct(
         private readonly Connection $connection,
         private readonly MigrationsConfiguration $configuration,
+        private readonly ?EntityManagerInterface $entityManager = null,
     ) {
         parent::__construct();
     }
@@ -47,7 +52,13 @@ final class MigrateCommand extends Command
         $version = $input->getArgument('version');
         $to = \is_string($version) ? $version : null;
         $allowModified = true === $input->getOption('allow-modified');
-        $migrator = new Migrator($this->connection, $this->configuration->finder());
+        try {
+            $migrator = new Migrator($this->connection, $this->configuration->finder(), $this->entityManager);
+        } catch (MigrationsException $e) {
+            $io->error($e->getMessage());
+
+            return Command::FAILURE;
+        }
 
         try {
             $preview = $migrator->migrate($to, dryRun: true, allowModified: $allowModified);

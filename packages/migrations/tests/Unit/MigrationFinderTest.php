@@ -49,7 +49,7 @@ final class MigrationFinderTest extends TestCase
         touch($this->dir . '/AddPaidAt.php');
 
         $this->expectException(MigrationException::class);
-        $this->expectExceptionMessage('is not named VersionYYYYMMDDHHMMSS.php (RG-06.1).');
+        $this->expectExceptionMessage('is not named VersionYYYYMMDDHHMMSS.php, or VersionYYYYMMDDHHMMSSData.php for a data migration (RG-06.1).');
 
         new MigrationFinder($this->dir, 'App')->find();
     }
@@ -69,7 +69,7 @@ final class MigrationFinderTest extends TestCase
         file_put_contents($this->dir . '/Version20261021140000.php', "<?php\nnamespace App\\Plain;\nfinal class Version20261021140000 {}\n");
 
         $this->expectException(MigrationException::class);
-        $this->expectExceptionMessage('App\\Plain\\Version20261021140000 does not extend Prism\\Migrations\\AbstractMigration.');
+        $this->expectExceptionMessage('App\\Plain\\Version20261021140000 extends neither Prism\\Migrations\\AbstractMigration nor Prism\\Migrations\\DataMigration.');
 
         new MigrationFinder($this->dir, 'App\\Plain')->find();
     }

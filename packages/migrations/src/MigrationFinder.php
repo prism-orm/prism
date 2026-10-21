@@ -7,8 +7,10 @@ namespace Prism\Migrations;
 use Prism\Migrations\Exception\MigrationException;
 
 /**
- * Les migrations d'un dossier : un fichier VersionYYYYMMDDHHMMSS.php par migration, dans le
- * namespace donné, triées par version, donc dans l'ordre chronologique (RG-06.1).
+ * Les migrations d'un dossier : un fichier VersionYYYYMMDDHHMMSS.php par migration de schéma,
+ * VersionYYYYMMDDHHMMSSData.php par migration de données, dans le namespace donné, triées par
+ * version : ordre chronologique (RG-06.1), les données après le schéma de la même version
+ * (RG-06.8).
  *
  * @api
  */
@@ -21,7 +23,7 @@ final class MigrationFinder
     }
 
     /**
-     * @return array<string, AbstractMigration> par version, chronologique
+     * @return array<string, AbstractMigration|DataMigration> par version, chronologique
      *
      * @throws MigrationException fichier mal nommé, classe absente ou qui n'est pas une migration
      */
@@ -34,7 +36,7 @@ final class MigrationFinder
         $files = glob(rtrim($this->directory, '/\\') . '/*.php');
         foreach (false === $files ? [] : $files as $file) {
             $version = basename($file, '.php');
-            if (1 !== preg_match('/^Version\d{14}$/', $version)) {
+            if (1 !== preg_match('/^Version\d{14}(Data)?$/', $version)) {
                 throw MigrationException::invalidFileName($file);
             }
             $class = trim($this->namespace, '\\') . '\\' . $version;
@@ -45,7 +47,7 @@ final class MigrationFinder
                 throw MigrationException::classNotFound($file, $class);
             }
             $migration = new $class();
-            if (!$migration instanceof AbstractMigration) {
+            if (!$migration instanceof AbstractMigration && !$migration instanceof DataMigration) {
                 throw MigrationException::notAMigration($class);
             }
             $migrations[$version] = $migration;

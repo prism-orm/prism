@@ -12,6 +12,7 @@ use Prism\Dbal\Schema\SchemaManager;
 use Prism\Migrations\Exception\IrreversibleMigrationException;
 use Prism\Migrations\Exception\MigrationException;
 use Prism\Migrations\Exception\MigrationsException;
+use Prism\Orm\EntityManagerInterface;
 
 /**
  * Exécute les migrations (ADR 0012) : dans l'ordre chronologique (RG-06.1), après avoir vérifié
@@ -27,10 +28,20 @@ final class Migrator
 
     private readonly SchemaManager $schemaManager;
 
+    /**
+     * @param EntityManagerInterface|null $entityManager pour les migrations de données (RG-06.8),
+     *                                                   sur la même connexion
+     *
+     * @throws MigrationException EntityManager sur une autre connexion
+     */
     public function __construct(
         private readonly Connection $connection,
         private readonly MigrationFinder $finder,
+        private readonly ?EntityManagerInterface $entityManager = null,
     ) {
+        if (null !== $entityManager && $entityManager->getConnection() !== $connection) {
+            throw MigrationException::entityManagerOnAnotherConnection();
+        }
         $this->storage = new VersionStorage($connection);
         $this->schemaManager = new SchemaManager($connection);
     }
@@ -68,7 +79,8 @@ final class Migrator
     /**
      * Migre jusqu'à une version : les migrations en attente jusqu'à elle, puis celles exécutées
      * après elle, revertées de la plus récente à la plus ancienne. Sans version : toutes les
-     * migrations en attente ; « 0 » : tout revertir.
+     * migrations en attente ; « 0 » : tout revertir. Une version comprend sa migration de données
+     * (VersionXData), qui suit sa migration de schéma (RG-06.8).
      *
      * @throws MigrationException             version inconnue, migration modifiée (RG-06.4) ou échouée
      * @throws IrreversibleMigrationException migration sans down() à revertir (RG-06.7)
@@ -89,8 +101,9 @@ final class Migrator
             throw MigrationException::unknownVersion($to);
         }
 
-        $down = null === $to ? [] : array_reverse(array_filter(array_keys($executed), static fn (string $v): bool => '0' === $to || strcmp($v, $to) > 0));
-        $up = array_filter(array_keys($available), static fn (string $v): bool => !isset($executed[$v]) && (null === $to || ('0' !== $to && strcmp($v, $to) <= 0)));
+        $target = null === $to || '0' === $to ? $to : self::timestamp($to);
+        $down = null === $target ? [] : array_reverse(array_filter(array_keys($executed), static fn (string $v): bool => '0' === $target || strcmp(self::timestamp($v), $target) > 0));
+        $up = array_filter(array_keys($available), static fn (string $v): bool => !isset($executed[$v]) && (null === $target || ('0' !== $target && strcmp(self::timestamp($v), $target) <= 0)));
         foreach ($down as $version) {
             if (!isset($available[$version])) {
                 throw MigrationException::unknownVersion($version);
@@ -131,11 +144,21 @@ final class Migrator
         return new MigrationResult([$run], $warnings, $dryRun);
     }
 
-    /**
-     * Le checksum d'une migration : celui des opérations de son up() (RG-06.4).
-     */
-    private function checksum(AbstractMigration $migration): string
+    // VersionYYYYMMDDHHMMSS et VersionYYYYMMDDHHMMSSData : le même horodatage
+    private static function timestamp(string $version): string
     {
+        return substr($version, 7, 14);
+    }
+
+    /**
+     * Le checksum d'une migration : celui des opérations de son up() ; celui de son fichier pour
+     * une migration de données (RG-06.4).
+     */
+    private function checksum(AbstractMigration|DataMigration $migration): string
+    {
+        if ($migration instanceof DataMigration) {
+            return $migration->checksum();
+        }
         $builder = new MigrationBuilder($this->connection->getPlatform());
         $migration->up($builder);
 
@@ -159,8 +182,11 @@ final class Migrator
      * @throws MigrationException
      * @throws IrreversibleMigrationException
      */
-    private function run(string $version, AbstractMigration $migration, Direction $direction, Schema $schema, bool $dryRun, array &$warnings): array
+    private function run(string $version, AbstractMigration|DataMigration $migration, Direction $direction, Schema $schema, bool $dryRun, array &$warnings): array
     {
+        if ($migration instanceof DataMigration) {
+            return [$this->runData($version, $migration, $direction, $dryRun), $schema];
+        }
         $platform = $this->connection->getPlatform();
         $builder = new MigrationBuilder($platform);
         Direction::Up === $direction ? $migration->up($builder) : $migration->down($builder);
@@ -203,5 +229,45 @@ final class Migrator
         }
 
         return [new ExecutedMigration($version, $direction, $sql, $transactional, $milliseconds), $this->schemaManager->introspect()];
+    }
+
+    /**
+     * RG-06.8 : du code PHP avec l'EntityManager, toujours dans une transaction (le DML y est
+     * transactionnel sur les 4 bases), la ligne de version comprise ; l'EntityManager est vidé
+     * ensuite.
+     *
+     * @throws MigrationException
+     * @throws IrreversibleMigrationException revert() absent (RG-06.7)
+     */
+    private function runData(string $version, DataMigration $migration, Direction $direction, bool $dryRun): ExecutedMigration
+    {
+        $em = $this->entityManager ?? throw MigrationException::entityManagerRequired($version);
+        if (Direction::Down === $direction && !$migration->isReversible()) {
+            throw IrreversibleMigrationException::forVersion($version, 'it has no revert()');
+        }
+        if ($dryRun) {
+            return new ExecutedMigration($version, $direction, [], true, data: true);
+        }
+
+        $start = hrtime(true);
+        $milliseconds = 0;
+        try {
+            $this->connection->transactional(function () use ($em, $migration, $direction, $version, $start, &$milliseconds): void {
+                Direction::Up === $direction ? $migration->run($em) : $migration->revert($em);
+                $em->flush();
+                $milliseconds = intdiv(hrtime(true) - $start, 1_000_000);
+                Direction::Up === $direction
+                    ? $this->storage->record($version, new \DateTimeImmutable('now', new \DateTimeZone('UTC')), $milliseconds, $migration->checksum())
+                    : $this->storage->remove($version);
+            });
+        } catch (MigrationsException $e) {
+            throw $e;
+        } catch (\Throwable $e) {
+            throw MigrationException::failed($version, $direction, false, $e);
+        } finally {
+            $em->clear();
+        }
+
+        return new ExecutedMigration($version, $direction, [], true, $milliseconds, data: true);
     }
 }

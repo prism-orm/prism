@@ -24,7 +24,11 @@ final class MigrationOutput
     public static function plan(SymfonyStyle $io, array $migrations, bool $withSql): void
     {
         foreach ($migrations as $migration) {
-            $io->writeln(\sprintf(' <info>%-4s</info> %s%s', $migration->direction->value, $migration->version, $migration->transactional ? '' : ' <comment>(without transaction)</comment>'));
+            $io->writeln(\sprintf(' <info>%-4s</info> %s%s', $migration->direction->value, $migration->version, match (true) {
+                $migration->data => ' <comment>(data migration: runs PHP code)</comment>',
+                !$migration->transactional => ' <comment>(without transaction)</comment>',
+                default => '',
+            }));
             if ($withSql) {
                 foreach ($migration->sql as $sql) {
                     $io->writeln('      ' . $sql . ';');
