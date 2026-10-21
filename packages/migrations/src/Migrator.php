@@ -196,7 +196,7 @@ final class Migrator
             throw MigrationException::invalidOperation($version, $e);
         }
         $sql = $plan->sql($platform);
-        $transactional = $migration->isTransactional() && ($platform->supportsTransactionalDdl() || !$plan->ddl);
+        $transactional = $migration->isTransactional() && !$plan->outsideTransaction && ($platform->supportsTransactionalDdl() || !$plan->ddl);
         if ($dryRun) {
             return [new ExecutedMigration($version, $direction, $sql, $transactional), $plan->schema];
         }
