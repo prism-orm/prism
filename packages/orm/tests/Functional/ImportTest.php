@@ -27,7 +27,8 @@ use Symfony\Component\Console\Tester\CommandTester;
 /**
  * db:import sur base réelle (RG-06.10) : les entités générées redonnent le schéma de la base,
  * aux seuls écarts que l'importeur signale lui-même. Sur les 4 bases avec un schéma de
- * synthèse ; sous MariaDB, avec le schéma ERP réel anonymisé (critère de sortie de la phase 6).
+ * synthèse ; sous MariaDB, avec le schéma ERP réel anonymisé quand sa fixture locale existe
+ * (critère de sortie de la phase 6).
  */
 final class ImportTest extends TestCase
 {
@@ -194,6 +195,10 @@ final class ImportTest extends TestCase
     {
         if ('MariaDB' !== $this->connection->getPlatform()->getName()) {
             self::markTestSkipped('The ERP schema is a MariaDB dump.');
+        }
+        // fixture locale, jamais versionnée (ErpSchemaAnonymizer)
+        if (!is_file(ErpSchemaAnonymizer::fixture())) {
+            self::markTestSkipped('The anonymized ERP schema is local only: run ErpSchemaAnonymizer on a dump to create it.');
         }
         $database = 'prism_erp_' . bin2hex(random_bytes(4));
         $server = $this->connection->withoutDatabase();
