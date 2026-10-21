@@ -8,3 +8,6 @@
 .vscode/
 .DS_Store
 /.env
+
+# fichiers locaux de travail (dumps de bases réelles…) : jamais versionnés
+/tmp/
