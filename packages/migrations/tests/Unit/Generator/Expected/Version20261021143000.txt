@@ -1,0 +1,55 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Migrations;
+
+use Prism\Dbal\Schema\Column;
+use Prism\Dbal\Schema\ForeignKey;
+use Prism\Dbal\Schema\ForeignKeyAction;
+use Prism\Dbal\Schema\Index;
+use Prism\Dbal\Schema\Sequence;
+use Prism\Dbal\Schema\Table;
+use Prism\Migrations\AbstractMigration;
+use Prism\Migrations\MigrationBuilder;
+
+// Généré par db:migrations:diff : à relire avant de l'exécuter.
+final class Version20261021143000 extends AbstractMigration
+{
+    public function getDescription(): string
+    {
+        return '';
+    }
+
+    public function up(MigrationBuilder $m): void
+    {
+        // RG-06.3 : client.mail is dropped and client.email added, both string: if it is a rename, use renameColumn().
+        $m->renameTable('bill', 'invoice_old');
+        $m->renameSequence('bill_id_seq', 'invoice_old_id_seq');
+        $m->createSequence(new Sequence('invoice_id_seq', start: 10, increment: 5));
+        $m->createTable(new Table('invoice', [
+            new Column('id', 'integer', autoincrement: true),
+            new Column('client_id', 'integer'),
+            new Column('ref', 'string', length: 20),
+            new Column('total', 'decimal', default: '0.00', precision: 12, scale: 2),
+            new Column('note', 'text', nullable: true),
+        ], primaryKey: ['id'], indexes: [new Index('uniq_ref', ['ref'], unique: true)], foreignKeys: [new ForeignKey('fk_client', ['client_id'], 'client', ['id'], ForeignKeyAction::Cascade)]));
+        $m->dropForeignKey('client', 'fk_old');
+        $m->dropIndex('client', 'idx_old');
+        $m->addColumn('client', new Column('vip', 'boolean', default: false));
+        $m->changeColumn('client', new Column('name', 'string', nullable: true, length: 80));
+        $m->renameColumn('client', 'mail', 'email');
+        $m->changePrimaryKey('client', ['id']);
+        $m->dropColumn('client', 'fax');
+        $m->createIndex('client', ['email'], unique: true, name: 'uniq_email');
+        $m->addForeignKey('client', ['parent_id'], 'client', ['id'], onDelete: ForeignKeyAction::SetNull, name: 'fk_parent');
+        $m->changeSequence(new Sequence('client_id_seq', increment: 2));
+        $m->dropSequence('old_seq');
+        $m->dropTable('legacy');
+    }
+
+    public function down(MigrationBuilder $m): void
+    {
+        $m->dropTable('invoice');
+    }
+}

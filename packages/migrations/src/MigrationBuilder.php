@@ -75,6 +75,16 @@ final class MigrationBuilder
     }
 
     /**
+     * Remplace la clé primaire ; null la retire.
+     *
+     * @param list<string>|null $columns
+     */
+    public function changePrimaryKey(string $table, ?array $columns): void
+    {
+        $this->operations[] = new Operation\ChangePrimaryKey($table, $columns);
+    }
+
+    /**
      * Index nommé de façon déterministe (RG-01.7) quand $name est null.
      *
      * @param list<string> $columns
@@ -114,6 +124,22 @@ final class MigrationBuilder
     public function createSequence(Sequence $sequence): void
     {
         $this->operations[] = new Operation\CreateSequence($sequence);
+    }
+
+    /**
+     * Remplace la définition de la séquence de même nom.
+     */
+    public function changeSequence(Sequence $sequence): void
+    {
+        $this->operations[] = new Operation\ChangeSequence($sequence);
+    }
+
+    /**
+     * Renomme une séquence en gardant son compteur (PostgreSQL, MariaDB).
+     */
+    public function renameSequence(string $from, string $to): void
+    {
+        $this->operations[] = new Operation\RenameSequence($from, $to);
     }
 
     public function dropSequence(string $sequence): void

@@ -11,6 +11,7 @@ use Prism\Dbal\Schema\Schema;
 use Prism\Dbal\Schema\SchemaDiff;
 use Prism\Migrations\Operation\Operation;
 use Prism\Migrations\Operation\RenameColumn;
+use Prism\Migrations\Operation\RenameSequence;
 use Prism\Migrations\Operation\RenameTable;
 use Prism\Migrations\Operation\SchemaOperation;
 use Prism\Migrations\Operation\Sql;
@@ -50,12 +51,14 @@ final class Planner
         };
 
         foreach ($operations as $operation) {
-            if ($operation instanceof RenameTable || $operation instanceof RenameColumn) {
+            if ($operation instanceof RenameTable || $operation instanceof RenameColumn || $operation instanceof RenameSequence) {
                 $flush();
                 $schema = $operation->apply($schema);
-                $steps[] = [$operation instanceof RenameTable
-                    ? $this->platform->getRenameTableSql($operation->from, $operation->to)
-                    : $this->platform->getRenameColumnSql($operation->table, $operation->from, $operation->to), []];
+                $steps[] = [match (true) {
+                    $operation instanceof RenameTable => $this->platform->getRenameTableSql($operation->from, $operation->to),
+                    $operation instanceof RenameColumn => $this->platform->getRenameColumnSql($operation->table, $operation->from, $operation->to),
+                    default => $this->platform->getRenameSequenceSql($operation->from, $operation->to),
+                }, []];
                 $base = $schema;
                 $ddl = true;
             } elseif ($operation instanceof Sql) {
