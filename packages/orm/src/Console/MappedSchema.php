@@ -21,6 +21,12 @@ use Prism\Orm\Tools\SchemaTool;
  */
 final class MappedSchema
 {
+    /**
+     * Préfixe réservé aux tables et séquences que Prism gère lui-même (prism_migration_versions,
+     * prism_audit_log) : jamais vues comme non mappées, donc jamais supprimées (ADR 0012).
+     */
+    public const string RESERVED_PREFIX = 'prism_';
+
     public function __construct(
         private readonly Connection $connection,
         private readonly MetadataFactory $metadata,
@@ -34,21 +40,20 @@ final class MappedSchema
 
     /**
      * Base réelle. Sans $complete, seulement les tables et séquences du schéma cible : une table
-     * que le mapping ne connaît pas n'est jamais comparée, donc jamais supprimée (RG-02.9).
+     * que le mapping ne connaît pas n'est jamais comparée, donc jamais supprimée (RG-02.9). Avec
+     * $complete, toutes, sauf celles que Prism gère lui-même (préfixe prism_ non mappé).
      */
     public function actual(Schema $target, bool $complete = false): Schema
     {
         $actual = $this->connection->createSchemaManager()->introspect();
-        if ($complete) {
-            return $actual;
-        }
-
         $tables = array_map(static fn (Table $t): string => strtolower($t->name), $target->getTables());
         $sequences = array_map(static fn (Sequence $s): string => strtolower($s->name), $target->getSequences());
+        $kept = static fn (string $name, array $mapped): bool => \in_array(strtolower($name), $mapped, true)
+            || ($complete && !str_starts_with(strtolower($name), self::RESERVED_PREFIX));
 
         return new Schema(
-            array_values(array_filter($actual->getTables(), static fn (Table $t): bool => \in_array(strtolower($t->name), $tables, true))),
-            array_values(array_filter($actual->getSequences(), static fn (Sequence $s): bool => \in_array(strtolower($s->name), $sequences, true))),
+            array_values(array_filter($actual->getTables(), static fn (Table $t): bool => $kept($t->name, $tables))),
+            array_values(array_filter($actual->getSequences(), static fn (Sequence $s): bool => $kept($s->name, $sequences))),
         );
     }
 

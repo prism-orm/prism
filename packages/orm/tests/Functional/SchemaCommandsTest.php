@@ -86,6 +86,19 @@ final class SchemaCommandsTest extends TestCase
         self::assertSame(self::MAPPED, $this->tables());
     }
 
+    // ADR 0012 : une table prism_ non mappée (prism_migration_versions) est gérée par Prism
+    public function testCompleteKeepsTheTablesPrismManages(): void
+    {
+        $this->connection->executeStatement(\sprintf('CREATE TABLE %s (version VARCHAR(191) NOT NULL PRIMARY KEY)', $this->q('prism_migration_versions')));
+        $this->connection->executeStatement(\sprintf('CREATE TABLE %s (id INTEGER NOT NULL PRIMARY KEY)', $this->q('legacy_unmapped')));
+
+        [, $display] = $this->runCommand(SchemaUpdateCommand::class, ['--force' => true, '--complete' => true]);
+
+        self::assertStringContainsString('--complete drops 1 unmapped table(s) and their data: legacy_unmapped.', $display);
+        self::assertTrue($this->exists('prism_migration_versions'));
+        self::assertFalse($this->exists('legacy_unmapped'));
+    }
+
     public function testCreateRefusesAnExistingSchema(): void
     {
         [$code] = $this->runCommand(SchemaCreateCommand::class);
@@ -197,5 +210,6 @@ final class SchemaCommandsTest extends TestCase
     {
         new CommandTester(new SchemaDropCommand($this->connection, $this->metadata))->execute(['--force' => true]);
         $this->connection->executeStatement('DROP TABLE IF EXISTS ' . $this->q('legacy_unmapped'));
+        $this->connection->executeStatement('DROP TABLE IF EXISTS ' . $this->q('prism_migration_versions'));
     }
 }
