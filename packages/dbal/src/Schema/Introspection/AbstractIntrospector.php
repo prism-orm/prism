@@ -126,7 +126,9 @@ abstract class AbstractIntrospector implements Introspector
      */
     protected static function typedDefault(string $type, ?string $value): string|int|float|bool|null
     {
-        if (null === $value) {
+        // une base créée par un autre outil peut en avoir un (MariaDB : TEXT DEFAULT '') ; Prism ne
+        // le gère pas, la base garde le sien
+        if (null === $value || !Column::acceptsDefault($type)) {
             return null;
         }
 

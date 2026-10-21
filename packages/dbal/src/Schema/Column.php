@@ -21,6 +21,14 @@ final class Column
     // ces colonnes ne peuvent pas porter de valeur par défaut littérale sous MySQL : règle portable
     private const array NO_DEFAULT_TYPES = ['text', 'json', 'binary'];
 
+    /**
+     * Faux pour les types sans défaut géré par Prism (texte, JSON, binaire) : non portables.
+     */
+    public static function acceptsDefault(string $type): bool
+    {
+        return !\in_array($type, self::NO_DEFAULT_TYPES, true);
+    }
+
     public function __construct(
         public readonly string $name,
         public readonly string $type,
