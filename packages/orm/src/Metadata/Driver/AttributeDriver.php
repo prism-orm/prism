@@ -166,6 +166,7 @@ final class AttributeDriver implements MetadataDriver
             $column->updatable,
             $column->sensitive,
             $column->lazy,
+            $column->fixed,
         );
     }
 

@@ -14,6 +14,7 @@ use Prism\Migrations\AbstractMigration;
 use Prism\Migrations\Exception\IrreversibleMigrationException;
 use Prism\Migrations\MigrationBuilder;
 use Prism\Migrations\Operation;
+use Prism\Migrations\Operation\Describe;
 use Prism\Migrations\Tests\Fixtures\Basic\Version20261021120000;
 
 /**
@@ -70,6 +71,21 @@ final class MigrationBuilderTest extends TestCase
         self::assertNotSame($a->checksum(), $longer->checksum());
         self::assertNotSame($a->checksum(), $reordered->checksum());
         self::assertNotSame($a->checksum(), self::builder()->checksum());
+    }
+
+    // RG-06.4 : fixed n'entre dans le checksum que s'il est demandé ; les migrations déjà
+    // exécutées gardent leur checksum
+    public function testFixedLengthLeavesExistingChecksumsUnchanged(): void
+    {
+        $before = ['name' => 'a', 'type' => 'string', 'nullable' => false, 'default' => null, 'length' => 10, 'precision' => null, 'scale' => null, 'autoincrement' => false];
+
+        self::assertSame($before, Describe::column(new Column('a', 'string', length: 10)));
+        self::assertSame([...$before, 'fixed' => true], Describe::column(new Column('a', 'string', length: 10, fixed: true)));
+        $fixed = self::builder();
+        $fixed->addColumn('t', new Column('a', 'string', length: 10, fixed: true));
+        $variable = self::builder();
+        $variable->addColumn('t', new Column('a', 'string', length: 10));
+        self::assertNotSame($variable->checksum(), $fixed->checksum());
     }
 
     // RG-06.7

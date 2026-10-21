@@ -22,7 +22,10 @@ final class Describe
      */
     public static function column(Column $column): array
     {
-        return ['name' => $column->name, 'type' => $column->type, 'nullable' => $column->nullable, 'default' => $column->default, 'length' => $column->length, 'precision' => $column->precision, 'scale' => $column->scale, 'autoincrement' => $column->autoincrement];
+        $description = ['name' => $column->name, 'type' => $column->type, 'nullable' => $column->nullable, 'default' => $column->default, 'length' => $column->length, 'precision' => $column->precision, 'scale' => $column->scale, 'autoincrement' => $column->autoincrement];
+
+        // seulement s'il est demandé : les checksums des migrations déjà exécutées ne changent pas
+        return $column->fixed ? [...$description, 'fixed' => true] : $description;
     }
 
     /**

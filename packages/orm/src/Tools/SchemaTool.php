@@ -176,13 +176,13 @@ final class SchemaTool
 
     private static function column(FieldMapping $field, bool $autoincrement): Column
     {
-        return new Column($field->columnName, $field->type, $field->nullable, $field->default, $field->length, $field->precision, $field->scale, $autoincrement);
+        return new Column($field->columnName, $field->type, $field->nullable, $field->default, $field->length, $field->precision, $field->scale, $autoincrement, $field->fixed);
     }
 
     // même type et même longueur que l'identifiant visé, jamais auto-incrémentée
     private static function joinColumn(string $name, FieldMapping $targetId, bool $nullable): Column
     {
-        return new Column($name, $targetId->type, $nullable, length: $targetId->length);
+        return new Column($name, $targetId->type, $nullable, length: $targetId->length, fixed: $targetId->fixed);
     }
 
     private static function isUnique(Table $table, string $column): bool

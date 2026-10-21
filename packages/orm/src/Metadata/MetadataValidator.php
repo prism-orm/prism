@@ -188,6 +188,9 @@ final class MetadataValidator
         if (null !== $field->length && !\in_array($field->type, self::LENGTH_TYPES, true)) {
             $this->error($class, $path, \sprintf('length is not supported by the "%s" type.', $field->type));
         }
+        if ($field->fixed && (!\in_array($field->type, self::LENGTH_TYPES, true) || null === $field->length)) {
+            $this->error($class, $path, \sprintf('fixed needs a "string" or "binary" column with a length, for example #[Column(length: 3, fixed: true)]; got "%s"%s.', $field->type, null === $field->length ? ' without length' : ''));
+        }
         if ('decimal' !== $field->type && (null !== $field->precision || null !== $field->scale)) {
             $this->error($class, $path, \sprintf('precision and scale are only supported by the "decimal" type, not "%s".', $field->type));
         }

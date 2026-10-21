@@ -131,7 +131,7 @@ final class MigrationWriter
     {
         $this->uses[Column::class] = true;
         $arguments = [self::scalar($column->name), self::scalar($column->type)];
-        foreach (['nullable' => false, 'default' => null, 'length' => null, 'precision' => null, 'scale' => null, 'autoincrement' => false] as $name => $default) {
+        foreach (['nullable' => false, 'default' => null, 'length' => null, 'precision' => null, 'scale' => null, 'autoincrement' => false, 'fixed' => false] as $name => $default) {
             if ($column->{$name} !== $default) {
                 $arguments[] = $name . ': ' . self::scalar($column->{$name});
             }

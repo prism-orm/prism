@@ -58,15 +58,16 @@ final class ImportCommand extends Command
             $excludes[] = $pattern;
         }
 
+        $schemaManager = $this->connection->createSchemaManager();
         try {
-            $all = $this->connection->createSchemaManager()->introspect();
+            $all = $schemaManager->introspect();
         } catch (DbalException $e) {
             $io->error($e->getMessage());
 
             return Command::FAILURE;
         }
         $kept = array_values(array_filter($all->getTables(), static fn (Table $t): bool => [] === array_filter($excludes, static fn (string $p): bool => 1 === preg_match($p, $t->name))));
-        $result = new EntityImporter()->import(new Schema($kept), $namespace, self::string($input->getOption('strip-prefix'), ''));
+        $result = new EntityImporter()->import(new Schema($kept), $namespace, self::string($input->getOption('strip-prefix'), ''), $schemaManager->getIntrospectionNotes());
 
         if (true === $input->getOption('dry-run')) {
             foreach ($result->entities as $file => $code) {

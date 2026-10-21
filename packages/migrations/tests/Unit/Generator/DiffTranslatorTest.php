@@ -105,6 +105,15 @@ final class DiffTranslatorTest extends TestCase
         self::assertSame(['it changes client.name, and changing it back could truncate or reject its data'], $migration->irreversible);
     }
 
+    // CHAR complète par des espaces que MySQL retire : passer de l'un à l'autre n'est pas un aller-retour sûr
+    public function testFixedLengthChangeCannotBeUndone(): void
+    {
+        $migration = $this->translate(new Schema([self::client(new Column('code', 'string', length: 3))]), new Schema([self::client(new Column('code', 'string', length: 3, fixed: true))]));
+
+        self::assertSame(['changeColumn'], self::names($migration->up));
+        self::assertSame(['it changes client.code, and changing it back could truncate or reject its data'], $migration->irreversible);
+    }
+
     public function testKeysAndIndexesLeaveBeforeTheirColumnsAndComeAfter(): void
     {
         $from = new Schema([self::client(new Column('old', 'integer'))->withIndexOn(['old'])->withForeignKeyTo(['old'], 'client', ['id'])]);
