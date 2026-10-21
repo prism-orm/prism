@@ -58,6 +58,12 @@ final class PostgreSqlPlatform extends AbstractPlatform
         return true;
     }
 
+    // le DDL de PostgreSQL est transactionnel : une migration échouée est annulée entière
+    public function supportsTransactionalDdl(): bool
+    {
+        return true;
+    }
+
     // nextval() reçoit le nom en texte : identifiant cité (casse, mots réservés) puis littéral
     public function getSequenceNextValSql(string $sequence): string
     {

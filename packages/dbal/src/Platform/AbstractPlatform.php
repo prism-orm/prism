@@ -509,6 +509,34 @@ abstract class AbstractPlatform
     abstract public function getListForeignKeysSql(): string;
 
     /**
+     * Renommage explicite d'une table (ADR 0012) ; le Comparator ne le devine jamais (RG-01.9).
+     * Les index et clés étrangères suivent la table.
+     */
+    public function getRenameTableSql(string $from, string $to): string
+    {
+        return \sprintf('ALTER TABLE %s RENAME TO %s', $this->quoteIdentifier($from), $this->quoteIdentifier($to));
+    }
+
+    /**
+     * Renommage explicite d'une colonne (ADR 0012) : MySQL 8.0, MariaDB 10.5, PostgreSQL et
+     * SQLite 3.25 l'écrivent de la même façon, et y adaptent index et clés étrangères.
+     */
+    public function getRenameColumnSql(string $table, string $from, string $to): string
+    {
+        return \sprintf('ALTER TABLE %s RENAME COLUMN %s TO %s', $this->quoteIdentifier($table), $this->quoteIdentifier($from), $this->quoteIdentifier($to));
+    }
+
+    /**
+     * Vrai si une migration peut entourer son DDL d'une transaction, et l'annuler entière en cas
+     * d'échec. MySQL et MariaDB valident chaque DDL implicitement (RG-06.6) ; SQLite reconstruit
+     * ses tables hors transaction englobante (RG-01.11).
+     */
+    public function supportsTransactionalDdl(): bool
+    {
+        return false;
+    }
+
+    /**
      * @throws InvalidSchemaException plateforme sans séquences (MySQL, SQLite)
      */
     public function getCreateSequenceSql(Sequence $sequence): string
