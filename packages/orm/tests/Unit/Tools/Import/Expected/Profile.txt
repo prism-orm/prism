@@ -1,0 +1,23 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Entity;
+
+use Prism\Orm\Mapping as Prism;
+
+// Importé par db:import depuis la table shop_profile : à relire.
+#[Prism\Entity]
+#[Prism\Table('shop_profile')]
+#[Prism\UniqueConstraint(['customer'], name: 'UNIQ_PROFILE_CUSTOMER')]
+final class Profile
+{
+    #[Prism\Id, Prism\GeneratedValue(Prism\GenerationStrategy::Identity)]
+    public ?int $id = null;
+
+    #[Prism\OneToOne(onDelete: Prism\OnDelete::Cascade, foreignKey: 'FK_PROFILE_CUSTOMER')]
+    public Customer $customer;
+
+    #[Prism\Column(length: 200)]
+    public ?string $bio = null;
+}

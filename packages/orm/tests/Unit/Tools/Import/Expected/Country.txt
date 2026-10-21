@@ -1,0 +1,23 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Entity;
+
+use Prism\Orm\Mapping as Prism;
+
+// Importé par db:import depuis la table shop_country : à relire.
+#[Prism\Entity]
+#[Prism\Table('shop_country')]
+#[Prism\UniqueConstraint(['code'], name: 'UNIQ_COUNTRY_CODE')]
+final class Country
+{
+    #[Prism\Id, Prism\GeneratedValue(Prism\GenerationStrategy::Identity)]
+    public ?int $id = null;
+
+    #[Prism\Column(length: 2)]
+    public string $code;
+
+    #[Prism\Column(length: 80)]
+    public ?string $name = null;
+}
