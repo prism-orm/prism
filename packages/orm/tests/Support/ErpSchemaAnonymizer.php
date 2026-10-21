@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Prism\Orm\Tests\Support;
 
 /**
- * Anonymise le dump d'un schéma ERP réel (phpMyAdmin, MariaDB) pour le versionner comme fixture
+ * Anonymise le dump d'un schéma ERP réel (phpMyAdmin, MariaDB) pour en faire une fixture locale
  * de db:import (RG-06.10) : la structure reste identique (types, longueurs, nullabilité,
  * clés, index, graphe des clés étrangères), les noms et les valeurs disparaissent.
  *
@@ -13,7 +13,8 @@ namespace Prism\Orm\Tests\Support;
  * - index : erp_t001_i1, contraintes : erp_t001_fk1 ; commentaires retirés ;
  * - défauts texte non vides remplacés par 'v' (le JSON '[]' est gardé).
  *
- * Le dump brut reste hors du dépôt (tmp/, ignoré). Régénérer la fixture :
+ * Ni le dump brut (tmp/) ni la fixture (Fixtures/Erp/) ne sont versionnés : le schéma, même
+ * anonymisé, n'est pas public ; ImportTest saute le test ERP sans lui. Régénérer la fixture :
  *
  *     docker compose run --rm php php packages/orm/tests/Support/ErpSchemaAnonymizer.php tmp/dump.sql
  *
