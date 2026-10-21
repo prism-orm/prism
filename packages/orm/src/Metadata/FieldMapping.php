@@ -33,6 +33,7 @@ final class FieldMapping
         public readonly bool $updatable = true,
         public readonly bool $sensitive = false,
         public readonly bool $lazy = false,
+        public readonly bool $fixed = false,
     ) {
         foreach (['fieldName' => $fieldName, 'columnName' => $columnName, 'type' => $type] as $name => $value) {
             if ('' === trim($value)) {
@@ -43,11 +44,11 @@ final class FieldMapping
 
     public function withColumnName(string $columnName): self
     {
-        return new self($this->fieldName, $columnName, $this->type, $this->nullable, $this->length, $this->precision, $this->scale, $this->unique, $this->default, $this->enumType, $this->readonly, $this->insertable, $this->updatable, $this->sensitive, $this->lazy);
+        return new self($this->fieldName, $columnName, $this->type, $this->nullable, $this->length, $this->precision, $this->scale, $this->unique, $this->default, $this->enumType, $this->readonly, $this->insertable, $this->updatable, $this->sensitive, $this->lazy, $this->fixed);
     }
 
     public function withNullable(bool $nullable): self
     {
-        return new self($this->fieldName, $this->columnName, $this->type, $nullable, $this->length, $this->precision, $this->scale, $this->unique, $this->default, $this->enumType, $this->readonly, $this->insertable, $this->updatable, $this->sensitive, $this->lazy);
+        return new self($this->fieldName, $this->columnName, $this->type, $nullable, $this->length, $this->precision, $this->scale, $this->unique, $this->default, $this->enumType, $this->readonly, $this->insertable, $this->updatable, $this->sensitive, $this->lazy, $this->fixed);
     }
 }

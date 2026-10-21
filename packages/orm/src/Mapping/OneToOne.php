@@ -24,6 +24,8 @@ final class OneToOne implements AssociationAttribute
 
     public readonly ?string $inversedBy;
 
+    public readonly ?string $foreignKey;
+
     public readonly ?string $joinColumn;
 
     public readonly ?int $batchSize;
@@ -43,11 +45,12 @@ final class OneToOne implements AssociationAttribute
         public readonly bool $orphanRemoval = false,
         ?int $batchSize = null,
         public readonly bool $batch = true,
+        ?string $foreignKey = null,
     ) {
         AttributeGuard::exclusive('OneToOne', 'mappedBy', $mappedBy, 'inversedBy', $inversedBy);
 
-        if (null !== $mappedBy && (null !== $joinColumn || OnDelete::Restrict !== $onDelete)) {
-            throw MappingException::invalidAttributeArgument('OneToOne', 'mappedBy', 'the inverse side cannot declare joinColumn or onDelete; set them on the owning side.');
+        if (null !== $mappedBy && (null !== $joinColumn || OnDelete::Restrict !== $onDelete || null !== $foreignKey)) {
+            throw MappingException::invalidAttributeArgument('OneToOne', 'mappedBy', 'the inverse side cannot declare joinColumn, onDelete or foreignKey; set them on the owning side.');
         }
 
         $this->mappedBy = AttributeGuard::nullableFieldName('OneToOne', 'mappedBy', $mappedBy);
@@ -55,6 +58,7 @@ final class OneToOne implements AssociationAttribute
         $this->cascade = AttributeGuard::cascade('OneToOne', $cascade);
         $this->joinColumn = AttributeGuard::name('OneToOne', 'joinColumn', $joinColumn);
         $this->batchSize = AttributeGuard::positiveInt('OneToOne', 'batchSize', $batchSize, 1, 1000);
+        $this->foreignKey = AttributeGuard::name('OneToOne', 'foreignKey', $foreignKey);
     }
 
     public function isOwningSide(): bool

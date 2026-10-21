@@ -90,6 +90,21 @@ final class CreateSqlTest extends TestCase
         self::assertSame($expected, implode('|', $declarations));
     }
 
+    public function testFixedLengthDeclarations(): void
+    {
+        $table = new Table('t', [new Column('code', 'string', length: 3, fixed: true), new Column('hash', 'binary', length: 16, fixed: true)]);
+        $declarations = static fn (AbstractPlatform $platform): array => array_map(
+            static fn (Column $c): string => $platform->getColumnDeclarationSql($table, $c),
+            $table->getColumns(),
+        );
+
+        self::assertSame(['`code` CHAR(3) NOT NULL', '`hash` BINARY(16) NOT NULL'], $declarations(new MySqlPlatform('8.4')));
+        self::assertSame(['`code` CHAR(3) NOT NULL', '`hash` BINARY(16) NOT NULL'], $declarations(new MariaDbPlatform('11.8')));
+        self::assertSame(['"code" CHAR(3) NOT NULL', '"hash" BYTEA NOT NULL'], $declarations(new PostgreSqlPlatform('16')));
+        // CHAR(36) est le uuid de SQLite
+        self::assertSame(['"code" CHARACTER(3) NOT NULL', '"hash" BLOB NOT NULL'], $declarations(new SqlitePlatform('3.46')));
+    }
+
     public function testDefaultValuesAreRenderedAsLiterals(): void
     {
         $table = new Table('t', [new Column('a', 'string', default: "O'Reilly \\ co"), new Column('b', 'float', default: 0.1), new Column('c', 'integer', default: -5)]);

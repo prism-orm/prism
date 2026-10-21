@@ -31,6 +31,19 @@ final class CanonicalColumnTest extends TestCase
         self::assertNull(new SqlitePlatform('3.46')->getCanonicalColumn($binary)->length);
     }
 
+    public function testFixedBinaryIsKeptOnlyWhereTheTypeHasALength(): void
+    {
+        $binary = new Column('b', 'binary', length: 16, fixed: true);
+        $code = new Column('c', 'string', length: 3, fixed: true);
+
+        self::assertTrue(new MySqlPlatform('8.4')->getCanonicalColumn($binary)->fixed);
+        self::assertFalse(new PostgreSqlPlatform('16')->getCanonicalColumn($binary)->fixed);
+        self::assertFalse(new SqlitePlatform('3.46')->getCanonicalColumn($binary)->fixed);
+        foreach ([new MySqlPlatform('8.4'), new MariaDbPlatform('11.8'), new PostgreSqlPlatform('16'), new SqlitePlatform('3.46')] as $platform) {
+            self::assertTrue($platform->getCanonicalColumn($code)->fixed, $platform->getName());
+        }
+    }
+
     public function testSqliteAutoincrementIsAlwaysInteger(): void
     {
         $id = new Column('id', 'bigint', autoincrement: true);

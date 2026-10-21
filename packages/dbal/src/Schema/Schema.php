@@ -86,6 +86,64 @@ final class Schema
         return array_values($this->sequences);
     }
 
+    /**
+     * La table renommée, et les clés étrangères qui la visent (ADR 0012).
+     *
+     * @throws InvalidSchemaException table inconnue, ou nom déjà pris
+     */
+    public function withRenamedTable(string $from, string $to): self
+    {
+        $table = $this->getTable($from);
+        if (0 !== strcasecmp($from, $to) && $this->hasTable($to)) {
+            throw InvalidSchemaException::duplicateTable($to);
+        }
+        $tables = [];
+        foreach ($this->tables as $key => $other) {
+            $other = $key === strtolower($from) ? $table->withName($to) : $other;
+            $tables[] = $other->withRenamedReference($from, $to);
+        }
+
+        return new self($tables, array_values($this->sequences));
+    }
+
+    /**
+     * La colonne renommée dans sa table, et dans les clés étrangères qui la visent (ADR 0012).
+     *
+     * @throws InvalidSchemaException table ou colonne inconnue, ou nom déjà pris
+     */
+    public function withRenamedColumn(string $table, string $from, string $to): self
+    {
+        $renamed = $this->getTable($table)->withRenamedColumn($from, $to);
+        $tables = [];
+        foreach ($this->tables as $key => $other) {
+            $other = $key === strtolower($table) ? $renamed : $other;
+            $tables[] = $other->withRenamedReference($table, null, $from, $to);
+        }
+
+        return new self($tables, array_values($this->sequences));
+    }
+
+    /**
+     * @throws InvalidSchemaException séquence inconnue, ou nom déjà pris
+     */
+    public function withRenamedSequence(string $from, string $to): self
+    {
+        $sequence = $this->sequences[strtolower($from)] ?? throw InvalidSchemaException::invalidKey('sequence', $from, 'no such sequence.');
+        if (0 !== strcasecmp($from, $to) && isset($this->sequences[strtolower($to)])) {
+            throw InvalidSchemaException::invalidKey('sequence', $to, 'the name is already taken.');
+        }
+
+        return $this->withoutSequence($from)->withSequence(new Sequence($to, $sequence->start, $sequence->increment));
+    }
+
+    public function withoutSequence(string $name): self
+    {
+        $sequences = $this->sequences;
+        unset($sequences[strtolower($name)]);
+
+        return new self(array_values($this->tables), array_values($sequences));
+    }
+
     public function withSequence(Sequence $sequence): self
     {
         $sequences = $this->sequences;

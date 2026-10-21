@@ -150,6 +150,14 @@ final class MetadataValidatorTest extends TestCase
             static fn (): array => [self::meta(Client::class, 'client', [new FieldMapping('code', 'code', 'string', precision: 4, scale: 0)])],
             [Client::class . '::$code: precision and scale are only supported by the "decimal" type, not "string".'],
         ];
+        yield '10c fixed on an integer' => [
+            static fn (): array => [self::meta(Client::class, 'client', [new FieldMapping('qty', 'qty', 'integer', fixed: true)])],
+            [Client::class . '::$qty: fixed needs a "string" or "binary" column with a length, for example #[Column(length: 3, fixed: true)]; got "integer" without length.'],
+        ];
+        yield '10d fixed without length' => [
+            static fn (): array => [self::meta(Client::class, 'client', [new FieldMapping('code', 'code', 'string', fixed: true)])],
+            [Client::class . '::$code: fixed needs a "string" or "binary" column with a length, for example #[Column(length: 3, fixed: true)]; got "string" without length.'],
+        ];
         yield '11 default of the wrong type' => [
             static fn (): array => [self::meta(Client::class, 'client', [new FieldMapping('qty', 'qty', 'integer', default: 'abc')])],
             [Client::class . "::\$qty: the default value 'abc' does not match the \"integer\" type."],

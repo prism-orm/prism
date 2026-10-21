@@ -23,4 +23,11 @@ interface Introspector
      * @return list<Sequence>
      */
     public function listSequences(): array;
+
+    /**
+     * Les colonnes lues avec une perte, par « table.colonne » : ce que Prism ne représente pas.
+     *
+     * @return array<string, string>
+     */
+    public function notes(): array;
 }

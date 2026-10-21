@@ -42,6 +42,8 @@ final class AssociationMapping
         public readonly array $orderBy = [],
         public readonly ?int $batchSize = null,
         public readonly bool $batch = true,
+        // nom de la contrainte de clé étrangère ; déterministe sinon (RG-01.7)
+        public readonly ?string $foreignKeyName = null,
     ) {
         $fail = static fn (string $reason): MappingException => MappingException::invalidField($sourceEntity, $fieldName, $reason);
 

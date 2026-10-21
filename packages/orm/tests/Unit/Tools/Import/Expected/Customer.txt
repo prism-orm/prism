@@ -1,0 +1,52 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Entity;
+
+use Prism\Orm\Mapping as Prism;
+
+// Importé par db:import depuis la table shop_customer : à relire.
+#[Prism\Entity]
+#[Prism\Table('shop_customer')]
+#[Prism\Index(['fullName'], name: 'IDX_CUSTOMER_NAME')]
+final class Customer
+{
+    #[Prism\Id, Prism\GeneratedValue(Prism\GenerationStrategy::Identity)]
+    public ?int $id = null;
+
+    // approximation : Prism indexes every join column: the next db:migrations:diff adds an index on it (recommended).
+    #[Prism\ManyToOne(onDelete: Prism\OnDelete::SetNull, foreignKey: 'FK_CUSTOMER_COUNTRY')]
+    public ?Country $country = null;
+
+    #[Prism\Column(length: 80)]
+    public string $fullName;
+
+    #[Prism\Column(default: true)]
+    public bool $active = true;
+
+    #[Prism\Column(type: 'decimal', precision: 12, scale: 2, default: '0.00')]
+    public string $balance = '0.00';
+
+    #[Prism\Column(type: 'date_immutable')]
+    public ?\DateTimeImmutable $born = null;
+
+    #[Prism\Column]
+    public \DateTimeImmutable $createdAt;
+
+    #[Prism\Column(type: 'text')]
+    public ?string $notes = null;
+
+    #[Prism\Column]
+    public ?float $rating = null;
+
+    #[Prism\Column]
+    /** @var array<mixed>|null */
+    public ?array $meta = null;
+
+    #[Prism\Column(type: 'smallint', default: 0)]
+    public int $visits = 0;
+
+    #[Prism\Column(type: 'binary')]
+    public ?string $photo = null;
+}

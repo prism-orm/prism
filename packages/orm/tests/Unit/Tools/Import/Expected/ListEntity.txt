@@ -1,0 +1,29 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Entity;
+
+use Prism\Orm\Mapping as Prism;
+
+// Importé par db:import depuis la table shop_list : à relire.
+// clé étrangère FK_LIST_PAIR gardée en colonne : a, b → shop_pair: it is composite; the column stays a scalar property.
+#[Prism\Entity]
+#[Prism\Table('shop_list')]
+final class ListEntity
+{
+    #[Prism\Id]
+    #[Prism\Column(length: 10)]
+    public string $code;
+
+    // approximation : Prism indexes every join column: the next db:migrations:diff adds an index on it (recommended).
+    // approximation : The default 1 of the join column cannot be mapped on a relation: the next db:migrations:diff will remove it; delete that changeColumn() from the migration to keep it.
+    #[Prism\ManyToOne(joinColumn: 'customer', onDelete: Prism\OnDelete::NoAction, foreignKey: 'FK_LIST_CUSTOMER')]
+    public Customer $customer;
+
+    #[Prism\Column]
+    public ?int $a = null;
+
+    #[Prism\Column]
+    public ?int $b = null;
+}

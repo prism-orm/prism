@@ -2,6 +2,33 @@
 
 Toutes les évolutions notables de Prism, par version. Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) ; versions [SemVer](https://semver.org/lang/fr/), en `0.x` jusqu'à la 1.0 (RT-16). Les règles citées (RG-xx, RT-xx) sont décrites dans `docs/ROADMAP.md`, les décisions (ADR) dans `docs/adr/`.
 
+## [0.6.0] — 2026-10-21
+
+Phase 6 : migrations et console.
+
+### Ajouté
+
+- Migrations décrites par des opérations de schéma portables (`AbstractMigration`, `MigrationBuilder`) : la même migration s'exécute sur les 4 bases, son SQL est produit par la plateforme à l'exécution, avec la reconstruction de table de SQLite ; `$m->sql()` pour le SQL brut (ADR 0012, RG-06.1).
+- Table `prism_migration_versions` et checksum des opérations : une migration modifiée après exécution bloque `migrate`, sauf `--allow-modified` (RG-06.4). Le préfixe `prism_` est réservé : ni `db:schema:update --complete` ni `db:migrations:diff --complete` ne suppriment ces tables.
+- `Migrator` : migration jusqu'à une version ou `0`, `--dry-run` ; transaction quand la plateforme sait annuler son DDL (PostgreSQL), avertissement d'état partiel sinon (RG-06.6) ; `down()` absent → `IrreversibleMigrationException` (RG-06.7).
+- Commandes `db:migrations:generate`, `migrate`, `execute`, `status`, `list` ; confirmation en `prod` sauf `--no-interaction` (RG-06.9).
+- `db:migrations:diff` : gabarit déterministe, rien à écrire sans changement (RG-06.2), `down()` seulement s'il est sûr, `--complete`, `--dry-run` ; `RenameDetector` pour les tables et les colonnes, avec la séquence `{table}_id_seq` gardée (RG-06.3).
+- `DataMigration` (`VersionXData`) : après la migration de schéma de la même version, dans une transaction, avec l'EntityManager ; `generate --data` (RG-06.8).
+- `MigrationLinter` et `db:migrations:lint` : 19 règles sur les opérations, les données et le mapping, `#[IgnoreLint]`, `--strict` ; `createIndex(concurrently: true)` sous PostgreSQL (RG-06.5).
+- `db:database:create` et `drop`, `db:mapping:info`, `db:query:sql` (`--param`, `--force` hors lecture), `db:cache:clear-metadata`.
+- `db:import` : entités `final` typées depuis une base existante, relations des clés étrangères, mapping exact ; tables sans clé primaire, clés composites, `ENUM` et colonnes de jointure approximées signalés ; `--force` pour remplacer un fichier (RG-06.10). Vérifié sur un schéma ERP réel de 165 tables.
+- `bin/prism` : toutes les commandes `db:*` hors Symfony, depuis un `prism.php` qui retourne l'EntityManager ou un `PrismConfig`.
+- Référence des commandes avec exemples : [docs/commands.md](docs/commands.md), vérifiée par un test contre les définitions des commandes.
+- Mapping : `#[ManyToOne|OneToOne(foreignKey: '…')]` nomme la contrainte ; `OnDelete::NoAction` ; `#[Column(length: 3, fixed: true)]` pour `CHAR` et `BINARY`.
+- DBAL : renommage de table, de colonne et de séquence ; `Column::$fixed` (`CHAR`, `BINARY`) ; `supportsTransactionalDdl()`, création d'index concurrente, SQL de création, suppression et liste des bases ; `Connection::withoutDatabase()` ; `SchemaManager::getIntrospectionNotes()`.
+
+### Modifié
+
+- Introspection MySQL et MariaDB élargie aux types créés par d'autres outils (`mediumtext`, `char`, `blob`, `tinyint(4)`, `timestamp`, `year`, `enum`…) ; les défauts que Prism ne gère pas (texte, JSON, `CURRENT_TIMESTAMP`) sont ignorés au lieu d'être lus comme des littéraux.
+- PostgreSQL et SQLite relisent `CHAR(n)` en chaîne de longueur fixe, au lieu de le refuser (PostgreSQL) ou de le lire comme un `uuid` (SQLite, hors `CHAR(36)`).
+- `Column`, `ColumnDiff` et `FieldMapping` gagnent `fixed` en dernier paramètre ; `Column::withType()` repart d'une longueur variable, sauf `fixed: true`.
+- `Introspector` (`@internal`) gagne `notes()`.
+
 ## [0.5.0] — 2026-10-21
 
 Phase 5 : pilier 2, QueryBuilder typé et PHPStan.

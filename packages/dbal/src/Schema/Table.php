@@ -115,6 +115,69 @@ final class Table
     }
 
     /**
+     * La même table sous un autre nom (renommage explicite d'une migration, ADR 0012).
+     */
+    public function withName(string $name): self
+    {
+        return new self($name, array_values($this->columns), $this->primaryKey, array_values($this->indexes), array_values($this->foreignKeys));
+    }
+
+    /**
+     * La colonne renommée à sa place, et partout où la table la cite : clé primaire, index,
+     * colonnes locales des clés étrangères. Les noms d'index et de clés sont gardés, comme la
+     * base les garde (ADR 0012).
+     */
+    public function withRenamedColumn(string $from, string $to): self
+    {
+        $key = strtolower($from);
+        if (!isset($this->columns[$key])) {
+            throw InvalidSchemaException::unknownColumn($this->name, $from, 'withRenamedColumn()');
+        }
+        if (strtolower($to) !== $key && $this->hasColumn($to)) {
+            throw InvalidSchemaException::duplicate('column', $to, $this->name);
+        }
+        $columns = array_map(static fn (Column $c): Column => strtolower($c->name) === $key ? $c->withName($to) : $c, array_values($this->columns));
+
+        return new self(
+            $this->name,
+            $columns,
+            null === $this->primaryKey ? null : self::renamed($this->primaryKey, $key, $to),
+            array_map(static fn (Index $i): Index => new Index($i->name, self::renamed($i->columns, $key, $to), $i->unique), array_values($this->indexes)),
+            array_map(static fn (ForeignKey $f): ForeignKey => new ForeignKey($f->name, self::renamed($f->localColumns, $key, $to), $f->foreignTable, $f->foreignColumns, $f->onDelete), array_values($this->foreignKeys)),
+        );
+    }
+
+    /**
+     * @param list<string> $columns
+     *
+     * @return list<string>
+     */
+    private static function renamed(array $columns, string $key, string $to): array
+    {
+        return array_map(static fn (string $c): string => strtolower($c) === $key ? $to : $c, $columns);
+    }
+
+    /**
+     * Les clés étrangères qui visent une table renommée, ou une de ses colonnes renommée.
+     *
+     * @internal Schema::withRenamedTable() et withRenamedColumn()
+     */
+    public function withRenamedReference(string $table, ?string $newTable, ?string $column = null, ?string $newColumn = null): self
+    {
+        $foreignKeys = [];
+        foreach ($this->foreignKeys as $foreignKey) {
+            if (0 !== strcasecmp($foreignKey->foreignTable, $table)) {
+                $foreignKeys[] = $foreignKey;
+                continue;
+            }
+            $columns = null === $column ? $foreignKey->foreignColumns : array_map(static fn (string $c): string => 0 === strcasecmp($c, $column) ? (string) $newColumn : $c, $foreignKey->foreignColumns);
+            $foreignKeys[] = new ForeignKey($foreignKey->name, $foreignKey->localColumns, $newTable ?? $foreignKey->foreignTable, $columns, $foreignKey->onDelete);
+        }
+
+        return $this->copy(foreignKeys: $foreignKeys);
+    }
+
+    /**
      * @param list<string>|null $columns
      */
     public function withPrimaryKey(?array $columns): self

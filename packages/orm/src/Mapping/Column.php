@@ -16,7 +16,8 @@ use Prism\Orm\Exception\MappingException;
  * - dimensions : obligatoire pour vector ;
  * - sensitive : valeur masquée dans l'audit ;
  * - lazy : champ exclu de l'hydratation par défaut (vector, gros text) ;
- * - updatable: false : colonne générée ou calculée en base.
+ * - updatable: false : colonne générée ou calculée en base ;
+ * - fixed : longueur fixe (CHAR, BINARY), pour string et binary avec une length.
  *
  * @api
  */
@@ -56,6 +57,7 @@ final class Column implements MappingAttribute
         public readonly bool $lazy = false,
         public readonly bool $insertable = true,
         public readonly bool $updatable = true,
+        public readonly bool $fixed = false,
     ) {
         $this->name = AttributeGuard::name('Column', 'name', $name);
         $this->type = AttributeGuard::name('Column', 'type', $type);

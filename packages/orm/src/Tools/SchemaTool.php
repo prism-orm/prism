@@ -123,8 +123,9 @@ final class SchemaTool
         foreach ($joins as $association) {
             $target = $byClass[$association->targetEntity];
             $column = (string) $association->joinColumn;
-            $table = $table->withForeignKeyTo([$column], $target->tableName, [$target->getIdField()->columnName], self::action($association->onDelete));
-            if (AssociationType::OneToOne === $association->type) {
+            $table = $table->withForeignKeyTo([$column], $target->tableName, [$target->getIdField()->columnName], self::action($association->onDelete), $association->foreignKeyName);
+            // une contrainte unique déjà déclarée sur la colonne suffit (db:import la reprend sous son nom)
+            if (AssociationType::OneToOne === $association->type && !self::isUnique($table, $column)) {
                 $table = $table->withIndexOn([$column], unique: true);
             } elseif (!self::isCovered($table, $column)) {
                 $table = $table->withIndexOn([$column]);
@@ -175,13 +176,24 @@ final class SchemaTool
 
     private static function column(FieldMapping $field, bool $autoincrement): Column
     {
-        return new Column($field->columnName, $field->type, $field->nullable, $field->default, $field->length, $field->precision, $field->scale, $autoincrement);
+        return new Column($field->columnName, $field->type, $field->nullable, $field->default, $field->length, $field->precision, $field->scale, $autoincrement, $field->fixed);
     }
 
     // même type et même longueur que l'identifiant visé, jamais auto-incrémentée
     private static function joinColumn(string $name, FieldMapping $targetId, bool $nullable): Column
     {
-        return new Column($name, $targetId->type, $nullable, length: $targetId->length);
+        return new Column($name, $targetId->type, $nullable, length: $targetId->length, fixed: $targetId->fixed);
+    }
+
+    private static function isUnique(Table $table, string $column): bool
+    {
+        foreach ($table->getIndexes() as $index) {
+            if ($index->unique && [strtolower($column)] === array_map(strtolower(...), $index->columns)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static function isCovered(Table $table, string $column): bool
@@ -204,6 +216,7 @@ final class SchemaTool
             OnDelete::Restrict => ForeignKeyAction::Restrict,
             OnDelete::Cascade => ForeignKeyAction::Cascade,
             OnDelete::SetNull => ForeignKeyAction::SetNull,
+            OnDelete::NoAction => ForeignKeyAction::NoAction,
         };
     }
 }

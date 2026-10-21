@@ -72,6 +72,15 @@ final class Connection
         return $this->parameters->database;
     }
 
+    /**
+     * Une connexion au même serveur, sans la base (db:database:create et drop). Sous SQLite, la
+     * base est un fichier : la même connexion.
+     */
+    public function withoutDatabase(): self
+    {
+        return new self($this->parameters->withoutDatabase(), $this->configuration, $this->platform);
+    }
+
     public function isConnected(): bool
     {
         return null !== $this->pdo;

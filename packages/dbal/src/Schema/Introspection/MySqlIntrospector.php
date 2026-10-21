@@ -62,34 +62,53 @@ final class MySqlIntrospector extends AbstractIntrospector
         $dataType = strtolower(self::string($row['data_type']));
         $length = self::nullableInt($row['length']);
 
+        $fixed = \in_array($dataType, ['char', 'binary'], true) && null !== $length;
         [$type, $length, $precision, $scale] = match (true) {
             'varchar' === $dataType => ['string', $length, null, null],
             'longtext' === $dataType => [isset($this->jsonColumns[strtolower($name)]) ? 'json' : 'text', null, null, null],
-            'int' === $dataType => ['integer', null, null, null],
-            'smallint' === $dataType => ['smallint', null, null, null],
+            // les colonnes créées par d'autres outils (db:import) : le type Prism le plus proche, sans perte
+            \in_array($dataType, ['tinytext', 'text', 'mediumtext'], true) => ['text', null, null, null],
+            'int' === $dataType, 'mediumint' === $dataType => ['integer', null, null, null],
+            'smallint' === $dataType, 'year' === $dataType => ['smallint', null, null, null],
             'bigint' === $dataType => ['bigint', null, null, null],
             'tinyint' === $dataType && 'tinyint(1)' === strtolower(self::string($row['column_type'])) => ['boolean', null, null, null],
+            'tinyint' === $dataType => ['smallint', null, null, null],
             'decimal' === $dataType => ['decimal', null, self::nullableInt($row['precision']), self::nullableInt($row['scale'])],
-            'double' === $dataType => ['float', null, null, null],
-            'datetime' === $dataType => ['datetime_immutable', null, null, null],
+            'double' === $dataType, 'float' === $dataType => ['float', null, null, null],
+            'datetime' === $dataType, 'timestamp' === $dataType => ['datetime_immutable', null, null, null],
             'date' === $dataType => ['date_immutable', null, null, null],
             'time' === $dataType => ['time_immutable', null, null, null],
             'json' === $dataType => ['json', null, null, null],
             'uuid' === $dataType, 'char' === $dataType && 36 === $length => ['uuid', null, null, null],
-            'varbinary' === $dataType => ['binary', $length, null, null],
-            'longblob' === $dataType => ['binary', null, null, null],
+            'char' === $dataType => ['string', $length, null, null],
+            'varbinary' === $dataType, 'binary' === $dataType => ['binary', $length, null, null],
+            // la contrainte des valeurs est perdue, la colonne reste telle quelle tant qu'aucun ALTER ne la touche
+            'enum' === $dataType => ['string', $length, null, null],
+            \in_array($dataType, ['tinyblob', 'blob', 'mediumblob', 'longblob'], true) => ['binary', null, null, null],
             default => throw InvalidSchemaException::unsupportedDatabaseType($this->platform->getName(), $table, $name, self::string($row['column_type'])),
         };
+
+        if ('enum' === $dataType) {
+            $this->note($table, $name, \sprintf(
+                'The %s type %s is read as a string of %d characters: the database keeps the ENUM until a migration changes the column, which then becomes a VARCHAR(%d).',
+                $this->platform->getName(),
+                self::string($row['column_type']),
+                $length,
+                $length,
+            ));
+        }
 
         return new Column(
             $name,
             $type,
             'YES' === self::string($row['nullable']),
-            self::typedDefault($type, $this->defaultValue(self::nullableString($row['default_value']))),
+            // un défaut calculé (CURRENT_TIMESTAMP) n'est pas un littéral : non géré par Prism
+            str_contains(strtolower(self::string($row['extra'])), 'default_generated') ? null : self::typedDefault($type, $this->defaultValue(self::nullableString($row['default_value']))),
             $length,
             $precision,
             $scale,
             str_contains(strtolower(self::string($row['extra'])), 'auto_increment'),
+            $fixed && 'uuid' !== $type,
         );
     }
 
@@ -117,7 +136,11 @@ final class MySqlIntrospector extends AbstractIntrospector
         if ('NULL' === $raw) {
             return null;
         }
+        if (self::isQuoted($raw)) {
+            return stripcslashes(self::unquote($raw));
+        }
 
-        return self::isQuoted($raw) ? stripcslashes(self::unquote($raw)) : $raw;
+        // sans apostrophes : un nombre, ou une expression (current_timestamp()) que Prism ne gère pas
+        return is_numeric($raw) ? $raw : null;
     }
 }

@@ -6,6 +6,7 @@ namespace Prism\Dbal\Platform;
 
 use Prism\Dbal\Schema\Column;
 use Prism\Dbal\Schema\ColumnDiff;
+use Prism\Dbal\Schema\Index;
 use Prism\Dbal\Schema\Table;
 
 /**
@@ -37,6 +38,11 @@ final class PostgreSqlPlatform extends AbstractPlatform
         return \sprintf('CAST(%s AS %s)', $expression, 'integer' === $type ? 'BIGINT' : 'NUMERIC');
     }
 
+    public function getListDatabasesSql(): string
+    {
+        return 'SELECT datname FROM pg_database WHERE datistemplate = false';
+    }
+
     public function getMaxIdentifierLength(): int
     {
         return 63;
@@ -58,13 +64,30 @@ final class PostgreSqlPlatform extends AbstractPlatform
         return true;
     }
 
+    // RG-06.5 : sans verrou des écritures ; interdit dans une transaction
+    public function getCreateIndexConcurrentlySql(string $table, Index $index): string
+    {
+        return (string) preg_replace('/^CREATE (UNIQUE )?INDEX /', 'CREATE $1INDEX CONCURRENTLY ', $this->getCreateIndexSql($table, $index));
+    }
+
+    public function supportsConcurrentIndexCreation(): bool
+    {
+        return true;
+    }
+
+    // le DDL de PostgreSQL est transactionnel : une migration échouée est annulée entière
+    public function supportsTransactionalDdl(): bool
+    {
+        return true;
+    }
+
     // nextval() reçoit le nom en texte : identifiant cité (casse, mots réservés) puis littéral
     public function getSequenceNextValSql(string $sequence): string
     {
         return 'SELECT nextval(' . $this->quoteStringLiteral($this->quoteIdentifier($sequence)) . ')';
     }
 
-    // BYTEA n'a pas de longueur
+    // BYTEA n'a pas de longueur, fixe ou non
     public function getCanonicalColumn(Column $column): Column
     {
         $column = parent::getCanonicalColumn($column);
@@ -134,7 +157,7 @@ final class PostgreSqlPlatform extends AbstractPlatform
     protected function getTypeDeclarationSql(Table $table, Column $column): string
     {
         return match ($column->type) {
-            'string' => \sprintf('VARCHAR(%d)', $column->length ?? 255),
+            'string' => \sprintf($column->fixed ? 'CHAR(%d)' : 'VARCHAR(%d)', $column->length ?? 255),
             'text' => 'TEXT',
             'integer' => 'INTEGER',
             'smallint' => 'SMALLINT',
@@ -160,7 +183,7 @@ final class PostgreSqlPlatform extends AbstractPlatform
     protected function getChangeColumnSql(Table $table, ColumnDiff $diff): array
     {
         $alter = 'ALTER TABLE ' . $this->quoteIdentifier($table->name) . ' ALTER COLUMN ' . $this->quoteIdentifier($diff->to->name);
-        $typeChanged = $diff->hasChanged('type') || $diff->hasChanged('length') || $diff->hasChanged('precision') || $diff->hasChanged('scale');
+        $typeChanged = $diff->hasChanged('type') || $diff->hasChanged('length') || $diff->hasChanged('precision') || $diff->hasChanged('scale') || $diff->hasChanged('fixed');
         $sql = [];
 
         if (($typeChanged || $diff->hasChanged('default')) && null !== $diff->from->default) {

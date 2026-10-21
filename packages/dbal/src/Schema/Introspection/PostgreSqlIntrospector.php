@@ -18,6 +18,7 @@ final class PostgreSqlIntrospector extends AbstractIntrospector
 {
     private const array TYPES = [
         'varchar' => 'string',
+        'bpchar' => 'string',
         'text' => 'text',
         'int4' => 'integer',
         'int2' => 'smallint',
@@ -59,6 +60,8 @@ final class PostgreSqlIntrospector extends AbstractIntrospector
             'decimal' === $type ? self::nullableInt($row['precision']) : null,
             'decimal' === $type ? self::nullableInt($row['scale']) : null,
             $identity,
+            // CHAR(n) : bpchar, toujours d'une longueur donnée
+            'bpchar' === $udt && null !== self::nullableInt($row['length']),
         );
     }
 

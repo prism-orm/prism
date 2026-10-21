@@ -1,0 +1,199 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Prism\Migrations\Generator;
+
+use Prism\Dbal\Schema\Column;
+use Prism\Dbal\Schema\ForeignKey;
+use Prism\Dbal\Schema\ForeignKeyAction;
+use Prism\Dbal\Schema\Index;
+use Prism\Dbal\Schema\Sequence;
+use Prism\Dbal\Schema\Table;
+use Prism\Migrations\Operation;
+
+/**
+ * Écrit le fichier d'une migration générée, par un gabarit déterministe : un même diff donne un
+ * même fichier. Les valeurs par défaut des objets de schéma sont omises.
+ *
+ * @internal
+ */
+final class MigrationWriter
+{
+    /** @var array<string, true> classes à importer */
+    private array $uses = [];
+
+    public function write(GeneratedMigration $migration, string $namespace, string $version): string
+    {
+        $this->uses = ['Prism\\Migrations\\AbstractMigration' => true, 'Prism\\Migrations\\MigrationBuilder' => true];
+
+        $up = array_map(fn (Operation\Operation $o): string => $this->operation($o), $migration->up);
+        foreach (array_reverse($migration->warnings) as $warning) {
+            array_unshift($up, '// RG-06.3 : ' . $warning);
+        }
+        if ($migration->isReversible()) {
+            $down = array_map(fn (Operation\Operation $o): string => $this->operation($o), $migration->down);
+        } else {
+            $this->uses['Prism\\Migrations\\Exception\\IrreversibleMigrationException'] = true;
+            $down = [\sprintf('throw IrreversibleMigrationException::forVersion(%s, %s);', self::scalar($version), self::scalar(implode('; ', $migration->irreversible)))];
+        }
+        ksort($this->uses);
+        $uses = implode("\n", array_map(static fn (string $class): string => 'use ' . $class . ';', array_keys($this->uses)));
+
+        return <<<PHP
+            <?php
+
+            declare(strict_types=1);
+
+            namespace {$namespace};
+
+            {$uses}
+
+            // Généré par db:migrations:diff : à relire avant de l'exécuter.
+            final class {$version} extends AbstractMigration
+            {
+                public function getDescription(): string
+                {
+                    return '';
+                }
+
+                public function up(MigrationBuilder \$m): void
+                {
+            {$this->block($up)}
+                }
+
+                public function down(MigrationBuilder \$m): void
+                {
+            {$this->block($down)}
+                }
+            }
+
+            PHP;
+    }
+
+    /**
+     * @param list<string> $lines
+     */
+    private function block(array $lines): string
+    {
+        return implode("\n", array_map(static fn (string $line): string => '        ' . str_replace("\n", "\n        ", $line), $lines));
+    }
+
+    private function operation(Operation\Operation $o): string
+    {
+        $s = self::scalar(...);
+
+        return match (true) {
+            $o instanceof Operation\CreateTable => \sprintf('$m->createTable(%s);', $this->table($o->table)),
+            $o instanceof Operation\DropTable => \sprintf('$m->dropTable(%s);', $s($o->table)),
+            $o instanceof Operation\RenameTable => \sprintf('$m->renameTable(%s, %s);', $s($o->from), $s($o->to)),
+            $o instanceof Operation\AddColumn => \sprintf('$m->addColumn(%s, %s);', $s($o->table), $this->column($o->column)),
+            $o instanceof Operation\ChangeColumn => \sprintf('$m->changeColumn(%s, %s);', $s($o->table), $this->column($o->column)),
+            $o instanceof Operation\DropColumn => \sprintf('$m->dropColumn(%s, %s);', $s($o->table), $s($o->column)),
+            $o instanceof Operation\RenameColumn => \sprintf('$m->renameColumn(%s, %s, %s);', $s($o->table), $s($o->from), $s($o->to)),
+            $o instanceof Operation\ChangePrimaryKey => \sprintf('$m->changePrimaryKey(%s, %s);', $s($o->table), null === $o->columns ? 'null' : self::list($o->columns)),
+            $o instanceof Operation\CreateIndex => \sprintf('$m->createIndex(%s, %s%s%s%s);', $s($o->table), self::list($o->columns), $o->unique ? ', unique: true' : '', null === $o->name ? '' : ', name: ' . $s($o->name), $o->concurrently ? ', concurrently: true' : ''),
+            $o instanceof Operation\DropIndex => \sprintf('$m->dropIndex(%s, %s);', $s($o->table), \is_string($o->index) ? $s($o->index) : self::list($o->index)),
+            $o instanceof Operation\AddForeignKey => \sprintf('$m->addForeignKey(%s, %s, %s, %s%s%s);', $s($o->table), self::list($o->localColumns), $s($o->foreignTable), self::list($o->foreignColumns), $this->onDelete($o->onDelete, named: true), null === $o->name ? '' : ', name: ' . $s($o->name)),
+            $o instanceof Operation\DropForeignKey => \sprintf('$m->dropForeignKey(%s, %s);', $s($o->table), \is_string($o->foreignKey) ? $s($o->foreignKey) : self::list($o->foreignKey)),
+            $o instanceof Operation\CreateSequence => \sprintf('$m->createSequence(%s);', $this->sequence($o->sequence)),
+            $o instanceof Operation\ChangeSequence => \sprintf('$m->changeSequence(%s);', $this->sequence($o->sequence)),
+            $o instanceof Operation\RenameSequence => \sprintf('$m->renameSequence(%s, %s);', $s($o->from), $s($o->to)),
+            $o instanceof Operation\DropSequence => \sprintf('$m->dropSequence(%s);', $s($o->sequence)),
+            $o instanceof Operation\Sql => \sprintf('$m->sql(%s);', $s($o->sql)),
+            default => throw new \LogicException(\sprintf('No code for the operation %s.', $o::class)),
+        };
+    }
+
+    private function table(Table $table): string
+    {
+        $this->uses[Table::class] = true;
+        $lines = ['new Table(' . self::scalar($table->name) . ', ['];
+        foreach ($table->getColumns() as $column) {
+            $lines[] = '    ' . $this->column($column) . ',';
+        }
+        $tail = ']';
+        if (null !== $table->primaryKey) {
+            $tail .= ', primaryKey: ' . self::list($table->primaryKey);
+        }
+        if ([] !== $table->getIndexes()) {
+            $tail .= ', indexes: [' . implode(', ', array_map($this->index(...), $table->getIndexes())) . ']';
+        }
+        if ([] !== $table->getForeignKeys()) {
+            $tail .= ', foreignKeys: [' . implode(', ', array_map($this->foreignKey(...), $table->getForeignKeys())) . ']';
+        }
+        $lines[] = $tail . ')';
+
+        return implode("\n", $lines);
+    }
+
+    private function column(Column $column): string
+    {
+        $this->uses[Column::class] = true;
+        $arguments = [self::scalar($column->name), self::scalar($column->type)];
+        foreach (['nullable' => false, 'default' => null, 'length' => null, 'precision' => null, 'scale' => null, 'autoincrement' => false, 'fixed' => false] as $name => $default) {
+            if ($column->{$name} !== $default) {
+                $arguments[] = $name . ': ' . self::scalar($column->{$name});
+            }
+        }
+
+        return 'new Column(' . implode(', ', $arguments) . ')';
+    }
+
+    private function index(Index $index): string
+    {
+        $this->uses[Index::class] = true;
+
+        return \sprintf('new Index(%s, %s%s)', self::scalar($index->name), self::list($index->columns), $index->unique ? ', unique: true' : '');
+    }
+
+    private function foreignKey(ForeignKey $fk): string
+    {
+        $this->uses[ForeignKey::class] = true;
+
+        return \sprintf('new ForeignKey(%s, %s, %s, %s%s)', self::scalar($fk->name), self::list($fk->localColumns), self::scalar($fk->foreignTable), self::list($fk->foreignColumns), $this->onDelete($fk->onDelete, named: false));
+    }
+
+    private function onDelete(ForeignKeyAction $action, bool $named): string
+    {
+        if (ForeignKeyAction::NoAction === $action) {
+            return '';
+        }
+        $this->uses[ForeignKeyAction::class] = true;
+
+        return ', ' . ($named ? 'onDelete: ' : '') . 'ForeignKeyAction::' . $action->name;
+    }
+
+    private function sequence(Sequence $sequence): string
+    {
+        $this->uses[Sequence::class] = true;
+        $arguments = [self::scalar($sequence->name)];
+        if (1 !== $sequence->start) {
+            $arguments[] = 'start: ' . $sequence->start;
+        }
+        if (1 !== $sequence->increment) {
+            $arguments[] = 'increment: ' . $sequence->increment;
+        }
+
+        return 'new Sequence(' . implode(', ', $arguments) . ')';
+    }
+
+    /**
+     * @param list<string> $values
+     */
+    private static function list(array $values): string
+    {
+        return '[' . implode(', ', array_map(self::scalar(...), $values)) . ']';
+    }
+
+    private static function scalar(mixed $value): string
+    {
+        return match (true) {
+            null === $value => 'null',
+            \is_bool($value) => $value ? 'true' : 'false',
+            \is_int($value), \is_float($value) => var_export($value, true),
+            \is_string($value) => var_export($value, true),
+            default => throw new \LogicException('Only scalar values are written.'),
+        };
+    }
+}

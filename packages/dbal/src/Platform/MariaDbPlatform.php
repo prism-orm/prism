@@ -21,6 +21,12 @@ final class MariaDbPlatform extends AbstractMySqlPlatform
         return true;
     }
 
+    // une séquence MariaDB est une table : elle se renomme comme une table
+    public function getRenameSequenceSql(string $from, string $to): string
+    {
+        return \sprintf('RENAME TABLE %s TO %s', $this->quoteIdentifier($from), $this->quoteIdentifier($to));
+    }
+
     // FOR SHARE n'existe pas sous MariaDB
     public function getLockSql(LockMode $mode): string
     {

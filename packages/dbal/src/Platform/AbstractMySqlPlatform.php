@@ -52,6 +52,11 @@ abstract class AbstractMySqlPlatform extends AbstractPlatform
         return \sprintf('CAST(%s AS %s)', $expression, 'integer' === $type ? 'SIGNED' : 'DECIMAL(65, 30)');
     }
 
+    public function getListDatabasesSql(): string
+    {
+        return 'SELECT SCHEMA_NAME FROM information_schema.SCHEMATA';
+    }
+
     public function getMaxIdentifierLength(): int
     {
         return 64;
@@ -114,7 +119,7 @@ abstract class AbstractMySqlPlatform extends AbstractPlatform
     protected function getTypeDeclarationSql(Table $table, Column $column): string
     {
         return match ($column->type) {
-            'string' => \sprintf('VARCHAR(%d)', $column->length ?? 255),
+            'string' => \sprintf($column->fixed ? 'CHAR(%d)' : 'VARCHAR(%d)', $column->length ?? 255),
             // TEXT plafonne à 64 Ko ; LONGTEXT évite une troncature ou une erreur en mode strict
             'text' => 'LONGTEXT',
             'integer' => 'INT',
@@ -128,7 +133,7 @@ abstract class AbstractMySqlPlatform extends AbstractPlatform
             'time_immutable' => 'TIME',
             'json' => 'JSON',
             'uuid' => $this->getUuidDeclarationSql(),
-            'binary' => null === $column->length ? 'LONGBLOB' : \sprintf('VARBINARY(%d)', $column->length),
+            'binary' => null === $column->length ? 'LONGBLOB' : \sprintf($column->fixed ? 'BINARY(%d)' : 'VARBINARY(%d)', $column->length),
             default => $this->unsupportedType($table, $column),
         };
     }

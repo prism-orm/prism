@@ -11,6 +11,7 @@ use Prism\Dbal\Exception\InvalidSchemaException;
  *
  * Le type est un nom du TypeRegistry ('decimal', 'datetime_immutable'…) ; sa déclaration SQL
  * est produite par la plateforme. Un default null signifie « pas de valeur par défaut ».
+ * fixed : longueur fixe (CHAR, BINARY) pour un string ou un binary de longueur donnée.
  *
  * @api
  */
@@ -21,6 +22,16 @@ final class Column
     // ces colonnes ne peuvent pas porter de valeur par défaut littérale sous MySQL : règle portable
     private const array NO_DEFAULT_TYPES = ['text', 'json', 'binary'];
 
+    private const array FIXED_TYPES = ['string', 'binary'];
+
+    /**
+     * Faux pour les types sans défaut géré par Prism (texte, JSON, binaire) : non portables.
+     */
+    public static function acceptsDefault(string $type): bool
+    {
+        return !\in_array($type, self::NO_DEFAULT_TYPES, true);
+    }
+
     public function __construct(
         public readonly string $name,
         public readonly string $type,
@@ -30,6 +41,7 @@ final class Column
         public readonly ?int $precision = null,
         public readonly ?int $scale = null,
         public readonly bool $autoincrement = false,
+        public readonly bool $fixed = false,
     ) {
         if ('' === trim($name)) {
             throw InvalidSchemaException::emptyName('column');
@@ -58,6 +70,12 @@ final class Column
         if ($autoincrement && !\in_array($type, self::INTEGER_TYPES, true)) {
             throw InvalidSchemaException::invalidColumn($name, 'only integer, smallint and bigint columns can be autoincrement.');
         }
+        if ($fixed && !\in_array($type, self::FIXED_TYPES, true)) {
+            throw InvalidSchemaException::invalidColumn($name, 'only string and binary columns can have a fixed length.');
+        }
+        if ($fixed && null === $length) {
+            throw InvalidSchemaException::invalidColumn($name, 'a fixed-length column needs a length.');
+        }
         if ($autoincrement && ($nullable || null !== $default)) {
             throw InvalidSchemaException::invalidColumn($name, 'an autoincrement column is NOT NULL and has no default value.');
         }
@@ -65,26 +83,34 @@ final class Column
 
     public function withName(string $name): self
     {
-        return new self($name, $this->type, $this->nullable, $this->default, $this->length, $this->precision, $this->scale, $this->autoincrement);
+        return new self($name, $this->type, $this->nullable, $this->default, $this->length, $this->precision, $this->scale, $this->autoincrement, $this->fixed);
     }
 
-    public function withType(string $type, ?int $length = null, ?int $precision = null, ?int $scale = null): self
+    /**
+     * Un nouveau type repart d'une longueur variable, sauf fixed explicite.
+     */
+    public function withType(string $type, ?int $length = null, ?int $precision = null, ?int $scale = null, bool $fixed = false): self
     {
-        return new self($this->name, $type, $this->nullable, $this->default, $length, $precision, $scale, $this->autoincrement);
+        return new self($this->name, $type, $this->nullable, $this->default, $length, $precision, $scale, $this->autoincrement, $fixed);
     }
 
     public function withNullable(bool $nullable): self
     {
-        return new self($this->name, $this->type, $nullable, $this->default, $this->length, $this->precision, $this->scale, $this->autoincrement);
+        return new self($this->name, $this->type, $nullable, $this->default, $this->length, $this->precision, $this->scale, $this->autoincrement, $this->fixed);
     }
 
     public function withDefault(string|int|float|bool|null $default): self
     {
-        return new self($this->name, $this->type, $this->nullable, $default, $this->length, $this->precision, $this->scale, $this->autoincrement);
+        return new self($this->name, $this->type, $this->nullable, $default, $this->length, $this->precision, $this->scale, $this->autoincrement, $this->fixed);
     }
 
     public function withAutoincrement(bool $autoincrement): self
     {
-        return new self($this->name, $this->type, $this->nullable, $this->default, $this->length, $this->precision, $this->scale, $autoincrement);
+        return new self($this->name, $this->type, $this->nullable, $this->default, $this->length, $this->precision, $this->scale, $autoincrement, $this->fixed);
+    }
+
+    public function withFixed(bool $fixed): self
+    {
+        return new self($this->name, $this->type, $this->nullable, $this->default, $this->length, $this->precision, $this->scale, $this->autoincrement, $fixed);
     }
 }

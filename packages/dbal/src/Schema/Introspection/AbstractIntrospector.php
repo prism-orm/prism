@@ -25,6 +25,9 @@ use Prism\Dbal\Schema\Table;
  */
 abstract class AbstractIntrospector implements Introspector
 {
+    /** @var array<string, string> */
+    private array $notes = [];
+
     public function __construct(
         protected readonly Connection $connection,
         protected readonly AbstractPlatform $platform,
@@ -41,12 +44,18 @@ abstract class AbstractIntrospector implements Introspector
         return [];
     }
 
+    public function notes(): array
+    {
+        return $this->notes;
+    }
+
     public function introspectTable(string $name): Table
     {
         $rows = $this->connection->executeQuery($this->platform->getListColumnsSql(), [$name])->fetchAllAssociative();
         if ([] === $rows) {
             throw InvalidSchemaException::unknownTable($name);
         }
+        $this->notes = array_filter($this->notes, static fn (string $key): bool => !str_starts_with($key, $name . '.'), \ARRAY_FILTER_USE_KEY);
         $this->prepare($name);
 
         $columns = [];
@@ -62,6 +71,12 @@ abstract class AbstractIntrospector implements Introspector
         ksort($primaryKey);
 
         return $this->finish(new Table($name, $columns, [] === $primaryKey ? null : array_values($primaryKey), $this->indexes($name), $this->foreignKeys($name)));
+    }
+
+    // une colonne lue avec une perte (notes())
+    protected function note(string $table, string $column, string $note): void
+    {
+        $this->notes[$table . '.' . $column] = $note;
     }
 
     /**
@@ -126,7 +141,9 @@ abstract class AbstractIntrospector implements Introspector
      */
     protected static function typedDefault(string $type, ?string $value): string|int|float|bool|null
     {
-        if (null === $value) {
+        // une base créée par un autre outil peut en avoir un (MariaDB : TEXT DEFAULT '') ; Prism ne
+        // le gère pas, la base garde le sien
+        if (null === $value || !Column::acceptsDefault($type)) {
             return null;
         }
 

@@ -68,6 +68,19 @@ final class ConnectionParameters
         return Driver::MySql === $this->driver ? $dsn . ';charset=' . $this->charset : $dsn;
     }
 
+    /**
+     * Les mêmes paramètres, pour se connecter au serveur sans la base : pour la créer ou la
+     * supprimer. PostgreSQL se connecte toujours à une base : celle d'administration, postgres.
+     */
+    public function withoutDatabase(): self
+    {
+        if (Driver::Sqlite === $this->driver) {
+            return $this;
+        }
+
+        return new self($this->driver, $this->mariaDb, $this->host, $this->port, $this->user, $this->password, Driver::PostgreSql === $this->driver ? 'postgres' : null, $this->serverVersion, $this->charset);
+    }
+
     public function getPassword(): ?string
     {
         return $this->password;
