@@ -54,7 +54,7 @@ final class SqlitePlatform extends AbstractPlatform
         return ' LIMIT -1 OFFSET ' . $offset;
     }
 
-    // BLOB n'a pas de longueur ; un auto-incrément est toujours relu INTEGER
+    // BLOB n'a pas de longueur, fixe ou non ; un auto-incrément est toujours relu INTEGER
     public function getCanonicalColumn(Column $column): Column
     {
         $column = parent::getCanonicalColumn($column);
@@ -104,7 +104,8 @@ final class SqlitePlatform extends AbstractPlatform
         }
 
         return match ($column->type) {
-            'string' => \sprintf('VARCHAR(%d)', $column->length ?? 255),
+            // CHAR(36) est le uuid : CHARACTER garde la chaîne fixe distincte à l'introspection
+            'string' => \sprintf($column->fixed ? 'CHARACTER(%d)' : 'VARCHAR(%d)', $column->length ?? 255),
             'text' => 'TEXT',
             'integer' => 'INTEGER',
             'smallint' => 'SMALLINT',

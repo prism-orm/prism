@@ -53,10 +53,31 @@ final class ForeignSchemaTest extends TestCase
 
         self::assertSame(['text', 'text', 'text', 'string', 'binary', 'binary', 'binary'], array_map($type, ['small_text', 'body', 'notes', 'code', 'photo', 'scan', 'digest']));
         self::assertSame([3, 16], [$table->getColumn('code')->length, $table->getColumn('digest')->length]);
+        self::assertSame([true, true, false], [$table->getColumn('code')->fixed, $table->getColumn('digest')->fixed, $table->getColumn('label')->fixed], 'CHAR and BINARY keep their fixed length');
         self::assertSame(['smallint', 'integer', 'smallint', 'float', 'datetime_immutable'], array_map($type, ['level', 'counter', 'born', 'ratio', 'created_at']));
         self::assertSame(2, $table->getColumn('level')->default);
         self::assertNull($table->getColumn('created_at')->default, 'CURRENT_TIMESTAMP is an expression, not the string "current_timestamp()"');
         self::assertSame('x', $table->getColumn('label')->default);
+    }
+
+    public function testEnumIsReadAsAStringAndNoted(): void
+    {
+        $this->connection->executeStatement("CREATE TABLE foreign_types (id INT NOT NULL PRIMARY KEY, status ENUM('draft','confirmed') NOT NULL DEFAULT 'draft', label VARCHAR(10))");
+        $schemaManager = $this->connection->createSchemaManager();
+
+        self::assertSame([], $schemaManager->getIntrospectionNotes());
+        $status = $schemaManager->introspectTable('foreign_types')->getColumn('status');
+
+        self::assertSame(['string', 9, false, 'draft'], [$status->type, $status->length, $status->fixed, $status->default], 'the longest value');
+        self::assertSame(['foreign_types.status'], array_keys($schemaManager->getIntrospectionNotes()), 'only the ENUM');
+        self::assertStringContainsString("enum('draft','confirmed') is read as a string of 9 characters", $schemaManager->getIntrospectionNotes()['foreign_types.status']);
+
+        // la même colonne relue : une seule note ; disparue, plus de note
+        $schemaManager->introspectTable('foreign_types');
+        self::assertCount(1, $schemaManager->getIntrospectionNotes());
+        $this->connection->executeStatement('ALTER TABLE foreign_types MODIFY status VARCHAR(9)');
+        $schemaManager->introspectTable('foreign_types');
+        self::assertSame([], $schemaManager->getIntrospectionNotes());
     }
 
     public function testTextDefaultIsIgnored(): void

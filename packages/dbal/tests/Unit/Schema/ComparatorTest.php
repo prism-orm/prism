@@ -148,6 +148,7 @@ final class ComparatorTest extends TestCase
         yield 'length' => [new Column('name', 'string', length: 100), new Column('name', 'string', length: 200), ['length']];
         yield 'precision' => [$total, $total->withType('decimal', null, 14, 2), ['precision']];
         yield 'scale' => [$total, $total->withType('decimal', null, 12, 4), ['scale']];
+        yield 'fixed' => [new Column('code', 'string', length: 3), new Column('code', 'string', length: 3, fixed: true), ['fixed']];
         yield 'type and length' => [new Column('code', 'string', length: 10), new Column('code', 'text'), ['type', 'length']];
     }
 

@@ -62,6 +62,7 @@ final class MySqlIntrospector extends AbstractIntrospector
         $dataType = strtolower(self::string($row['data_type']));
         $length = self::nullableInt($row['length']);
 
+        $fixed = \in_array($dataType, ['char', 'binary'], true) && null !== $length;
         [$type, $length, $precision, $scale] = match (true) {
             'varchar' === $dataType => ['string', $length, null, null],
             'longtext' === $dataType => [isset($this->jsonColumns[strtolower($name)]) ? 'json' : 'text', null, null, null],
@@ -81,9 +82,21 @@ final class MySqlIntrospector extends AbstractIntrospector
             'uuid' === $dataType, 'char' === $dataType && 36 === $length => ['uuid', null, null, null],
             'char' === $dataType => ['string', $length, null, null],
             'varbinary' === $dataType, 'binary' === $dataType => ['binary', $length, null, null],
+            // la contrainte des valeurs est perdue, la colonne reste telle quelle tant qu'aucun ALTER ne la touche
+            'enum' === $dataType => ['string', $length, null, null],
             \in_array($dataType, ['tinyblob', 'blob', 'mediumblob', 'longblob'], true) => ['binary', null, null, null],
             default => throw InvalidSchemaException::unsupportedDatabaseType($this->platform->getName(), $table, $name, self::string($row['column_type'])),
         };
+
+        if ('enum' === $dataType) {
+            $this->note($table, $name, \sprintf(
+                'The %s type %s is read as a string of %d characters: the database keeps the ENUM until a migration changes the column, which then becomes a VARCHAR(%d).',
+                $this->platform->getName(),
+                self::string($row['column_type']),
+                $length,
+                $length,
+            ));
+        }
 
         return new Column(
             $name,
@@ -95,6 +108,7 @@ final class MySqlIntrospector extends AbstractIntrospector
             $precision,
             $scale,
             str_contains(strtolower(self::string($row['extra'])), 'auto_increment'),
+            $fixed && 'uuid' !== $type,
         );
     }
 

@@ -31,6 +31,7 @@ final class SqliteIntrospector extends AbstractIntrospector
         'TIME' => 'time_immutable',
         'JSON_TEXT' => 'json',
         'CHAR' => 'uuid',
+        'CHARACTER' => 'string',
         'BLOB' => 'binary',
     ];
 
@@ -52,6 +53,11 @@ final class SqliteIntrospector extends AbstractIntrospector
         }
         $type = self::TYPES[$m[1]];
         $size = isset($m[2]) ? (int) $m[2] : null;
+        // CHAR(n) d'un autre outil : une chaîne fixe, sauf CHAR(36), le uuid de Prism
+        $fixed = 'CHARACTER' === $m[1] || ('CHAR' === $m[1] && null !== $size && 36 !== $size);
+        if ($fixed) {
+            $type = 'string';
+        }
         $isPrimary = (self::nullableInt($row['primary_position']) ?? 0) > 0;
 
         return new Column(
@@ -64,6 +70,7 @@ final class SqliteIntrospector extends AbstractIntrospector
             'decimal' === $type ? (isset($m[3]) ? (int) $m[3] : null) : null,
             // seule une colonne INTEGER PRIMARY KEY peut porter AUTOINCREMENT
             $isPrimary && 'integer' === $type && 1 === preg_match('/\bAUTOINCREMENT\b/i', $this->definition),
+            $fixed && null !== $size,
         );
     }
 

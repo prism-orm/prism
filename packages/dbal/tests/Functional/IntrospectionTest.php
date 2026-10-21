@@ -72,8 +72,8 @@ final class IntrospectionTest extends SchemaTestCase
     public function testUnsupportedColumnTypeIsReportedWithItsLocation(): void
     {
         $this->create(ReferenceSchemas::all(false)['autoincrement primary key']);
-        // un type sans équivalent Prism sur chaque plateforme (CHAR est reconnu sous MySQL et MariaDB)
-        $legacy = 'PostgreSQL' === $this->connection->getPlatform()->getName() ? 'CHAR(2)' : 'GEOMETRY';
+        // un type sans équivalent Prism sur chaque plateforme
+        $legacy = 'PostgreSQL' === $this->connection->getPlatform()->getName() ? 'POINT' : 'GEOMETRY';
         $this->connection->executeStatement(\sprintf('ALTER TABLE %s ADD COLUMN %s %s', $this->q('ref_auto'), $this->q('legacy'), $legacy));
 
         $this->expectException(InvalidSchemaException::class);
@@ -85,7 +85,7 @@ final class IntrospectionTest extends SchemaTestCase
     // comparaison champ par champ : un message d'échec lisible vaut mieux qu'un dump d'objets
     private static function assertTableEquals(Table $expected, Table $actual): void
     {
-        $describe = static fn (Column $c): array => [$c->name, $c->type, $c->nullable, $c->default, $c->length, $c->precision, $c->scale, $c->autoincrement];
+        $describe = static fn (Column $c): array => [$c->name, $c->type, $c->nullable, $c->default, $c->length, $c->precision, $c->scale, $c->autoincrement, $c->fixed];
         $indexes = static function (Table $t): array {
             $all = array_map(static fn (Index $i): array => [$i->name, $i->columns, $i->unique], $t->getIndexes());
             sort($all);

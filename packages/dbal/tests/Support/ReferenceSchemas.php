@@ -47,6 +47,7 @@ final class ReferenceSchemas
                 new Table('ref_a', [new Column('id', 'integer'), new Column('b_id', 'integer', nullable: true)], ['id'])->withForeignKeyTo(['b_id'], 'ref_b', ['id'], ForeignKeyAction::SetNull),
                 new Table('ref_b', [new Column('id', 'integer'), new Column('a_id', 'integer', nullable: true)], ['id'])->withForeignKeyTo(['a_id'], 'ref_a', ['id'], ForeignKeyAction::SetNull),
             ]),
+            'fixed length' => new Schema(self::currencyAndAccount('EUR')),
             'self reference' => new Schema([new Table('ref_category', [new Column('id', 'integer'), new Column('parent_id', 'integer', nullable: true), new Column('name', 'string', length: 80)], ['id'])
                 ->withForeignKeyTo(['parent_id'], 'ref_category', ['id'], ForeignKeyAction::Cascade)]),
         ];
@@ -98,6 +99,9 @@ final class ReferenceSchemas
             'drop referenced table' => [$linked, new Schema([$invoice])],
             'widen primary key' => [$base, $with($invoice->withPrimaryKey(['id', 'number']))],
             'string to text' => [$base, $with($client->withColumn(new Column('name', 'text')))],
+            'string becomes fixed' => [$base, $with($client->withColumn(new Column('name', 'string', length: 100, fixed: true)))],
+            // la clé étrangère reste en place : le type de la colonne ne doit pas changer (CHAR → VARCHAR)
+            'default of a fixed foreign key column' => [new Schema(self::currencyAndAccount('EUR')), new Schema(self::currencyAndAccount(null))],
         ];
 
         if ($withSequences) {
@@ -127,6 +131,21 @@ final class ReferenceSchemas
             new Column('c_binary', 'binary', nullable: true, length: 64),
             new Column('c_blob', 'binary', nullable: true),
         ], ['id']);
+    }
+
+    /**
+     * Une clé primaire CHAR(3) et la clé étrangère CHAR(3) qui la vise, avec un défaut.
+     *
+     * @return list<Table>
+     */
+    private static function currencyAndAccount(?string $default): array
+    {
+        return [
+            new Table('ref_currency', [new Column('code', 'string', length: 3, fixed: true), new Column('hash', 'binary', nullable: true, length: 16, fixed: true)], ['code']),
+            new Table('ref_account', [new Column('id', 'integer'), new Column('currency_code', 'string', default: $default, length: 3, fixed: true)], ['id'])
+                ->withIndexOn(['currency_code'])
+                ->withForeignKeyTo(['currency_code'], 'ref_currency', ['code'], ForeignKeyAction::Restrict),
+        ];
     }
 
     private static function defaults(): Table

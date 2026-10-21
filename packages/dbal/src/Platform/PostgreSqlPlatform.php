@@ -87,7 +87,7 @@ final class PostgreSqlPlatform extends AbstractPlatform
         return 'SELECT nextval(' . $this->quoteStringLiteral($this->quoteIdentifier($sequence)) . ')';
     }
 
-    // BYTEA n'a pas de longueur
+    // BYTEA n'a pas de longueur, fixe ou non
     public function getCanonicalColumn(Column $column): Column
     {
         $column = parent::getCanonicalColumn($column);
@@ -157,7 +157,7 @@ final class PostgreSqlPlatform extends AbstractPlatform
     protected function getTypeDeclarationSql(Table $table, Column $column): string
     {
         return match ($column->type) {
-            'string' => \sprintf('VARCHAR(%d)', $column->length ?? 255),
+            'string' => \sprintf($column->fixed ? 'CHAR(%d)' : 'VARCHAR(%d)', $column->length ?? 255),
             'text' => 'TEXT',
             'integer' => 'INTEGER',
             'smallint' => 'SMALLINT',
@@ -183,7 +183,7 @@ final class PostgreSqlPlatform extends AbstractPlatform
     protected function getChangeColumnSql(Table $table, ColumnDiff $diff): array
     {
         $alter = 'ALTER TABLE ' . $this->quoteIdentifier($table->name) . ' ALTER COLUMN ' . $this->quoteIdentifier($diff->to->name);
-        $typeChanged = $diff->hasChanged('type') || $diff->hasChanged('length') || $diff->hasChanged('precision') || $diff->hasChanged('scale');
+        $typeChanged = $diff->hasChanged('type') || $diff->hasChanged('length') || $diff->hasChanged('precision') || $diff->hasChanged('scale') || $diff->hasChanged('fixed');
         $sql = [];
 
         if (($typeChanged || $diff->hasChanged('default')) && null !== $diff->from->default) {
