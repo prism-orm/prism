@@ -52,6 +52,11 @@ abstract class AbstractMySqlPlatform extends AbstractPlatform
         return \sprintf('CAST(%s AS %s)', $expression, 'integer' === $type ? 'SIGNED' : 'DECIMAL(65, 30)');
     }
 
+    public function getListDatabasesSql(): string
+    {
+        return 'SELECT SCHEMA_NAME FROM information_schema.SCHEMATA';
+    }
+
     public function getMaxIdentifierLength(): int
     {
         return 64;

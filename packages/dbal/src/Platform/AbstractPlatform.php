@@ -526,6 +526,44 @@ abstract class AbstractPlatform
     abstract public function getListForeignKeysSql(): string;
 
     /**
+     * @throws InvalidSchemaException plateforme sans bases nommées (SQLite : un fichier)
+     */
+    public function getCreateDatabaseSql(string $database): string
+    {
+        $this->assertNamedDatabases();
+
+        return 'CREATE DATABASE ' . $this->quoteIdentifier($database);
+    }
+
+    /**
+     * @throws InvalidSchemaException plateforme sans bases nommées
+     */
+    public function getDropDatabaseSql(string $database): string
+    {
+        $this->assertNamedDatabases();
+
+        return 'DROP DATABASE ' . $this->quoteIdentifier($database);
+    }
+
+    /**
+     * Les bases du serveur, une par ligne, en première colonne.
+     *
+     * @throws InvalidSchemaException plateforme sans bases nommées
+     */
+    public function getListDatabasesSql(): string
+    {
+        throw InvalidSchemaException::unsupportedFeature($this->getName(), 'named databases (a SQLite database is a file)');
+    }
+
+    /**
+     * @throws InvalidSchemaException
+     */
+    private function assertNamedDatabases(): void
+    {
+        $this->getListDatabasesSql();
+    }
+
+    /**
      * Renommage explicite d'une table (ADR 0012) ; le Comparator ne le devine jamais (RG-01.9).
      * Les index et clés étrangères suivent la table.
      */
