@@ -123,6 +123,19 @@ final class Schema
         return new self($tables, array_values($this->sequences));
     }
 
+    /**
+     * @throws InvalidSchemaException séquence inconnue, ou nom déjà pris
+     */
+    public function withRenamedSequence(string $from, string $to): self
+    {
+        $sequence = $this->sequences[strtolower($from)] ?? throw InvalidSchemaException::invalidKey('sequence', $from, 'no such sequence.');
+        if (0 !== strcasecmp($from, $to) && isset($this->sequences[strtolower($to)])) {
+            throw InvalidSchemaException::invalidKey('sequence', $to, 'the name is already taken.');
+        }
+
+        return $this->withoutSequence($from)->withSequence(new Sequence($to, $sequence->start, $sequence->increment));
+    }
+
     public function withoutSequence(string $name): self
     {
         $sequences = $this->sequences;

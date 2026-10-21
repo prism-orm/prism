@@ -527,6 +527,21 @@ abstract class AbstractPlatform
     }
 
     /**
+     * Renommage explicite d'une séquence (ADR 0012) : garde son compteur, quand sa table est
+     * renommée sous PostgreSQL ({table}_id_seq).
+     *
+     * @throws InvalidSchemaException plateforme sans séquences (MySQL, SQLite)
+     */
+    public function getRenameSequenceSql(string $from, string $to): string
+    {
+        if (!$this->supportsSequences()) {
+            throw InvalidSchemaException::unsupportedFeature($this->getName(), 'sequences');
+        }
+
+        return \sprintf('ALTER SEQUENCE %s RENAME TO %s', $this->quoteIdentifier($from), $this->quoteIdentifier($to));
+    }
+
+    /**
      * Vrai si une migration peut entourer son DDL d'une transaction, et l'annuler entière en cas
      * d'échec. MySQL et MariaDB valident chaque DDL implicitement (RG-06.6) ; SQLite reconstruit
      * ses tables hors transaction englobante (RG-01.11).
