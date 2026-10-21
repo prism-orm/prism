@@ -411,6 +411,23 @@ abstract class AbstractPlatform
         return $column->autoincrement ? $sql . $this->getAutoincrementSql() : $sql;
     }
 
+    /**
+     * Création d'un index sans bloquer les écritures, quand la plateforme le sait (PostgreSQL :
+     * CONCURRENTLY, hors transaction) ; sinon, la création ordinaire.
+     */
+    public function getCreateIndexConcurrentlySql(string $table, Index $index): string
+    {
+        return $this->getCreateIndexSql($table, $index);
+    }
+
+    /**
+     * Vrai si getCreateIndexConcurrentlySql() crée l'index sans verrou, hors transaction.
+     */
+    public function supportsConcurrentIndexCreation(): bool
+    {
+        return false;
+    }
+
     public function getCreateIndexSql(string $table, Index $index): string
     {
         return \sprintf(
