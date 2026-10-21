@@ -14,4 +14,7 @@ enum OnDelete
     case Restrict;
     case Cascade;
     case SetNull;
+    // le défaut SQL de PostgreSQL et SQLite (contrôle en fin d'instruction) : pour reprendre une base
+    // existante telle quelle (db:import) ; comme Restrict sous MySQL et MariaDB
+    case NoAction;
 }

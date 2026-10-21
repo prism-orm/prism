@@ -123,8 +123,9 @@ final class SchemaTool
         foreach ($joins as $association) {
             $target = $byClass[$association->targetEntity];
             $column = (string) $association->joinColumn;
-            $table = $table->withForeignKeyTo([$column], $target->tableName, [$target->getIdField()->columnName], self::action($association->onDelete));
-            if (AssociationType::OneToOne === $association->type) {
+            $table = $table->withForeignKeyTo([$column], $target->tableName, [$target->getIdField()->columnName], self::action($association->onDelete), $association->foreignKeyName);
+            // une contrainte unique déjà déclarée sur la colonne suffit (db:import la reprend sous son nom)
+            if (AssociationType::OneToOne === $association->type && !self::isUnique($table, $column)) {
                 $table = $table->withIndexOn([$column], unique: true);
             } elseif (!self::isCovered($table, $column)) {
                 $table = $table->withIndexOn([$column]);
@@ -184,6 +185,17 @@ final class SchemaTool
         return new Column($name, $targetId->type, $nullable, length: $targetId->length);
     }
 
+    private static function isUnique(Table $table, string $column): bool
+    {
+        foreach ($table->getIndexes() as $index) {
+            if ($index->unique && [strtolower($column)] === array_map(strtolower(...), $index->columns)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private static function isCovered(Table $table, string $column): bool
     {
         if (0 === strcasecmp($table->primaryKey[0] ?? '', $column)) {
@@ -204,6 +216,7 @@ final class SchemaTool
             OnDelete::Restrict => ForeignKeyAction::Restrict,
             OnDelete::Cascade => ForeignKeyAction::Cascade,
             OnDelete::SetNull => ForeignKeyAction::SetNull,
+            OnDelete::NoAction => ForeignKeyAction::NoAction,
         };
     }
 }

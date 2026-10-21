@@ -72,7 +72,9 @@ final class IntrospectionTest extends SchemaTestCase
     public function testUnsupportedColumnTypeIsReportedWithItsLocation(): void
     {
         $this->create(ReferenceSchemas::all(false)['autoincrement primary key']);
-        $this->connection->executeStatement(\sprintf('ALTER TABLE %s ADD COLUMN %s %s', $this->q('ref_auto'), $this->q('legacy'), 'SQLite' === $this->connection->getPlatform()->getName() ? 'GEOMETRY' : 'CHAR(2)'));
+        // un type sans équivalent Prism sur chaque plateforme (CHAR est reconnu sous MySQL et MariaDB)
+        $legacy = 'PostgreSQL' === $this->connection->getPlatform()->getName() ? 'CHAR(2)' : 'GEOMETRY';
+        $this->connection->executeStatement(\sprintf('ALTER TABLE %s ADD COLUMN %s %s', $this->q('ref_auto'), $this->q('legacy'), $legacy));
 
         $this->expectException(InvalidSchemaException::class);
         $this->expectExceptionMessage('Cannot introspect column "ref_auto.legacy"');

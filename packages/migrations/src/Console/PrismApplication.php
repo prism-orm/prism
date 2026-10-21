@@ -60,6 +60,7 @@ final class PrismApplication
             new Orm\SchemaValidateCommand($connection, $metadata),
             new Orm\MappingInfoCommand($metadata),
             new Orm\QuerySqlCommand($connection),
+            new Orm\ImportCommand($connection),
             new Orm\CacheClearMetadataCommand($metadata),
             new Orm\MetamodelGenerateCommand($metadata, $config->metamodelDir),
             new Migrations\GenerateCommand($migrations),

@@ -10,6 +10,8 @@ namespace Prism\Orm\Mapping;
  * - targetEntity : déduit du type de la propriété si null ;
  * - nullabilité de la FK : déduite du type (?Client) ;
  * - onDelete : action appliquée en base (CASCADE, SET NULL, RESTRICT) ;
+ * - foreignKey : nom de la contrainte en base ; déterministe sinon (RG-01.7). db:import l'écrit
+ *   pour reprendre une base existante sans migration ;
  * - batch / batchSize : batch fetching anti-N+1 (pilier 1), actif par défaut.
  *
  * @api
@@ -26,6 +28,8 @@ final class ManyToOne implements AssociationAttribute
 
     public readonly ?int $batchSize;
 
+    public readonly ?string $foreignKey;
+
     /**
      * @param class-string|null $targetEntity
      * @param list<Cascade>     $cascade
@@ -39,11 +43,13 @@ final class ManyToOne implements AssociationAttribute
         public readonly OnDelete $onDelete = OnDelete::Restrict,
         ?int $batchSize = null,
         public readonly bool $batch = true,
+        ?string $foreignKey = null,
     ) {
         $this->inversedBy = AttributeGuard::nullableFieldName('ManyToOne', 'inversedBy', $inversedBy);
         $this->cascade = AttributeGuard::cascade('ManyToOne', $cascade);
         $this->joinColumn = AttributeGuard::name('ManyToOne', 'joinColumn', $joinColumn);
         $this->batchSize = AttributeGuard::positiveInt('ManyToOne', 'batchSize', $batchSize, 1, 1000);
+        $this->foreignKey = AttributeGuard::name('ManyToOne', 'foreignKey', $foreignKey);
     }
 
     public function getTargetEntity(): ?string

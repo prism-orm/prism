@@ -254,13 +254,13 @@ final class AttributeDriver implements MetadataDriver
         if (null !== $a = self::attribute($property, Attr\ManyToOne::class)) {
             $target = $this->target($class, $name, $a->targetEntity ?? $declared);
 
-            return new AssociationMapping($class, $name, AssociationType::ManyToOne, $target, null, $a->inversedBy, $a->joinColumn ?? $this->naming->joinColumnName($name), $phpType?->allowsNull() ?? true, $a->onDelete, null, $a->cascade, $a->fetch, false, null, [], $a->batchSize, $a->batch);
+            return new AssociationMapping($class, $name, AssociationType::ManyToOne, $target, null, $a->inversedBy, $a->joinColumn ?? $this->naming->joinColumnName($name), $phpType?->allowsNull() ?? true, $a->onDelete, null, $a->cascade, $a->fetch, false, null, [], $a->batchSize, $a->batch, $a->foreignKey);
         }
         if (null !== $a = self::attribute($property, Attr\OneToOne::class)) {
             $target = $this->target($class, $name, $a->targetEntity ?? $declared);
             $joinColumn = null === $a->mappedBy ? ($a->joinColumn ?? $this->naming->joinColumnName($name)) : null;
 
-            return new AssociationMapping($class, $name, AssociationType::OneToOne, $target, $a->mappedBy, $a->inversedBy, $joinColumn, $phpType?->allowsNull() ?? true, $a->onDelete, null, $a->cascade, $a->fetch, $a->orphanRemoval, null, [], $a->batchSize, $a->batch);
+            return new AssociationMapping($class, $name, AssociationType::OneToOne, $target, $a->mappedBy, $a->inversedBy, $joinColumn, $phpType?->allowsNull() ?? true, $a->onDelete, null, $a->cascade, $a->fetch, $a->orphanRemoval, null, [], $a->batchSize, $a->batch, $a->foreignKey);
         }
         if (null !== $a = self::attribute($property, Attr\OneToMany::class)) {
             return new AssociationMapping($class, $name, AssociationType::OneToMany, $this->target($class, $name, $a->targetEntity), $a->mappedBy, null, null, true, Attr\OnDelete::Restrict, null, $a->cascade, $a->fetch, $a->orphanRemoval, $a->indexBy, $orderBy, $a->batchSize, $a->batch);
