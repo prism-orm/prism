@@ -15,7 +15,7 @@ final class MigrationException extends \RuntimeException implements MigrationsEx
 {
     public static function invalidFileName(string $file): self
     {
-        return new self(\sprintf('The migration file %s is not named VersionYYYYMMDDHHMMSS.php (RG-06.1).', $file));
+        return new self(\sprintf('The migration file %s is not named VersionYYYYMMDDHHMMSS.php, or VersionYYYYMMDDHHMMSSData.php for a data migration (RG-06.1).', $file));
     }
 
     public static function classNotFound(string $file, string $class): self
@@ -25,7 +25,18 @@ final class MigrationException extends \RuntimeException implements MigrationsEx
 
     public static function notAMigration(string $class): self
     {
-        return new self(\sprintf('%s does not extend Prism\Migrations\AbstractMigration.', $class));
+        return new self(\sprintf('%s extends neither Prism\Migrations\AbstractMigration nor Prism\Migrations\DataMigration.', $class));
+    }
+
+    // RG-06.8
+    public static function entityManagerRequired(string $version): self
+    {
+        return new self(\sprintf('The data migration %s needs an EntityManager: give one to the Migrator (or to the command).', $version));
+    }
+
+    public static function entityManagerOnAnotherConnection(): self
+    {
+        return new self('The EntityManager given to the Migrator uses another connection: data migrations must run on the connection they migrate.');
     }
 
     public static function unknownVersion(string $version): self

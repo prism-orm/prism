@@ -76,7 +76,9 @@ final class MigrationWriterTest extends TestCase
             self::assertSame(0, $status, implode("\n", $output));
             $migrations = new \Prism\Migrations\MigrationFinder($dir, 'Prism\\Migrations\\Tests\\Generated\\Writer')->find();
             $builder = new \Prism\Migrations\MigrationBuilder(new \Prism\Dbal\Platform\PostgreSqlPlatform('16'));
-            $migrations['Version20261021143000']->up($builder);
+            $migration = $migrations['Version20261021143000'];
+            self::assertInstanceOf(\Prism\Migrations\AbstractMigration::class, $migration);
+            $migration->up($builder);
             self::assertSame(array_map(static fn (Operation\Operation $o): array => $o->describe(), self::migration()->up), array_map(static fn (Operation\Operation $o): array => $o->describe(), $builder->operations()), 'the file records exactly the operations');
         } finally {
             unlink($file);

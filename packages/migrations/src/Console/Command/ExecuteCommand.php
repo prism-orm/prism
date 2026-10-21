@@ -10,6 +10,7 @@ use Prism\Migrations\Direction;
 use Prism\Migrations\Exception\MigrationsException;
 use Prism\Migrations\MigrationsConfiguration;
 use Prism\Migrations\Migrator;
+use Prism\Orm\EntityManagerInterface;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputArgument;
@@ -26,9 +27,13 @@ use Symfony\Component\Console\Style\SymfonyStyle;
 #[AsCommand(name: 'db:migrations:execute', description: 'Run a single migration up or down')]
 final class ExecuteCommand extends Command
 {
+    /**
+     * @param EntityManagerInterface|null $entityManager pour les migrations de données (RG-06.8)
+     */
     public function __construct(
         private readonly Connection $connection,
         private readonly MigrationsConfiguration $configuration,
+        private readonly ?EntityManagerInterface $entityManager = null,
     ) {
         parent::__construct();
     }
@@ -54,7 +59,13 @@ final class ExecuteCommand extends Command
         $version = $input->getArgument('version');
         $version = \is_string($version) ? $version : '';
         $direction = $up ? Direction::Up : Direction::Down;
-        $migrator = new Migrator($this->connection, $this->configuration->finder());
+        try {
+            $migrator = new Migrator($this->connection, $this->configuration->finder(), $this->entityManager);
+        } catch (MigrationsException $e) {
+            $io->error($e->getMessage());
+
+            return Command::FAILURE;
+        }
 
         try {
             $preview = $migrator->execute($version, $direction, dryRun: true);

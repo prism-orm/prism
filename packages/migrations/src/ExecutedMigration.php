@@ -20,6 +20,8 @@ final class ExecutedMigration
         public readonly array $sql,
         public readonly bool $transactional,
         public readonly ?int $executionTimeMs = null,
+        // une migration de données : du code PHP, sans SQL à montrer (RG-06.8)
+        public readonly bool $data = false,
     ) {
     }
 }

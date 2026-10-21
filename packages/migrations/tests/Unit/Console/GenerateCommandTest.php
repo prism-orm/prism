@@ -58,6 +58,32 @@ final class GenerateCommandTest extends TestCase
         self::assertStringContainsString('sans down(), la migration est irréversible', (string) file_get_contents($file), 'irreversible until its down() is written (RG-06.7)');
     }
 
+    // RG-06.8
+    public function testDataMigration(): void
+    {
+        $tester = $this->tester('App\\Migrations\\GeneratedData');
+
+        self::assertSame(Command::SUCCESS, $tester->execute(['--data' => true]));
+        $file = $this->dir . '/Version20261021143005Data.php';
+        exec(\sprintf('%s -l %s 2>&1', escapeshellarg(\PHP_BINARY), escapeshellarg($file)), $output, $status);
+        self::assertSame(0, $status, implode("\n", $output));
+        self::assertStringContainsString('extends DataMigration', (string) file_get_contents($file));
+        self::assertSame(['Version20261021143005Data'], array_keys(new MigrationFinder($this->dir, 'App\\Migrations\\GeneratedData')->find()));
+
+        self::assertSame(Command::SUCCESS, $tester->execute(['--data' => true, '--for' => 'Version20261020090000']));
+        self::assertFileExists($this->dir . '/Version20261020090000Data.php', 'paired with an existing schema migration');
+    }
+
+    public function testForNeedsDataAndASchemaVersion(): void
+    {
+        $tester = $this->tester();
+
+        self::assertSame(Command::INVALID, $tester->execute(['--for' => 'Version20261020090000']));
+        self::assertSame(Command::INVALID, $tester->execute(['--data' => true, '--for' => 'Version20261020090000Data']));
+        self::assertStringContainsString('--for needs --data and a schema version', $tester->getDisplay());
+        self::assertDirectoryDoesNotExist($this->dir);
+    }
+
     public function testExistingFileIsNotOverwritten(): void
     {
         mkdir($this->dir);
