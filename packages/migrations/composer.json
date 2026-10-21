@@ -13,5 +13,8 @@
             "Prism\\Migrations\\": "src/"
         }
     },
+    "bin": [
+        "bin/prism"
+    ],
     "minimum-stability": "stable"
 }

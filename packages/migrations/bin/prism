@@ -1,0 +1,33 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+// bin/prism : les commandes db:* hors Symfony, câblées depuis le prism.php du projet
+
+use Prism\Migrations\Console\PrismApplication;
+use Symfony\Component\Console\Input\ArgvInput;
+
+$autoloaders = [__DIR__ . '/../../../autoload.php', __DIR__ . '/../vendor/autoload.php', __DIR__ . '/../../../vendor/autoload.php'];
+foreach ($autoloaders as $autoload) {
+    if (is_file($autoload)) {
+        require $autoload;
+        break;
+    }
+}
+if (!class_exists(PrismApplication::class)) {
+    fwrite(STDERR, "Cannot find the Composer autoloader: run composer install.\n");
+    exit(1);
+}
+
+$argv = array_values(array_filter($_SERVER['argv'] ?? [], is_string(...)));
+[$file, $argv] = PrismApplication::configFile($argv, getcwd() . '/prism.php');
+
+try {
+    $application = PrismApplication::create(PrismApplication::load($file));
+} catch (\Throwable $e) {
+    fwrite(STDERR, $e->getMessage() . "\n");
+    exit(1);
+}
+
+exit($application->run(new ArgvInput($argv)));

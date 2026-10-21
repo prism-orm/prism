@@ -38,6 +38,11 @@ final class PostgreSqlPlatform extends AbstractPlatform
         return \sprintf('CAST(%s AS %s)', $expression, 'integer' === $type ? 'BIGINT' : 'NUMERIC');
     }
 
+    public function getListDatabasesSql(): string
+    {
+        return 'SELECT datname FROM pg_database WHERE datistemplate = false';
+    }
+
     public function getMaxIdentifierLength(): int
     {
         return 63;
