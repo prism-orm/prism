@@ -25,6 +25,8 @@ final class Plan
         public readonly array $steps,
         public readonly Schema $schema,
         public readonly bool $ddl,
+        // une opération interdit la transaction (CREATE INDEX CONCURRENTLY)
+        public readonly bool $outsideTransaction = false,
     ) {
     }
 

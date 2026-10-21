@@ -9,6 +9,7 @@ use Prism\Dbal\Platform\AbstractPlatform;
 use Prism\Dbal\Schema\Comparator;
 use Prism\Dbal\Schema\Schema;
 use Prism\Dbal\Schema\SchemaDiff;
+use Prism\Migrations\Operation\CreateIndex;
 use Prism\Migrations\Operation\Operation;
 use Prism\Migrations\Operation\RenameColumn;
 use Prism\Migrations\Operation\RenameSequence;
@@ -41,6 +42,7 @@ final class Planner
         $steps = [];
         $base = $schema;
         $ddl = false;
+        $outside = false;
         $flush = static function () use ($comparator, &$steps, &$base, &$schema, &$ddl): void {
             $diff = $comparator->compare($base, $schema);
             if (!$diff->isEmpty()) {
@@ -61,6 +63,13 @@ final class Planner
                 }, []];
                 $base = $schema;
                 $ddl = true;
+            } elseif ($operation instanceof CreateIndex && $operation->concurrently && $this->platform->supportsConcurrentIndexCreation()) {
+                $flush();
+                $schema = $operation->apply($schema);
+                $steps[] = [$this->platform->getCreateIndexConcurrentlySql($operation->table, $operation->index()), []];
+                $base = $schema;
+                $ddl = true;
+                $outside = true;
             } elseif ($operation instanceof Sql) {
                 $flush();
                 $steps[] = [$operation->sql, $operation->params];
@@ -70,6 +79,6 @@ final class Planner
         }
         $flush();
 
-        return new Plan($steps, $schema, $ddl);
+        return new Plan($steps, $schema, $ddl, $outside);
     }
 }

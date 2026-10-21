@@ -6,6 +6,7 @@ namespace Prism\Dbal\Platform;
 
 use Prism\Dbal\Schema\Column;
 use Prism\Dbal\Schema\ColumnDiff;
+use Prism\Dbal\Schema\Index;
 use Prism\Dbal\Schema\Table;
 
 /**
@@ -54,6 +55,17 @@ final class PostgreSqlPlatform extends AbstractPlatform
     }
 
     public function supportsSequences(): bool
+    {
+        return true;
+    }
+
+    // RG-06.5 : sans verrou des écritures ; interdit dans une transaction
+    public function getCreateIndexConcurrentlySql(string $table, Index $index): string
+    {
+        return (string) preg_replace('/^CREATE (UNIQUE )?INDEX /', 'CREATE $1INDEX CONCURRENTLY ', $this->getCreateIndexSql($table, $index));
+    }
+
+    public function supportsConcurrentIndexCreation(): bool
     {
         return true;
     }

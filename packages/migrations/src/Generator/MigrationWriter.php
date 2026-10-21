@@ -92,7 +92,7 @@ final class MigrationWriter
             $o instanceof Operation\DropColumn => \sprintf('$m->dropColumn(%s, %s);', $s($o->table), $s($o->column)),
             $o instanceof Operation\RenameColumn => \sprintf('$m->renameColumn(%s, %s, %s);', $s($o->table), $s($o->from), $s($o->to)),
             $o instanceof Operation\ChangePrimaryKey => \sprintf('$m->changePrimaryKey(%s, %s);', $s($o->table), null === $o->columns ? 'null' : self::list($o->columns)),
-            $o instanceof Operation\CreateIndex => \sprintf('$m->createIndex(%s, %s%s%s);', $s($o->table), self::list($o->columns), $o->unique ? ', unique: true' : '', null === $o->name ? '' : ', name: ' . $s($o->name)),
+            $o instanceof Operation\CreateIndex => \sprintf('$m->createIndex(%s, %s%s%s%s);', $s($o->table), self::list($o->columns), $o->unique ? ', unique: true' : '', null === $o->name ? '' : ', name: ' . $s($o->name), $o->concurrently ? ', concurrently: true' : ''),
             $o instanceof Operation\DropIndex => \sprintf('$m->dropIndex(%s, %s);', $s($o->table), \is_string($o->index) ? $s($o->index) : self::list($o->index)),
             $o instanceof Operation\AddForeignKey => \sprintf('$m->addForeignKey(%s, %s, %s, %s%s%s);', $s($o->table), self::list($o->localColumns), $s($o->foreignTable), self::list($o->foreignColumns), $this->onDelete($o->onDelete, named: true), null === $o->name ? '' : ', name: ' . $s($o->name)),
             $o instanceof Operation\DropForeignKey => \sprintf('$m->dropForeignKey(%s, %s);', $s($o->table), \is_string($o->foreignKey) ? $s($o->foreignKey) : self::list($o->foreignKey)),
