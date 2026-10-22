@@ -86,7 +86,7 @@ final class PrismConfiguration
                     ->addDefaultsIfNotSet()
                     ->children()
                         ->scalarNode('dir')
-                            ->info('Directory of the generated metamodel (RG-05.2); <dir>/<Name> for an entity manager other than the default one.')
+                            ->info('Directory of the generated metamodel (RG-05.2); each entity manager generates into <dir>/<name>.')
                             ->defaultValue('%kernel.cache_dir%/prism/metamodel')
                         ->end()
                     ->end()
