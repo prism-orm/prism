@@ -12,7 +12,7 @@ URL_sqlite  := sqlite:///:memory:
 DATABASES := mysql mariadb pgsql sqlite
 
 .DEFAULT_GOAL := help
-.PHONY: help up down build install shell test test-unit test-db test-all-db stan cs cs-check infection bench bench-baseline bench-compare coverage compat test-symfony ci
+.PHONY: help up down build install shell test test-unit test-db test-all-db stan cs cs-check infection bench bench-baseline bench-compare coverage compat test-symfony demo-install demo-test ci
 
 help: ## Affiche cette aide
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
@@ -74,5 +74,12 @@ test-symfony: ## Tests du bundle et du test-pack sous une autre version de Symfo
 	rm -rf tmp/symfony-$(SF) && mkdir -p tmp/symfony-$(SF)/var
 	rsync -a --exclude vendor --exclude var --exclude tmp --exclude .git ./ tmp/symfony-$(SF)/
 	$(DC) run --rm -w /app/tmp/symfony-$(SF) php env DATABASE_URL='$(URL_mysql)' tools/compat/symfony-version.sh $(SF)
+
+demo-install: ## La démo ERP : dépendances, base prism_demo, migrations, jeu de données
+	$(RUN) sh -c 'cd demo && composer install --quiet && bin/console db:database:create --if-not-exists && bin/console db:migrations:migrate -n && bin/console app:seed'
+
+demo-test: ## Les tests de la démo ERP (base prism_demo_test)
+	$(DC) exec -T mysql mysql -uroot -proot -e 'CREATE DATABASE IF NOT EXISTS prism_demo_test' 2>/dev/null
+	$(RUN) sh -c 'cd demo && vendor/bin/phpunit'
 
 ci: cs-check stan test ## Tout ce que la CI vérifie : à lancer avant de terminer une tâche
