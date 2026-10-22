@@ -85,6 +85,52 @@ jobs:
               env:
                   DATABASE_URL: ${{ matrix.url }}
 
+    # ADR 0013, section 7 : le bundle sous Symfony 7.4 (le lock suit la dernière version, 8.x) ;
+    # une seule base, le bundle n'a pas de SQL. Lent : sur les push, pas sur chaque PR.
+    symfony-74:
+        name: Bundle · Symfony 7.4
+        if: github.event_name == 'push'
+        runs-on: ubuntu-latest
+        services:
+            mysql:
+                image: mysql:8.4
+                env:
+                    MYSQL_ROOT_PASSWORD: root
+                    MYSQL_DATABASE: prism_test
+                ports: ['3306:3306']
+                options: --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot" --health-interval=5s --health-retries=20
+        steps:
+            - uses: actions/checkout@v4
+            - uses: shivammathur/setup-php@v2
+              with:
+                  php-version: '8.4'
+                  extensions: pdo_mysql, pdo_sqlite
+                  coverage: none
+            - uses: ramsey/composer-install@v3
+            - run: tools/compat/symfony-version.sh 7.4
+              env:
+                  DATABASE_URL: 'mysql://root:root@127.0.0.1:3306/prism_test?serverVersion=8.4'
+
+    # phase 7, étape 8 : une vraie application, sa recette, puis make:entity → migration → migrate
+    compat:
+        name: Compat · Symfony ${{ matrix.symfony }} · ${{ matrix.app }}
+        if: github.event_name == 'push'
+        runs-on: ubuntu-latest
+        strategy:
+            fail-fast: false
+            matrix:
+                symfony: ['7.4', '8']
+                app: [skeleton, webapp]
+        steps:
+            - uses: actions/checkout@v4
+            - uses: shivammathur/setup-php@v2
+              with:
+                  php-version: '8.4'
+                  extensions: pdo_sqlite
+                  coverage: none
+                  tools: composer
+            - run: tools/compat/compat.sh ${{ matrix.symfony }} ${{ matrix.app }}
+
     split:
         name: Split vers prism-orm/*
         needs: [quality, tests]

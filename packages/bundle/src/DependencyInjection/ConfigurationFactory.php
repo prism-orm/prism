@@ -25,4 +25,13 @@ final class ConfigurationFactory
     {
         return new Configuration(types: TypeRegistry::withDefaults()->register(...iterator_to_array($types, false)), observers: $observers);
     }
+
+    /**
+     * Les types d'une connexion, sans la créer : la metadata n'a pas besoin de l'URL, qui n'est
+     * lue qu'au premier usage de la connexion (DATABASE_URL absente au cache:clear).
+     */
+    public static function types(Configuration $configuration): TypeRegistry
+    {
+        return $configuration->types;
+    }
 }

@@ -120,6 +120,19 @@ final class PrismBundleTest extends TestCase
         self::assertFalse($kernel->getContainer()->has(EntityManagerInterface::class));
     }
 
+    // étape 8 : composer require puis cache:clear, avant que DATABASE_URL soit définie (sans recette)
+    public function testKernelBootsBeforeTheUrlIsDefined(): void
+    {
+        $container = $this->boot(['url' => '%env(resolve:PRISM_UNDEFINED_URL)%', 'entity_dirs' => ['%kernel.project_dir%/Fixtures/Entity/Main']], 'dev', true);
+        $metadata = $container->get('prism.metadata_factory.default');
+        self::assertInstanceOf(\Prism\Orm\Metadata\MetadataFactory::class, $metadata);
+        self::assertSame([Customer::class], $metadata->getAllClassNames(), 'the metadata (and the metamodel at boot) need no connection');
+
+        // la variable n'est lue qu'au premier usage de la connexion
+        $this->expectException(\Symfony\Component\DependencyInjection\Exception\EnvNotFoundException::class);
+        $container->get(EntityManagerInterface::class);
+    }
+
     // phase 2 : relecture des attributs en dev, cache PSR-6 en prod
     public function testMetadataCacheInProdOnly(): void
     {

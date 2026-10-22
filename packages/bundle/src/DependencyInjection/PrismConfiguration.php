@@ -16,6 +16,8 @@ use Symfony\Component\Config\Definition\Builder\TreeBuilder;
  */
 final class PrismConfiguration
 {
+    public const string DEFAULT_URL = '%env(resolve:DATABASE_URL)%';
+
     private const array SHORT_KEYS = ['url', 'entity_dirs', 'migrations'];
 
     /**
@@ -37,10 +39,8 @@ final class PrismConfiguration
                     ->defaultNull()
                 ->end()
                 ->arrayNode('connections')
-                    ->info('Named connections; the short form "url" declares the "default" one.')
+                    ->info('Named connections; the short form "url" declares the "default" one. Without either: url: %env(resolve:DATABASE_URL)%.')
                     ->useAttributeAsKey('name')
-                    ->requiresAtLeastOneElement()
-                    ->isRequired()
                     ->arrayPrototype()
                         ->children()
                             ->scalarNode('url')
@@ -139,6 +139,10 @@ final class PrismConfiguration
      */
     private static function resolve(array $config): array
     {
+        // sans url ni connections : DATABASE_URL, comme la recette Flex ; lue au premier usage seulement
+        if ([] === $config['connections']) {
+            $config['connections'] = ['default' => ['url' => self::DEFAULT_URL]];
+        }
         $connections = array_keys($config['connections']);
         if ([] === $config['entity_managers']) {
             $config['entity_managers'] = ['default' => ['connection' => null, 'entity_dirs' => ['%kernel.project_dir%/src/Entity'], 'batch_size' => 100, 'migrations' => ['dir' => null, 'namespace' => null]]];

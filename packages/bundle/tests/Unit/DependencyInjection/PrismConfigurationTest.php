@@ -49,6 +49,16 @@ final class PrismConfigurationTest extends TestCase
         self::assertSame(60, $config['connection_idle_ttl'], 'RG-07.5: a connection idle for a minute is checked');
     }
 
+    // sans configuration : DATABASE_URL, comme la recette Flex (le bundle démarre dès composer require)
+    public function testWithoutConfigurationDatabaseUrlIsUsed(): void
+    {
+        $config = self::process([]);
+
+        self::assertSame(['default' => ['url' => '%env(resolve:DATABASE_URL)%']], $config['connections']);
+        self::assertSame(['default'], array_keys($config['entity_managers']));
+        self::assertSame(['default' => ['url' => '%env(resolve:DATABASE_URL)%']], self::process(['entity_dirs' => ['src/Model']])['connections']);
+    }
+
     public function testShortFormWithEntityDirsAndMigrations(): void
     {
         $config = self::process(['url' => 'sqlite:///:memory:', 'entity_dirs' => ['src/Model'], 'migrations' => ['dir' => 'db/migrations', 'namespace' => 'Db\Migrations']]);
@@ -98,7 +108,6 @@ final class PrismConfigurationTest extends TestCase
      */
     public static function invalidConfigurations(): iterable
     {
-        yield 'nothing' => [[], 'The child config "connections" under "prism" must be configured'];
         yield 'unknown option' => [['url' => 'a', 'urls' => 'b'], 'Unrecognized option "urls" under "prism"'];
         yield 'unknown entity manager option' => [['connections' => ['a' => ['url' => 'a']], 'entity_managers' => ['a' => ['dirs' => []]]], 'Unrecognized option "dirs" under "prism.entity_managers.a"'];
         yield 'url and connections' => [['url' => 'a', 'connections' => ['b' => ['url' => 'b']]], 'Use either "prism.url" or "prism.connections", not both.'];

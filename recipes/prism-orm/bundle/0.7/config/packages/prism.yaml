@@ -1,0 +1,26 @@
+# Prism ORM : https://github.com/IMAMx39/prism
+prism:
+    url: '%env(resolve:DATABASE_URL)%'
+    entity_dirs: ['%kernel.project_dir%/src/Entity']
+    migrations:
+        dir: '%kernel.project_dir%/migrations'
+        namespace: 'App\Migrations'
+
+    # Mode worker (FrankenPHP, RoadRunner) : une connexion inactive depuis plus de N secondes
+    # est testée au début d'une requête, et reconnectée si elle a été perdue (0 : à chaque requête).
+    # connection_idle_ttl: 60
+
+    # Plusieurs bases : la forme complète remplace url, entity_dirs et migrations.
+    # connections:
+    #     default: { url: '%env(resolve:DATABASE_URL)%' }
+    #     billing: { url: '%env(resolve:BILLING_DATABASE_URL)%' }
+    # entity_managers:
+    #     default: { entity_dirs: ['%kernel.project_dir%/src/Entity'] }
+    #     billing: { entity_dirs: ['%kernel.project_dir%/src/Billing/Entity'] }
+
+# Messenger : vider les EntityManagers et annuler une transaction restée ouverte entre deux messages
+# framework:
+#     messenger:
+#         buses:
+#             messenger.bus.default:
+#                 middleware: [prism_reset]
