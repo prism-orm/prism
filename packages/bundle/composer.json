@@ -9,6 +9,13 @@
         "prism-orm/orm": "self.version",
         "symfony/framework-bundle": "^7.4 || ^8.0"
     },
+    "suggest": {
+        "symfony/maker-bundle": "make:entity and make:migration",
+        "symfony/messenger": "Clears the entity managers between two messages",
+        "symfony/security-bundle": "User provider backed by an entity",
+        "symfony/validator": "The #[UniqueEntity] constraint",
+        "symfony/web-profiler-bundle": "Profiler panel: queries, N+1, batch fetching, flush"
+    },
     "autoload": {
         "psr-4": {
             "Prism\\Bundle\\": "src/"
