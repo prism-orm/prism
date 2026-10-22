@@ -1,4 +1,4 @@
-# Prism ORM : https://github.com/IMAMx39/prism
+# Prism ORM : https://github.com/prism-orm/bundle/blob/main/docs/symfony.md
 prism:
     url: '%env(resolve:DATABASE_URL)%'
     entity_dirs: ['%kernel.project_dir%/src/Entity']

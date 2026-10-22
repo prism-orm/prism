@@ -19,7 +19,7 @@
         "  * Create the database: <fg=green>php bin/console db:database:create</>",
         "  * Create an entity: <fg=green>php bin/console make:entity</> (with symfony/maker-bundle)",
         "  * Then its migration: <fg=green>php bin/console make:migration</>, and <fg=green>php bin/console db:migrations:migrate</>",
-        "  * Read <fg=green>https://github.com/IMAMx39/prism/blob/main/docs/commands.md</>"
+        "  * Read <fg=green>https://github.com/prism-orm/bundle/blob/main/docs/symfony.md</>"
     ],
     "aliases": ["prism"]
 }
