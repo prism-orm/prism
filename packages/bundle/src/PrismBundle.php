@@ -177,6 +177,7 @@ final class PrismBundle extends AbstractBundle
         $builder->setDefinition('prism.dbal_configuration', new Definition(Configuration::class, [new TaggedIteratorArgument('prism.type')]))
             ->setFactory([ConfigurationFactory::class, 'create']);
         $profiled = [];
+        $configurations = [];
         foreach ($config['connections'] as $name => $connection) {
             $configuration = new Reference('prism.dbal_configuration');
             // RG-07.4 et RG-04.16 : enregistreur et détecteur N+1 en dev seulement, absents en prod
@@ -190,6 +191,7 @@ final class PrismBundle extends AbstractBundle
                     ->setFactory([ConfigurationFactory::class, 'create']);
                 $configuration = new Reference('prism.dbal_configuration.' . $name);
             }
+            $configurations[$name] = $configuration;
             $builder->setDefinition('prism.connection.' . $name, new Definition(Connection::class, [$connection['url'], $configuration]))
                 ->setFactory([DriverManager::class, 'fromUrl']);
             $builder->registerAliasForArgument('prism.connection.' . $name, Connection::class, $name . 'Connection');
@@ -218,7 +220,7 @@ final class PrismBundle extends AbstractBundle
             $builder->setDefinition('prism.metadata_factory.' . $name, new Definition(MetadataFactory::class, [
                 new Definition(AttributeDriver::class, [$em['entity_dirs']]),
                 $cache,
-                new Definition(TypeRegistry::class)->setFactory([$connection, 'getTypeRegistry']),
+                new Definition(TypeRegistry::class, [$configurations[$em['connection']]])->setFactory([ConfigurationFactory::class, 'types']),
             ]));
 
             // un dispatcher par EntityManager : ses événements ne disent pas qui les émet (ADR 0013)

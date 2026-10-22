@@ -40,4 +40,9 @@ final class User implements UserInterface, PasswordAuthenticatedUserInterface
     {
         return $this->password;
     }
+
+    // exigée par UserInterface jusqu'à Symfony 7.4, retirée en 8.0
+    public function eraseCredentials(): void
+    {
+    }
 }
