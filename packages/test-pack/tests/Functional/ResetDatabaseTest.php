@@ -11,6 +11,7 @@ use Prism\TestPack\Tests\Fixtures\Entity\Library\Author;
 use Prism\TestPack\Tests\Fixtures\Factory\AuthorFactory;
 use Prism\TestPack\Tests\Fixtures\Factory\BookFactory;
 use Prism\TestPack\Tests\Support\PrismKernelTestCase;
+use Prism\TestPack\Tests\Support\TestPackTables;
 
 /**
  * RG-07.6 sur les 4 bases : chaque test part d'une base vide, quel que soit l'ordre (aléatoire) ;
@@ -27,19 +28,7 @@ final class ResetDatabaseTest extends PrismKernelTestCase
     public static function tearDownAfterClass(): void
     {
         parent::tearDownAfterClass();
-        if (null === TestDatabase::url()) {
-            return;
-        }
-        $connection = TestDatabase::connection();
-        foreach (['tp_book', 'tp_author', 'tp_invoice'] as $table) {
-            $connection->executeStatement('DROP TABLE IF EXISTS ' . $connection->getPlatform()->quoteIdentifier($table));
-        }
-        if ('PostgreSQL' === $connection->getPlatform()->getName()) {
-            foreach (['tp_book_id_seq', 'tp_author_id_seq', 'tp_invoice_id_seq'] as $sequence) {
-                $connection->executeStatement('DROP SEQUENCE IF EXISTS ' . $connection->getPlatform()->quoteIdentifier($sequence));
-            }
-        }
-        $connection->close();
+        TestPackTables::drop();
     }
 
     private static function em(): EntityManagerInterface

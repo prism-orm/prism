@@ -22,6 +22,9 @@ final class ConnectionKeeper implements ResetInterface
 {
     private float $idleSince;
 
+    /** @var array<string, int> niveau de transaction que reset() n'annule pas, par connexion */
+    private array $kept = [];
+
     /**
      * @param array<string, Connection> $connections par nom
      * @param int                       $idleTtl     secondes d'inactivité avant le test ; 0 : à chaque requête
@@ -59,17 +62,34 @@ final class ConnectionKeeper implements ResetInterface
     }
 
     /**
+     * Les transactions ouvertes maintenant survivent aux reset() suivants : celle d'un test du
+     * test-pack (ResetDatabase) enveloppe plusieurs requêtes HTTP. Jusqu'à release().
+     */
+    public function keepOpenTransactions(): void
+    {
+        foreach ($this->connections as $name => $connection) {
+            $this->kept[$name] = $connection->getTransactionNestingLevel();
+        }
+    }
+
+    public function release(): void
+    {
+        $this->kept = [];
+    }
+
+    /**
      * Fin de requête ou de message : aucune transaction ne survit, la suivante repart propre.
      */
     public function reset(): void
     {
         foreach ($this->connections as $name => $connection) {
-            if (!$connection->isTransactionActive()) {
+            $kept = $this->kept[$name] ?? 0;
+            if ($connection->getTransactionNestingLevel() <= $kept) {
                 continue;
             }
             $this->logger->warning('Prism connection "{connection}" ended the request with an open transaction (level {level}); it is rolled back.', ['connection' => $name, 'level' => $connection->getTransactionNestingLevel()]);
             try {
-                while ($connection->isTransactionActive()) {
+                while ($connection->getTransactionNestingLevel() > $kept) {
                     $connection->rollBack();
                 }
             } catch (\Throwable) {

@@ -22,6 +22,11 @@ final class QueryRecorder implements QueryObserver, ResetInterface
 
     private float $durationMs = 0.0;
 
+    // jamais remis à zéro : assertQueryCount() compte à travers les requêtes HTTP d'un test
+    private int $lifetimeCount = 0;
+
+    private int $resets = 0;
+
     public function __construct(private readonly int $limit = 1000)
     {
     }
@@ -29,6 +34,7 @@ final class QueryRecorder implements QueryObserver, ResetInterface
     public function queryExecuted(string $sql, array $params, float $durationMs): void
     {
         ++$this->count;
+        ++$this->lifetimeCount;
         $this->durationMs += $durationMs;
         if (\count($this->queries) < $this->limit) {
             $this->queries[] = ['sql' => $sql, 'params' => $params, 'durationMs' => $durationMs];
@@ -54,8 +60,20 @@ final class QueryRecorder implements QueryObserver, ResetInterface
         return $this->durationMs;
     }
 
+    public function getLifetimeCount(): int
+    {
+        return $this->lifetimeCount;
+    }
+
+    // une remise à zéro par requête HTTP (kernel.reset)
+    public function getResets(): int
+    {
+        return $this->resets;
+    }
+
     public function reset(): void
     {
+        ++$this->resets;
         $this->queries = [];
         $this->count = 0;
         $this->durationMs = 0.0;

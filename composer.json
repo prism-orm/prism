@@ -20,6 +20,7 @@
         "phpstan/phpstan-phpunit": "^2.0",
         "phpstan/phpstan-strict-rules": "^2.0",
         "phpunit/phpunit": "^11.5",
+        "symfony/browser-kit": "^7.4 || ^8.0",
         "symfony/framework-bundle": "^7.4 || ^8.0",
         "symfony/maker-bundle": "^1.62",
         "symfony/messenger": "^7.4 || ^8.0",
