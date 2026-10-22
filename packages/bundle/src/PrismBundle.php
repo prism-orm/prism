@@ -14,6 +14,7 @@ use Prism\Bundle\DependencyInjection\PrismConfiguration;
 use Prism\Bundle\Event\ContainerEntityListenerResolver;
 use Prism\Bundle\Metamodel\MetamodelRefresher;
 use Prism\Bundle\Metamodel\PrismCacheWarmer;
+use Prism\Bundle\ValueResolver\EntityValueResolver;
 use Prism\Dbal\Configuration;
 use Prism\Dbal\Connection;
 use Prism\Dbal\DriverManager;
@@ -200,6 +201,12 @@ final class PrismBundle extends AbstractBundle
             new Reference('prism.metamodel_refresher'),
             $debug,
         ]))->addTag('kernel.cache_warmer');
+
+        // RG-07.3 : {id} → entité dans les contrôleurs, avant les resolvers de Symfony (comme Doctrine)
+        $builder->setDefinition('prism.entity_value_resolver', new Definition(EntityValueResolver::class, [
+            new ServiceLocatorArgument(array_map(static fn (string $name): Reference => new Reference('prism.entity_manager.' . $name), array_combine(array_keys($config['entity_managers']), array_keys($config['entity_managers'])))),
+            array_keys($config['entity_managers']),
+        ]))->addTag('controller.argument_value_resolver', ['priority' => 110, 'name' => EntityValueResolver::class]);
 
         // une commande de bin/console par nom, qui délègue à l'EntityManager de --em
         foreach ($commands as $command => $byEntityManager) {
