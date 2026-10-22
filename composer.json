@@ -32,7 +32,8 @@
         "prism-orm/dbal": "self.version",
         "prism-orm/migrations": "self.version",
         "prism-orm/orm": "self.version",
-        "prism-orm/phpstan": "self.version"
+        "prism-orm/phpstan": "self.version",
+        "prism-orm/test-pack": "self.version"
     },
     "autoload": {
         "psr-4": {
@@ -41,7 +42,8 @@
             "Prism\\Orm\\": "packages/orm/src/",
             "Prism\\Migrations\\": "packages/migrations/src/",
             "Prism\\Bundle\\": "packages/bundle/src/",
-            "Prism\\PHPStan\\": "packages/phpstan/src/"
+            "Prism\\PHPStan\\": "packages/phpstan/src/",
+            "Prism\\TestPack\\": "packages/test-pack/src/"
         }
     },
     "autoload-dev": {
@@ -51,6 +53,7 @@
             "Prism\\Migrations\\Tests\\": "packages/migrations/tests/",
             "Prism\\Bundle\\Tests\\": "packages/bundle/tests/",
             "Prism\\PHPStan\\Tests\\": "packages/phpstan/tests/",
+            "Prism\\TestPack\\Tests\\": "packages/test-pack/tests/",
             "Prism\\Benchmarks\\": "benchmarks/"
         }
     },

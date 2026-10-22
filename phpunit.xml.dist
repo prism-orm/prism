@@ -15,12 +15,14 @@
             <directory>packages/migrations/tests/Unit</directory>
             <directory>packages/bundle/tests/Unit</directory>
             <directory>packages/phpstan/tests/Unit</directory>
+            <directory>packages/test-pack/tests/Unit</directory>
         </testsuite>
         <testsuite name="functional">
             <directory>packages/dbal/tests/Functional</directory>
             <directory>packages/orm/tests/Functional</directory>
             <directory>packages/migrations/tests/Functional</directory>
             <directory>packages/bundle/tests/Functional</directory>
+            <directory>packages/test-pack/tests/Functional</directory>
         </testsuite>
     </testsuites>
     <extensions>
@@ -34,6 +36,7 @@
             <directory>packages/migrations/src</directory>
             <directory>packages/bundle/src</directory>
             <directory>packages/phpstan/src</directory>
+            <directory>packages/test-pack/src</directory>
         </include>
     </source>
     <php>

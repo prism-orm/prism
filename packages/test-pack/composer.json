@@ -1,0 +1,17 @@
+{
+    "name": "prism-orm/test-pack",
+    "description": "Prism test tools for Symfony applications: factories, ResetDatabase, assertQueryCount()",
+    "type": "library",
+    "license": "MIT",
+    "require": {
+        "php": ">=8.4",
+        "phpunit/phpunit": "^11.5 || ^12.0",
+        "prism-orm/bundle": "self.version"
+    },
+    "autoload": {
+        "psr-4": {
+            "Prism\\TestPack\\": "src/"
+        }
+    },
+    "minimum-stability": "stable"
+}

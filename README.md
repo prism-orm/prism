@@ -31,5 +31,6 @@ make ci         # style + PHPStan + tests sur les 4 bases
 | `packages/migrations` | `Prism\Migrations` | Migrations et linter |
 | `packages/bundle` | `Prism\Bundle` | Intégration Symfony |
 | `packages/phpstan` | `Prism\PHPStan` | Extension PHPStan |
+| `packages/test-pack` | `Prism\TestPack` | Tests des applications : factories, `ResetDatabase`, `assertQueryCount()` |
 
 Roadmap : [docs/ROADMAP.md](docs/ROADMAP.md) · Commandes `db:*` : [docs/commands.md](docs/commands.md) · Décisions : [docs/adr](docs/adr)
