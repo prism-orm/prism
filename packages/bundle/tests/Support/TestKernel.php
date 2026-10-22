@@ -11,6 +11,7 @@ use Symfony\Bundle\FrameworkBundle\Kernel\MicroKernelTrait;
 use Symfony\Bundle\TwigBundle\TwigBundle;
 use Symfony\Bundle\WebProfilerBundle\WebProfilerBundle;
 use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigurator;
+use Symfony\Component\HttpKernel\Bundle\BundleInterface;
 use Symfony\Component\HttpKernel\Kernel;
 use Symfony\Component\Routing\Loader\Configurator\RoutingConfigurator;
 
@@ -28,8 +29,9 @@ final class TestKernel extends Kernel
      * @param array<mixed>                               $prism
      * @param \Closure(ContainerConfigurator): void|null $services
      * @param \Closure(RoutingConfigurator): void|null   $routes
+     * @param list<BundleInterface>                      $extraBundles d'autres bundles (SecurityBundle…)
      */
-    public function __construct(private readonly array $prism, string $environment = 'test', bool $debug = true, private readonly ?\Closure $services = null, private readonly ?\Closure $routes = null, private readonly bool $profiler = false)
+    public function __construct(private readonly array $prism, string $environment = 'test', bool $debug = true, private readonly ?\Closure $services = null, private readonly ?\Closure $routes = null, private readonly bool $profiler = false, private readonly array $extraBundles = [])
     {
         $this->dir = sys_get_temp_dir() . '/prism-bundle-' . bin2hex(random_bytes(4));
         parent::__construct($environment, $debug);
@@ -43,6 +45,7 @@ final class TestKernel extends Kernel
             yield new TwigBundle();
             yield new WebProfilerBundle();
         }
+        yield from $this->extraBundles;
     }
 
     public function getProjectDir(): string

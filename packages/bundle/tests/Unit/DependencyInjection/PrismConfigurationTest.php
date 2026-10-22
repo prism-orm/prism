@@ -20,14 +20,14 @@ final class PrismConfigurationTest extends TestCase
     /**
      * @param array<mixed> ...$configs
      *
-     * @return array{default_entity_manager: string, connections: array<string, array{url: string}>, entity_managers: array<string, array{connection: string, entity_dirs: list<string>, batch_size: int, migrations: array{dir: ?string, namespace: ?string}}>, metamodel: array{dir: string}}
+     * @return array{default_entity_manager: string, connections: array<string, array{url: string}>, entity_managers: array<string, array{connection: string, entity_dirs: list<string>, batch_size: int, migrations: array{dir: ?string, namespace: ?string}}>, metamodel: array{dir: string}, connection_idle_ttl: int}
      */
     private static function process(array ...$configs): array
     {
         $tree = new TreeBuilder('prism', 'array');
         PrismConfiguration::define($tree->getRootNode());
 
-        /** @var array{default_entity_manager: string, connections: array<string, array{url: string}>, entity_managers: array<string, array{connection: string, entity_dirs: list<string>, batch_size: int, migrations: array{dir: ?string, namespace: ?string}}>, metamodel: array{dir: string}} */
+        /** @var array{default_entity_manager: string, connections: array<string, array{url: string}>, entity_managers: array<string, array{connection: string, entity_dirs: list<string>, batch_size: int, migrations: array{dir: ?string, namespace: ?string}}>, metamodel: array{dir: string}, connection_idle_ttl: int} */
         return new Processor()->process($tree->buildTree(), $configs);
     }
 
@@ -46,6 +46,7 @@ final class PrismConfigurationTest extends TestCase
             ],
         ], $config['entity_managers']);
         self::assertSame(['dir' => '%kernel.cache_dir%/prism/metamodel'], $config['metamodel']);
+        self::assertSame(60, $config['connection_idle_ttl'], 'RG-07.5: a connection idle for a minute is checked');
     }
 
     public function testShortFormWithEntityDirsAndMigrations(): void
@@ -107,6 +108,7 @@ final class PrismConfigurationTest extends TestCase
         yield 'ambiguous connection' => [['connections' => ['a' => ['url' => 'a'], 'b' => ['url' => 'b']], 'entity_managers' => ['c' => []]], 'The entity manager "c" uses the connection "c", which is not declared; declared: a, b.'];
         yield 'unknown default' => [['url' => 'a', 'default_entity_manager' => 'billing'], 'The default entity manager "billing" is not declared; declared: default.'];
         yield 'batch size zero' => [['connections' => ['a' => ['url' => 'a']], 'entity_managers' => ['a' => ['batch_size' => 0]]], 'Should be greater than or equal to 1'];
+        yield 'negative idle ttl' => [['url' => 'a', 'connection_idle_ttl' => -1], 'Should be greater than or equal to 0'];
         yield 'no entity dirs' => [['connections' => ['a' => ['url' => 'a']], 'entity_managers' => ['a' => ['entity_dirs' => []]]], 'should have at least 1 element(s) defined'];
     }
 

@@ -15,9 +15,14 @@ use Prism\Bundle\DependencyInjection\Compiler\RepositoryPass;
 use Prism\Bundle\DependencyInjection\ConfigurationFactory;
 use Prism\Bundle\DependencyInjection\PrismConfiguration;
 use Prism\Bundle\Event\ContainerEntityListenerResolver;
+use Prism\Bundle\Messenger\ResetMiddleware;
 use Prism\Bundle\Metamodel\MetamodelRefresher;
 use Prism\Bundle\Metamodel\PrismCacheWarmer;
+use Prism\Bundle\Security\EntityUserProvider;
+use Prism\Bundle\Security\EntityUserProviderFactory;
+use Prism\Bundle\Validator\UniqueEntityValidator;
 use Prism\Bundle\ValueResolver\EntityValueResolver;
+use Prism\Bundle\Worker\ConnectionKeeper;
 use Prism\Dbal\Configuration;
 use Prism\Dbal\Connection;
 use Prism\Dbal\DriverManager;
@@ -36,7 +41,9 @@ use Prism\Orm\Event\PostRemoveEvent;
 use Prism\Orm\Event\PreUpdateEvent;
 use Prism\Orm\Metadata\Driver\AttributeDriver;
 use Prism\Orm\Metadata\MetadataFactory;
+use Symfony\Bundle\SecurityBundle\DependencyInjection\SecurityExtension;
 use Symfony\Component\Config\Definition\Configurator\DefinitionConfigurator;
+use Symfony\Component\DependencyInjection\Argument\IteratorArgument;
 use Symfony\Component\DependencyInjection\Argument\ServiceClosureArgument;
 use Symfony\Component\DependencyInjection\Argument\ServiceLocatorArgument;
 use Symfony\Component\DependencyInjection\Argument\TaggedIteratorArgument;
@@ -48,6 +55,9 @@ use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigura
 use Symfony\Component\DependencyInjection\Reference;
 use Symfony\Component\EventDispatcher\EventDispatcher;
 use Symfony\Component\HttpKernel\Bundle\AbstractBundle;
+use Symfony\Component\Messenger\Middleware\MiddlewareInterface;
+use Symfony\Component\Security\Core\User\UserProviderInterface;
+use Symfony\Component\Validator\ConstraintValidator;
 
 /**
  * Intégration Symfony de Prism (ADR 0013) : connexions et EntityManagers nommés depuis
@@ -105,6 +115,12 @@ final class PrismBundle extends AbstractBundle
     {
         $container->addCompilerPass(new RepositoryPass());
         $container->addCompilerPass(new ListenerPass());
+        // le type « prism » des providers de security.yaml, si SecurityBundle est là
+        if ($container->hasExtension('security')) {
+            $security = $container->getExtension('security');
+            \assert($security instanceof SecurityExtension);
+            $security->addUserProviderFactory(new EntityUserProviderFactory());
+        }
     }
 
     // RG-05.1 : le metamodel se charge depuis son dossier ; en dev, il suit les entités
@@ -126,7 +142,7 @@ final class PrismBundle extends AbstractBundle
      */
     public function loadExtension(array $config, ContainerConfigurator $container, ContainerBuilder $builder): void
     {
-        /** @var array{default_entity_manager: string, connections: array<string, array{url: string}>, entity_managers: array<string, array{connection: string, entity_dirs: list<string>, batch_size: int, migrations: array{dir: ?string, namespace: ?string}}>, metamodel: array{dir: string}} $config */
+        /** @var array{default_entity_manager: string, connections: array<string, array{url: string}>, entity_managers: array<string, array{connection: string, entity_dirs: list<string>, batch_size: int, migrations: array{dir: ?string, namespace: ?string}}>, metamodel: array{dir: string}, connection_idle_ttl: int} $config */
         $debug = (bool) $builder->getParameter('kernel.debug');
         $default = $config['default_entity_manager'];
 
@@ -255,9 +271,45 @@ final class PrismBundle extends AbstractBundle
                 ->addTag('data_collector', ['template' => PrismDataCollector::getTemplate(), 'id' => 'prism', 'priority' => 250]);
         }
 
+        $entityManagers = array_combine(array_keys($config['entity_managers']), array_map(static fn (string $name): Reference => new Reference('prism.entity_manager.' . $name), array_keys($config['entity_managers'])));
+
+        // RG-07.5 : en mode worker, aucune transaction ne survit à une requête, une connexion perdue se reconnecte
+        $builder->setDefinition('prism.connection_keeper', new Definition(ConnectionKeeper::class, [
+            array_combine(array_keys($config['connections']), array_map(static fn (string $name): Reference => new Reference('prism.connection.' . $name), array_keys($config['connections']))),
+            $config['connection_idle_ttl'],
+            new Reference('logger', ContainerInterface::NULL_ON_INVALID_REFERENCE),
+        ]))
+            ->addTag('kernel.reset', ['method' => 'reset'])
+            // avant le firewall, qui peut recharger l'utilisateur depuis la base
+            ->addTag('kernel.event_listener', ['event' => 'kernel.request', 'method' => 'onKernelRequest', 'priority' => 256]);
+
+        if (interface_exists(MiddlewareInterface::class)) {
+            // utilisé dans la config d'un bus : middleware: [prism_reset]
+            $builder->setDefinition('messenger.middleware.prism_reset', new Definition(ResetMiddleware::class, [
+                new Reference('prism.connection_keeper'),
+                new IteratorArgument(array_values($entityManagers)),
+            ]));
+        }
+        if (class_exists(ConstraintValidator::class)) {
+            $builder->setDefinition(UniqueEntityValidator::class, new Definition(UniqueEntityValidator::class, [
+                new ServiceLocatorArgument($entityManagers),
+                array_keys($config['entity_managers']),
+            ]))->addTag('validator.constraint_validator');
+        }
+        if (interface_exists(UserProviderInterface::class)) {
+            // gabarit des providers « prism », complété par EntityUserProviderFactory
+            $builder->setDefinition('prism.security.user_provider', new Definition(EntityUserProvider::class, [
+                new ServiceLocatorArgument($entityManagers),
+                array_keys($config['entity_managers']),
+                null,
+                null,
+                null,
+            ]))->setAbstract(true);
+        }
+
         // RG-07.3 : {id} → entité dans les contrôleurs, avant les resolvers de Symfony (comme Doctrine)
         $builder->setDefinition('prism.entity_value_resolver', new Definition(EntityValueResolver::class, [
-            new ServiceLocatorArgument(array_map(static fn (string $name): Reference => new Reference('prism.entity_manager.' . $name), array_combine(array_keys($config['entity_managers']), array_keys($config['entity_managers'])))),
+            new ServiceLocatorArgument($entityManagers),
             array_keys($config['entity_managers']),
         ]))->addTag('controller.argument_value_resolver', ['priority' => 110, 'name' => EntityValueResolver::class]);
 
