@@ -44,6 +44,13 @@ final class PlatformTest extends TestCase
         $platform->getCreateSavepointSql('x; DROP TABLE t');
     }
 
+    // Connection::ping() : portable sur les 4 plateformes
+    #[DataProvider('platforms')]
+    public function testPingSql(AbstractPlatform $platform): void
+    {
+        self::assertSame('SELECT 1', $platform->getPingSql());
+    }
+
     public function testVersionIsNormalized(): void
     {
         self::assertSame('11.8.3', new MariaDbPlatform('11.8.3-MariaDB-ubu2404')->version);
