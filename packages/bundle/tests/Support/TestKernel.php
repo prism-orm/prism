@@ -5,10 +5,12 @@ declare(strict_types=1);
 namespace Prism\Bundle\Tests\Support;
 
 use Prism\Bundle\PrismBundle;
+use Psr\Log\NullLogger;
 use Symfony\Bundle\FrameworkBundle\FrameworkBundle;
 use Symfony\Bundle\FrameworkBundle\Kernel\MicroKernelTrait;
 use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigurator;
 use Symfony\Component\HttpKernel\Kernel;
+use Symfony\Component\Routing\Loader\Configurator\RoutingConfigurator;
 
 /**
  * Une application minimale : FrameworkBundle, PrismBundle et la configuration prism donnée ;
@@ -23,8 +25,9 @@ final class TestKernel extends Kernel
     /**
      * @param array<mixed>                               $prism
      * @param \Closure(ContainerConfigurator): void|null $services
+     * @param \Closure(RoutingConfigurator): void|null   $routes
      */
-    public function __construct(private readonly array $prism, string $environment = 'test', bool $debug = true, private readonly ?\Closure $services = null)
+    public function __construct(private readonly array $prism, string $environment = 'test', bool $debug = true, private readonly ?\Closure $services = null, private readonly ?\Closure $routes = null)
     {
         $this->dir = sys_get_temp_dir() . '/prism-bundle-' . bin2hex(random_bytes(4));
         parent::__construct($environment, $debug);
@@ -64,10 +67,19 @@ final class TestKernel extends Kernel
         rmdir($this->dir);
     }
 
+    protected function configureRoutes(RoutingConfigurator $routes): void
+    {
+        if (null !== $this->routes) {
+            ($this->routes)($routes);
+        }
+    }
+
     protected function configureContainer(ContainerConfigurator $container): void
     {
         $container->extension('framework', ['test' => true, 'secret' => 'prism', 'http_method_override' => false, 'handle_all_throwables' => true, 'php_errors' => ['log' => true]]);
         $container->extension('prism', $this->prism);
+        // le logger par défaut de Symfony écrit sur stderr
+        $container->services()->set('logger', NullLogger::class);
         if (null !== $this->services) {
             ($this->services)($container);
         }
