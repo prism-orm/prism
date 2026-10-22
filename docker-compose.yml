@@ -10,6 +10,26 @@ services:
             mariadb: { condition: service_healthy }
             postgres: { condition: service_healthy }
 
+    # la démo en mode worker : docker compose --profile demo up -d frankenphp (make worker-up)
+    frankenphp:
+        build: docker/frankenphp
+        profiles: [demo]
+        volumes:
+            - .:/app
+        working_dir: /app/demo
+        environment:
+            SERVER_NAME: ':80'
+            FRANKENPHP_CONFIG: 'worker ./public/index.php 1'
+            APP_ENV: prod
+            APP_DEBUG: '0'
+            APP_SECRET: demo-not-a-secret
+            DATABASE_URL: 'mysql://root:root@mysql:3306/prism_demo?serverVersion=8.4'
+            # en-têtes de mesure (mémoire, identity map) pour make worker-test
+            PRISM_WORKER_PROBE: '1'
+        ports: ["${PRISM_DEMO_PORT:-8088}:80"]
+        depends_on:
+            mysql: { condition: service_healthy }
+
     mysql:
         image: mysql:8.4
         environment:

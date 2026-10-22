@@ -12,7 +12,7 @@ URL_sqlite  := sqlite:///:memory:
 DATABASES := mysql mariadb pgsql sqlite
 
 .DEFAULT_GOAL := help
-.PHONY: help up down build install shell test test-unit test-db test-all-db stan cs cs-check infection bench bench-baseline bench-compare coverage compat test-symfony demo-install demo-test ci
+.PHONY: help up down build install shell test test-unit test-db test-all-db stan cs cs-check infection bench bench-baseline bench-compare coverage compat test-symfony demo-install demo-test worker-test ci
 
 help: ## Affiche cette aide
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
@@ -81,5 +81,10 @@ demo-install: ## La démo ERP : dépendances, base prism_demo, migrations, jeu d
 demo-test: ## Les tests de la démo ERP (base prism_demo_test)
 	$(DC) exec -T mysql mysql -uroot -proot -e 'CREATE DATABASE IF NOT EXISTS prism_demo_test' 2>/dev/null
 	$(RUN) sh -c 'cd demo && vendor/bin/phpunit'
+
+worker-test: ## La démo en worker FrankenPHP, 10 000 requêtes, mémoire mesurée : make worker-test [N=10000] (après make demo-install)
+	$(DC) --profile demo up -d --build --wait frankenphp
+	$(RUN) php tools/worker/load.php http://frankenphp $(or $(N),10000)
+	$(DC) --profile demo stop frankenphp
 
 ci: cs-check stan test ## Tout ce que la CI vérifie : à lancer avant de terminer une tâche
