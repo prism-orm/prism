@@ -7,7 +7,7 @@ ORM PHP moderne pour les applications métier et l'IA.
 - Multi-tenancy et audit natifs
 - Type `vector` et recherche hybride
 
-> Statut : `0.6.0`, phases 0 à 6 livrées (DBAL, mapping, EntityManager, relations et anti-N+1, QueryBuilder typé et PHPStan, migrations et console). Versions `0.x` : l'API peut encore changer. Voir [CHANGELOG.md](CHANGELOG.md).
+> Statut : `0.7.0`, phases 0 à 7 livrées (DBAL, mapping, EntityManager, relations et anti-N+1, QueryBuilder typé et PHPStan, migrations et console, bundle Symfony). Dans Symfony : [docs/symfony.md](docs/symfony.md) ; démonstration : [demo/](demo). Versions `0.x` : l'API peut encore changer. Voir [CHANGELOG.md](CHANGELOG.md).
 
 ## Démarrer
 

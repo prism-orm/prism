@@ -2,6 +2,31 @@
 
 Toutes les évolutions notables de Prism, par version. Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) ; versions [SemVer](https://semver.org/lang/fr/), en `0.x` jusqu'à la 1.0 (RT-16). Les règles citées (RG-xx, RT-xx) sont décrites dans `docs/ROADMAP.md`, les décisions (ADR) dans `docs/adr/`.
 
+## [0.7.0] — 2026-10-22
+
+Phase 7 : bundle Symfony. `composer require prism-orm/bundle` suffit pour remplacer Doctrine dans une application Symfony 7.4 ou 8 ; guide : [docs/symfony.md](docs/symfony.md).
+
+### Ajouté
+
+- `prism-orm/bundle` (ADR 0013) : configuration `prism.yaml` validée (forme courte ou complète), plusieurs connexions et EntityManagers nommés, le premier par défaut (RG-07.1) ; `DATABASE_URL` lue par défaut sans `prism.yaml`, et seulement au premier usage de la connexion.
+- Autowiring de `EntityManagerInterface`, `Connection` et des repositories, même instance que `getRepository()` (RG-07.2) ; arguments nommés pour les autres EntityManagers (`$billingEntityManager`).
+- Commandes `db:*` dans `bin/console`, avec `--em` ; migrations propres à chaque EntityManager.
+- Types personnalisés par le tag `prism.type`, `#[AsEntityListener]`, `#[AsPrismListener]` et un dispatcher PSR-14 par EntityManager ; metamodel chargé au démarrage, regénéré en dev quand une entité change et au `cache:warmup` (RG-05.1) ; cache des metadata en prod.
+- `EntityValueResolver` et `#[MapEntity]` : `{id}` → entité dans les contrôleurs, 404 si absente ou identifiant invalide, `null` pour un argument nullable (RG-07.3).
+- Panneau du profiler : requêtes et durées (1 000 enregistrées au plus par requête), N+1 avec leur origine, chargements par lot, flushs et changesets ; absent du conteneur en prod (RG-07.4, RG-04.16).
+- Mode worker : EntityManagers vidés et transaction restée ouverte annulée par `kernel.reset`, connexion perdue reconnectée au début de la requête suivante (`connection_idle_ttl`) ; middleware Messenger `prism_reset` (RG-07.5). Testé sur 10 000 requêtes d'un worker FrankenPHP, mémoire stable.
+- `#[UniqueEntity]` (champs et relations, `ignoreNull`) et user provider « prism » de `security.yaml`.
+- `make:entity` (classe, repository, champs, 4 sortes de relations avec leurs deux côtés, code existant gardé) et `make:migration` ; `make:prism:*` à côté de DoctrineBundle (RG-07.7).
+- Paquet `prism-orm/test-pack` : factories, `ResetDatabase` (schéma préparé une fois, une transaction annulée par test, `KernelTestCase` et `WebTestCase`), `#[WithRealTransactions]`, `assertQueryCount()` (RG-07.6).
+- Recette Flex (`recipes/prism-orm/bundle/0.7`), et sa vérification sur `symfony/skeleton` et `webapp-pack` sans Doctrine, sous Symfony 7.4 et 8 (`make compat`, CI).
+- Application de démonstration `demo/` : un ERP minimal écrit avec Prism seul, sans chaîne de nom de champ dans ses requêtes, testé avec le test-pack ; `make worker-test`.
+- ORM : `BatchLoadedEvent` à chaque chargement par lot ; `EntityRepository::getEntityManager()` et `getClassMetadata()` (ADR 0006).
+- DBAL : `Connection::ping()`.
+
+### Modifié
+
+- Symfony 8.1 et Infection 0.35 dans le monorepo (Infection 0.29 bloquait `symfony/console` en 7.x, et les 8.0 sont visées par des avis de sécurité) ; MSI : `UnitOfWork` 91 %, `CommitOrderCalculator` 98 %.
+
 ## [0.6.0] — 2026-10-21
 
 Phase 6 : migrations et console.
