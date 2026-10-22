@@ -90,6 +90,21 @@ final class EntityRepositoryTest extends MappingSchemaTestCase
         self::assertSame(EntityRepository::class, $this->em->getRepository(Label::class)::class);
     }
 
+    // ADR 0006 : l'EntityManager et la metadata sont accessibles au repository métier
+    public function testCustomRepositoryReachesItsEntityManagerAndMetadata(): void
+    {
+        $repository = $this->em->getRepository(Customer::class);
+        // @phpstan-ignore staticMethod.alreadyNarrowedType
+        self::assertInstanceOf(CustomerRepository::class, $repository);
+        $customer = $repository->inCity('Paris')[0];
+
+        $repository->moveTo($customer, 'Lyon');
+        $this->em->clear();
+
+        self::assertSame(['Bernard', 'Martin'], self::names($repository->inCity('Lyon')), 'flushed through getEntityManager()');
+        self::assertSame('customer', $repository->tableName());
+    }
+
     public function testUnknownFieldIsRefused(): void
     {
         $this->expectException(MappingException::class);
