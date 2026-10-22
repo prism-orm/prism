@@ -13,7 +13,7 @@
     },
     "require-dev": {
         "friendsofphp/php-cs-fixer": "^3.75",
-        "infection/infection": "^0.29",
+        "infection/infection": "^0.35",
         "phpbench/phpbench": "^1.4",
         "phpstan/extension-installer": "^1.4",
         "phpstan/phpstan": "^2.1",
