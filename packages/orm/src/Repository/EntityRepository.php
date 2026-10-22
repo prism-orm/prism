@@ -12,7 +12,8 @@ use Prism\Orm\Metadata\ClassMetadata;
 
 /**
  * Lecture des entités d'une classe. Seule classe du cœur ouverte à l'héritage (ADR 0006) : un
- * repository métier l'étend, ses méthodes publiques restent final.
+ * repository métier l'étend, ses méthodes publiques restent final ; il atteint l'EntityManager et
+ * la metadata par getEntityManager() et getClassMetadata().
  *
  * Critères : champ → valeur PHP ; null : IS NULL ; liste : IN. Les entités rendues sont gérées et
  * passent par l'identity map (RG-03.3).
@@ -32,6 +33,22 @@ class EntityRepository
         private readonly EntityManagerInterface $entityManager,
         private readonly ClassMetadata $metadata,
     ) {
+    }
+
+    /**
+     * Pour les méthodes d'un repository métier : requêtes typées ($em->query()), flush.
+     */
+    final protected function getEntityManager(): EntityManagerInterface
+    {
+        return $this->entityManager;
+    }
+
+    /**
+     * @return ClassMetadata<T>
+     */
+    final protected function getClassMetadata(): ClassMetadata
+    {
+        return $this->metadata;
     }
 
     /**
