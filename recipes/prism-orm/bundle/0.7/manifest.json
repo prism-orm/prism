@@ -1,0 +1,25 @@
+{
+    "bundles": {
+        "Prism\\Bundle\\PrismBundle": ["all"]
+    },
+    "copy-from-recipe": {
+        "config/": "%CONFIG_DIR%/",
+        "migrations/": "migrations/",
+        "src/": "%SRC_DIR%/"
+    },
+    "env": {
+        "#1": "Prism reads a Symfony-style URL; serverVersion is required (the minimum: MySQL 8.0, MariaDB 11.8, PostgreSQL 15, SQLite 3.40)",
+        "#2": "DATABASE_URL=\"mysql://app:!ChangeMe!@127.0.0.1:3306/app?serverVersion=8.4\"",
+        "#3": "DATABASE_URL=\"mysql://app:!ChangeMe!@127.0.0.1:3306/app?serverVersion=11.8.0-MariaDB\"",
+        "#4": "DATABASE_URL=\"sqlite:///%kernel.project_dir%/var/app.db?serverVersion=3.46.0\"",
+        "DATABASE_URL": "postgresql://app:!ChangeMe!@127.0.0.1:5432/app?serverVersion=16"
+    },
+    "post-install-output": [
+        "  * Set <fg=green>DATABASE_URL</> in <fg=green>.env.local</>",
+        "  * Create the database: <fg=green>php bin/console db:database:create</>",
+        "  * Create an entity: <fg=green>php bin/console make:entity</> (with symfony/maker-bundle)",
+        "  * Then its migration: <fg=green>php bin/console make:migration</>, and <fg=green>php bin/console db:migrations:migrate</>",
+        "  * Read <fg=green>https://github.com/IMAMx39/prism/blob/main/docs/commands.md</>"
+    ],
+    "aliases": ["prism"]
+}
