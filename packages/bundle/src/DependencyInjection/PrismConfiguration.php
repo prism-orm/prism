@@ -82,6 +82,11 @@ final class PrismConfiguration
                         ->end()
                     ->end()
                 ->end()
+                ->integerNode('connection_idle_ttl')
+                    ->info('Worker mode (RG-07.5): seconds of inactivity after which a connection is checked at the start of a request, and reconnected if it was lost; 0 checks it on every request.')
+                    ->min(0)
+                    ->defaultValue(60)
+                ->end()
                 ->arrayNode('metamodel')
                     ->addDefaultsIfNotSet()
                     ->children()
@@ -128,9 +133,9 @@ final class PrismConfiguration
      * Un EntityManager par défaut s'il n'y en a aucun, ses connexions résolues, l'EntityManager
      * par défaut nommé.
      *
-     * @param array{default_entity_manager: ?string, connections: array<string, array{url: string}>, entity_managers: array<string, array{connection: ?string, entity_dirs: list<string>, batch_size: int, migrations: array{dir: ?string, namespace: ?string}}>, metamodel: array{dir: string}} $config
+     * @param array{default_entity_manager: ?string, connections: array<string, array{url: string}>, entity_managers: array<string, array{connection: ?string, entity_dirs: list<string>, batch_size: int, migrations: array{dir: ?string, namespace: ?string}}>, metamodel: array{dir: string}, connection_idle_ttl: int} $config
      *
-     * @return array{default_entity_manager: string, connections: array<string, array{url: string}>, entity_managers: array<string, array{connection: string, entity_dirs: list<string>, batch_size: int, migrations: array{dir: ?string, namespace: ?string}}>, metamodel: array{dir: string}}
+     * @return array{default_entity_manager: string, connections: array<string, array{url: string}>, entity_managers: array<string, array{connection: string, entity_dirs: list<string>, batch_size: int, migrations: array{dir: ?string, namespace: ?string}}>, metamodel: array{dir: string}, connection_idle_ttl: int}
      */
     private static function resolve(array $config): array
     {
