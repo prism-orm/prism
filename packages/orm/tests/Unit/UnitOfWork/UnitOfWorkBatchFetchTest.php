@@ -10,6 +10,7 @@ use Prism\Dbal\Type\ConversionContext;
 use Prism\Dbal\Type\TypeRegistry;
 use Prism\Orm\Collection\ArrayCollection;
 use Prism\Orm\Collection\PersistentCollection;
+use Prism\Orm\Event\BatchLoadedEvent;
 use Prism\Orm\Event\PostLoadEvent;
 use Prism\Orm\Exception\EntityNotFoundException;
 use Prism\Orm\Metadata\Driver\AttributeDriver;
@@ -318,6 +319,72 @@ final class UnitOfWorkBatchFetchTest extends TestCase
         $this->uow->find(Order::class, 1)?->customer->name;
 
         self::assertSame(1, $this->selectsOn('customer'), 'nothing to batch with');
+    }
+
+    // ---------------------------------------------------------------- BatchLoadedEvent (profiler)
+
+    /**
+     * Les lots publiés : « classe::relation xN » ; un lot d'au moins deux entités seulement.
+     *
+     * @return list<string>
+     */
+    private static function batches(TestDispatcher $events): array
+    {
+        return array_map(static function (object $e): string {
+            \assert($e instanceof BatchLoadedEvent);
+
+            return new \ReflectionClass($e->entityClass)->getShortName() . (null === $e->association ? '' : '::' . $e->association) . ' x' . $e->count;
+        }, $events->ofType(BatchLoadedEvent::class));
+    }
+
+    public function testEachToOneBatchIsPublished(): void
+    {
+        $events = new TestDispatcher();
+        $this->uow = $this->unitOfWork(events: $events);
+        $this->seedCustomers(250);
+        $this->seedOrders(250);
+
+        foreach ($this->orders() as $order) {
+            self::touch($order->customer->name);
+        }
+
+        // chaque lot de clients forme une cohorte, qui charge à son tour le côté inverse de leur compte
+        self::assertSame(['Customer x100', 'Customer::account x100', 'Customer x100', 'Customer::account x100', 'Customer x50', 'Customer::account x50'], self::batches($events));
+    }
+
+    public function testCollectionAndInverseSideBatchesArePublished(): void
+    {
+        $events = new TestDispatcher();
+        $this->uow = $this->unitOfWork(events: $events);
+        $this->seedCustomers(4);
+        $this->seedOrders(4, perCustomer: 2);
+        $this->storage->seed('group', 'id', ['id' => 1, 'name' => 'G1']);
+        for ($id = 1; $id <= 4; ++$id) {
+            $this->storage->seed('account', 'id', ['id' => $id, 'customer_id' => $id, 'balance' => $id]);
+            $this->storage->seedPivot('customer_group', ['customer_id' => $id, 'group_id' => 1]);
+        }
+
+        $customers = $this->customers();
+        self::assertSame(['Customer::account x4'], self::batches($events), 'the inverse side at hydration');
+        self::assertCount(2, $customers[0]->orders);
+        self::assertCount(1, $customers[0]->groups);
+
+        self::assertSame(['Customer::account x4', 'Customer::orders x4', 'Customer::groups x4'], self::batches($events));
+    }
+
+    public function testNothingIsPublishedWithoutABatch(): void
+    {
+        $events = new TestDispatcher();
+        $this->uow = $this->unitOfWork(events: $events);
+        $this->seedCustomers(1);
+        $this->seedOrders(1);
+        $this->storage->seed('account', 'id', ['id' => 1, 'customer_id' => 1, 'balance' => 1]);
+
+        $customer = $this->customers()[0];
+        self::assertCount(1, $customer->orders);
+        self::touch($this->uow->find(Order::class, 1)?->customer->name);
+
+        self::assertSame([], self::batches($events), 'a cohort of one is an ordinary load');
     }
 
     // ---------------------------------------------------------------- compléments (mutants)

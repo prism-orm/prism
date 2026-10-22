@@ -15,7 +15,7 @@ jobs:
         strategy:
             fail-fast: false
             matrix:
-                package: [dbal, orm, migrations, bundle, phpstan]
+                package: [dbal, orm, migrations, bundle, phpstan, test-pack]
         steps:
             - uses: actions/checkout@v4
               with:

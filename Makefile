@@ -12,7 +12,7 @@ URL_sqlite  := sqlite:///:memory:
 DATABASES := mysql mariadb pgsql sqlite
 
 .DEFAULT_GOAL := help
-.PHONY: help up down build install shell test test-unit test-db test-all-db stan cs cs-check infection bench bench-baseline bench-compare coverage ci
+.PHONY: help up down build install shell test test-unit test-db test-all-db stan cs cs-check infection bench bench-baseline bench-compare coverage compat test-symfony demo-install demo-test worker-test ci
 
 help: ## Affiche cette aide
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
@@ -66,5 +66,25 @@ bench-baseline: ## Enregistre la référence de bench-compare (avant une modific
 
 bench-compare: ## Compare à la référence : échoue au-delà de 10 % de régression (RT-15)
 	$(RUN) env DATABASE_URL='$(URL_$(DB))' vendor/bin/phpbench run --report=aggregate --ref=baseline --assert='mode(variant.time.avg) <= mode(baseline.time.avg) +/- 10%' $(if $(FILTER),--filter=$(FILTER))
+
+compat: ## Une vraie application Symfony avec Prism et sa recette : make compat SF=7.4|8 APP=skeleton|webapp (réseau requis)
+	$(RUN) tools/compat/compat.sh $(SF) $(APP)
+
+test-symfony: ## Tests du bundle et du test-pack sous une autre version de Symfony, dans une copie : make test-symfony SF=7.4 (réseau requis)
+	rm -rf tmp/symfony-$(SF) && mkdir -p tmp/symfony-$(SF)/var
+	rsync -a --exclude vendor --exclude var --exclude tmp --exclude .git ./ tmp/symfony-$(SF)/
+	$(DC) run --rm -w /app/tmp/symfony-$(SF) php env DATABASE_URL='$(URL_mysql)' tools/compat/symfony-version.sh $(SF)
+
+demo-install: ## La démo ERP : dépendances, base prism_demo, migrations, jeu de données
+	$(RUN) sh -c 'cd demo && composer install --quiet && bin/console db:database:create --if-not-exists && bin/console db:migrations:migrate -n && bin/console app:seed'
+
+demo-test: ## Les tests de la démo ERP (base prism_demo_test)
+	$(DC) exec -T mysql mysql -uroot -proot -e 'CREATE DATABASE IF NOT EXISTS prism_demo_test' 2>/dev/null
+	$(RUN) sh -c 'cd demo && vendor/bin/phpunit'
+
+worker-test: ## La démo en worker FrankenPHP, 10 000 requêtes, mémoire mesurée : make worker-test [N=10000] (après make demo-install)
+	$(DC) --profile demo up -d --build --wait frankenphp
+	$(RUN) php tools/worker/load.php http://frankenphp $(or $(N),10000)
+	$(DC) --profile demo stop frankenphp
 
 ci: cs-check stan test ## Tout ce que la CI vérifie : à lancer avant de terminer une tâche

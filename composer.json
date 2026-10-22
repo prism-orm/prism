@@ -13,21 +13,29 @@
     },
     "require-dev": {
         "friendsofphp/php-cs-fixer": "^3.75",
-        "infection/infection": "^0.29",
+        "infection/infection": "^0.35",
         "phpbench/phpbench": "^1.4",
         "phpstan/extension-installer": "^1.4",
         "phpstan/phpstan": "^2.1",
         "phpstan/phpstan-phpunit": "^2.0",
         "phpstan/phpstan-strict-rules": "^2.0",
         "phpunit/phpunit": "^11.5",
-        "symfony/framework-bundle": "^7.4 || ^8.0"
+        "symfony/browser-kit": "^7.4 || ^8.0",
+        "symfony/framework-bundle": "^7.4 || ^8.0",
+        "symfony/maker-bundle": "^1.62",
+        "symfony/messenger": "^7.4 || ^8.0",
+        "symfony/security-bundle": "^7.4 || ^8.0",
+        "symfony/twig-bundle": "^7.4 || ^8.0",
+        "symfony/validator": "^7.4 || ^8.0",
+        "symfony/web-profiler-bundle": "^7.4 || ^8.0"
     },
     "replace": {
         "prism-orm/bundle": "self.version",
         "prism-orm/dbal": "self.version",
         "prism-orm/migrations": "self.version",
         "prism-orm/orm": "self.version",
-        "prism-orm/phpstan": "self.version"
+        "prism-orm/phpstan": "self.version",
+        "prism-orm/test-pack": "self.version"
     },
     "autoload": {
         "psr-4": {
@@ -36,7 +44,8 @@
             "Prism\\Orm\\": "packages/orm/src/",
             "Prism\\Migrations\\": "packages/migrations/src/",
             "Prism\\Bundle\\": "packages/bundle/src/",
-            "Prism\\PHPStan\\": "packages/phpstan/src/"
+            "Prism\\PHPStan\\": "packages/phpstan/src/",
+            "Prism\\TestPack\\": "packages/test-pack/src/"
         }
     },
     "autoload-dev": {
@@ -46,6 +55,7 @@
             "Prism\\Migrations\\Tests\\": "packages/migrations/tests/",
             "Prism\\Bundle\\Tests\\": "packages/bundle/tests/",
             "Prism\\PHPStan\\Tests\\": "packages/phpstan/tests/",
+            "Prism\\TestPack\\Tests\\": "packages/test-pack/tests/",
             "Prism\\Benchmarks\\": "benchmarks/"
         }
     },

@@ -660,6 +660,14 @@ abstract class AbstractPlatform
     }
 
     /**
+     * La requête la plus légère qui prouve que la connexion répond (Connection::ping()).
+     */
+    public function getPingSql(): string
+    {
+        return 'SELECT 1';
+    }
+
+    /**
      * Vrai si une requête en échec invalide toute la transaction en cours (PostgreSQL).
      */
     public function failedStatementAbortsTransaction(): bool
