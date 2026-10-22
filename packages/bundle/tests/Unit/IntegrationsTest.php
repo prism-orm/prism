@@ -238,4 +238,26 @@ final class IntegrationsTest extends TestCase
         self::assertStringContainsString('ended the request with an open transaction', $warnings[0]['message']);
         self::assertSame(['connection' => 'default', 'level' => 2], $warnings[0]['context']);
     }
+
+    // test-pack : la transaction d'un test survit aux requêtes ; celles de l'application non
+    public function testKeptTransactionSurvivesTheEndOfARequest(): void
+    {
+        $request = \Symfony\Component\HttpFoundation\Request::create('/');
+        $this->kernel->terminate($request, $this->kernel->handle($request));
+        $connection = $this->em->getConnection();
+        $keeper = $this->container->get('prism.connection_keeper');
+        \assert($keeper instanceof \Prism\Bundle\Worker\ConnectionKeeper);
+        $resetter = $this->container->get('services_resetter');
+        \assert($resetter instanceof ResetInterface);
+
+        $connection->beginTransaction();
+        $keeper->keepOpenTransactions();
+        $connection->beginTransaction();
+        $resetter->reset();
+        self::assertSame(1, $connection->getTransactionNestingLevel(), 'only the transaction of the application is rolled back');
+
+        $keeper->release();
+        $resetter->reset();
+        self::assertFalse($connection->isTransactionActive());
+    }
 }

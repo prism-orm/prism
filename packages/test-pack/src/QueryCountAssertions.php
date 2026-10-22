@@ -38,15 +38,21 @@ trait QueryCountAssertions
             if (!$recorder instanceof QueryRecorder) {
                 throw new TestPackException(\sprintf('The queries of the connection "%s" are not recorded: assertQueryCount() needs kernel.debug (APP_DEBUG=1, the default in the test environment) and a declared connection.', $name));
             }
-            $recorders[$name] = [$recorder, $recorder->getCount(), \count($recorder->getQueries())];
+            $recorders[$name] = [$recorder, $recorder->getLifetimeCount(), $recorder->getResets(), \count($recorder->getQueries())];
         }
 
         $result = $code();
 
+        // le recorder est vidé au début de chaque requête HTTP (kernel.reset) : le compte vient
+        // du compteur jamais remis à zéro ; la liste, de ce qui est encore enregistré
         $actual = 0;
         $queries = [];
-        foreach ($recorders as $name => [$recorder, $count, $recorded]) {
-            $actual += $recorder->getCount() - $count;
+        foreach ($recorders as $name => [$recorder, $count, $resets, $recorded]) {
+            $actual += $recorder->getLifetimeCount() - $count;
+            if ($recorder->getResets() !== $resets) {
+                $queries[] = \sprintf('[%s] (the queries of the earlier HTTP requests are not listed)', $name);
+                $recorded = 0;
+            }
             foreach (\array_slice($recorder->getQueries(), $recorded) as $query) {
                 $queries[] = \sprintf('[%s] %s', $name, $query['sql']);
             }

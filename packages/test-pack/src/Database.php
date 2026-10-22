@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Prism\TestPack;
 
+use Prism\Bundle\Worker\ConnectionKeeper;
 use Prism\Dbal\Connection;
 use Prism\Dbal\Schema\Comparator;
 use Prism\Dbal\Schema\Schema;
@@ -31,6 +32,9 @@ final class Database
     /** @var list<EntityManager> les EntityManagers du test en cours */
     private static array $entityManagers = [];
 
+    // retenu au début du test : à sa fin, le kernel est déjà arrêté (tearDown de KernelTestCase)
+    private static ?ConnectionKeeper $keeper = null;
+
     /**
      * Début de test : schéma prêt, puis une transaction par connexion, sauf commits réels.
      */
@@ -44,6 +48,11 @@ final class Database
             foreach (self::connections() as $connection) {
                 $connection->beginTransaction();
             }
+            // entre deux requêtes du client, kernel.reset annule toute transaction ouverte : pas celle du test
+            $container = TestContext::container();
+            $keeper = $container->has('prism.connection_keeper') ? $container->get('prism.connection_keeper') : null;
+            self::$keeper = $keeper instanceof ConnectionKeeper ? $keeper : null;
+            self::$keeper?->keepOpenTransactions();
         }
     }
 
@@ -52,13 +61,16 @@ final class Database
      */
     public static function end(bool $realTransactions): void
     {
-        foreach (self::$entityManagers as $em) {
-            $em->clear();
-        }
+        self::$keeper?->release();
+        self::$keeper = null;
+        // sans le conteneur : le kernel est déjà arrêté ; une transaction oubliée verrouillerait les tables
         foreach (self::connections() as $connection) {
             while ($connection->isTransactionActive()) {
                 $connection->rollBack();
             }
+        }
+        foreach (self::$entityManagers as $em) {
+            $em->clear();
         }
         if ($realTransactions) {
             foreach (self::$entityManagers as $em) {
@@ -66,6 +78,16 @@ final class Database
             }
         }
         self::$entityManagers = [];
+    }
+
+    /**
+     * Oublie les schémas préparés : à appeler après avoir supprimé les tables hors de
+     * ResetDatabase (fin d'une suite de tests), pour que le test suivant les recrée.
+     */
+    public static function forget(): void
+    {
+        self::$prepared = [];
+        self::$memory = null;
     }
 
     /**
