@@ -31,7 +31,7 @@ final class TestKernel extends Kernel
      * @param \Closure(RoutingConfigurator): void|null   $routes
      * @param list<BundleInterface>                      $extraBundles d'autres bundles (SecurityBundle…)
      */
-    public function __construct(private readonly array $prism, string $environment = 'test', bool $debug = true, private readonly ?\Closure $services = null, private readonly ?\Closure $routes = null, private readonly bool $profiler = false, private readonly array $extraBundles = [])
+    public function __construct(private readonly array $prism, string $environment = 'test', bool $debug = true, private readonly ?\Closure $services = null, private readonly ?\Closure $routes = null, private readonly bool $profiler = false, private readonly array $extraBundles = [], private readonly ?string $projectDir = null)
     {
         $this->dir = sys_get_temp_dir() . '/prism-bundle-' . bin2hex(random_bytes(4));
         parent::__construct($environment, $debug);
@@ -50,7 +50,7 @@ final class TestKernel extends Kernel
 
     public function getProjectDir(): string
     {
-        return \dirname(__DIR__);
+        return $this->projectDir ?? \dirname(__DIR__);
     }
 
     public function getCacheDir(): string
