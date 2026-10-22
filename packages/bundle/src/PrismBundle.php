@@ -11,10 +11,15 @@ use Prism\Bundle\Debug\FlushRecorder;
 use Prism\Bundle\Debug\PrismDataCollector;
 use Prism\Bundle\Debug\QueryRecorder;
 use Prism\Bundle\DependencyInjection\Compiler\ListenerPass;
+use Prism\Bundle\DependencyInjection\Compiler\MakerPass;
 use Prism\Bundle\DependencyInjection\Compiler\RepositoryPass;
 use Prism\Bundle\DependencyInjection\ConfigurationFactory;
 use Prism\Bundle\DependencyInjection\PrismConfiguration;
 use Prism\Bundle\Event\ContainerEntityListenerResolver;
+use Prism\Bundle\Maker\MakeEntity;
+use Prism\Bundle\Maker\MakeMigration;
+use Prism\Bundle\Maker\MakePrismEntity;
+use Prism\Bundle\Maker\MakePrismMigration;
 use Prism\Bundle\Messenger\ResetMiddleware;
 use Prism\Bundle\Metamodel\MetamodelRefresher;
 use Prism\Bundle\Metamodel\PrismCacheWarmer;
@@ -41,6 +46,7 @@ use Prism\Orm\Event\PostRemoveEvent;
 use Prism\Orm\Event\PreUpdateEvent;
 use Prism\Orm\Metadata\Driver\AttributeDriver;
 use Prism\Orm\Metadata\MetadataFactory;
+use Symfony\Bundle\MakerBundle\Maker\AbstractMaker;
 use Symfony\Bundle\SecurityBundle\DependencyInjection\SecurityExtension;
 use Symfony\Component\Config\Definition\Configurator\DefinitionConfigurator;
 use Symfony\Component\DependencyInjection\Argument\IteratorArgument;
@@ -48,6 +54,7 @@ use Symfony\Component\DependencyInjection\Argument\ServiceClosureArgument;
 use Symfony\Component\DependencyInjection\Argument\ServiceLocatorArgument;
 use Symfony\Component\DependencyInjection\Argument\TaggedIteratorArgument;
 use Symfony\Component\DependencyInjection\ChildDefinition;
+use Symfony\Component\DependencyInjection\Compiler\PassConfig;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\DependencyInjection\Definition;
@@ -111,10 +118,17 @@ final class PrismBundle extends AbstractBundle
         PrismConfiguration::define($definition->rootNode());
     }
 
+    // vu dans build() : loadExtension() reçoit un conteneur sans les extensions des autres bundles
+    private bool $doctrine = false;
+
     public function build(ContainerBuilder $container): void
     {
+        $this->doctrine = $container->hasExtension('doctrine');
+        $container->setParameter(MakerPass::PARAMETER, !$this->doctrine);
         $container->addCompilerPass(new RepositoryPass());
         $container->addCompilerPass(new ListenerPass());
+        // avant MakeCommandRegistrationPass de MakerBundle (priorité 10)
+        $container->addCompilerPass(new MakerPass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, 20);
         // le type « prism » des providers de security.yaml, si SecurityBundle est là
         if ($container->hasExtension('security')) {
             $security = $container->getExtension('security');
@@ -306,6 +320,20 @@ final class PrismBundle extends AbstractBundle
                 null,
                 null,
             ]))->setAbstract(true);
+        }
+
+        // make:entity et make:migration (RG-07.7) ; à côté de DoctrineBundle : make:prism:*
+        if (class_exists(AbstractMaker::class)) {
+            $doctrine = $this->doctrine;
+            $builder->setDefinition('prism.maker.entity', new Definition($doctrine ? MakePrismEntity::class : MakeEntity::class, [
+                new Reference('maker.file_manager'),
+                new Reference('prism.metamodel_refresher'),
+            ]))->addTag('maker.command');
+            $builder->setDefinition('prism.maker.migration', new Definition($doctrine ? MakePrismMigration::class : MakeMigration::class, [
+                new ServiceLocatorArgument(array_combine(array_keys($entityManagers), array_map(static fn (string $name): Reference => new Reference(\sprintf('prism.command.%s.db:migrations:diff', $name)), array_keys($entityManagers)))),
+                array_keys($config['entity_managers']),
+                $default,
+            ]))->addTag('maker.command');
         }
 
         // RG-07.3 : {id} → entité dans les contrôleurs, avant les resolvers de Symfony (comme Doctrine)

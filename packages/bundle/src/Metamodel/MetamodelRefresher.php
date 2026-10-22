@@ -64,6 +64,16 @@ final class MetamodelRefresher
         }
     }
 
+    /**
+     * Les entités ont changé (make:entity) : le metamodel est regénéré au prochain démarrage du kernel.
+     */
+    public function invalidate(): void
+    {
+        foreach ($this->entityManagers as [, $dir]) {
+            @unlink($dir . '/' . self::STAMP);
+        }
+    }
+
     private function generateOne(MetadataFactory $metadata, string $dir): void
     {
         new MetamodelGenerator()->generate($metadata->getAllMetadata(), $dir);
