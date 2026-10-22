@@ -132,6 +132,25 @@ final class Connection
     }
 
     /**
+     * Vrai si la connexion ouverte répond encore ; faux si elle est fermée, ou perdue côté serveur
+     * (redémarrage, wait_timeout). Elle n'est jamais ouverte pour l'occasion, et une erreur n'est
+     * pas journalisée : c'est la réponse attendue. Après un faux, close() puis toute requête
+     * reconnectent. Sert au mode worker du bundle (RG-07.5).
+     */
+    public function ping(): bool
+    {
+        if (null === $this->pdo) {
+            return false;
+        }
+        try {
+            // mysqlnd émet un warning (« server has gone away ») en plus de l'exception
+            return false !== @$this->pdo->query($this->getPlatform()->getPingSql());
+        } catch (\PDOException) {
+            return false;
+        }
+    }
+
+    /**
      * Ferme la connexion ; une transaction en cours est annulée par le serveur.
      */
     public function close(): void

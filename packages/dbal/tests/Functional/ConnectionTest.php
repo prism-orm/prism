@@ -175,6 +175,44 @@ final class ConnectionTest extends TestCase
         self::assertEquals(2, $connection->executeQuery('SELECT 2')->fetchOne());
     }
 
+    // RG-07.5 : le bundle teste la connexion d'un worker avant de la réutiliser
+    public function testPingAnswersOnlyForAnOpenConnection(): void
+    {
+        $connection = TestDatabase::connection();
+
+        self::assertFalse($connection->ping(), 'closed: nothing to test, and ping() does not open it');
+        self::assertFalse($connection->isConnected());
+        $connection->connect();
+        self::assertTrue($connection->ping());
+        $connection->beginTransaction();
+        self::assertTrue($connection->ping(), 'it does not disturb the transaction');
+        $connection->rollBack();
+    }
+
+    // RG-07.5 : une connexion tuée par le serveur (redémarrage, wait_timeout) se reconnecte après close()
+    public function testPingDetectsAConnectionLostOnTheServer(): void
+    {
+        $platform = $this->connection->getPlatform()->getName();
+        if ('SQLite' === $platform) {
+            self::markTestSkipped('An SQLite connection cannot be lost.');
+        }
+        $victim = TestDatabase::connection();
+        $id = $victim->executeQuery('PostgreSQL' === $platform ? 'SELECT pg_backend_pid()' : 'SELECT CONNECTION_ID()')->fetchOne();
+        self::assertTrue(is_numeric($id));
+        $id = (int) $id;
+
+        'PostgreSQL' === $platform
+            ? $this->connection->executeQuery('SELECT pg_terminate_backend(:pid)', ['pid' => $id])
+            : $this->connection->executeStatement(\sprintf('KILL %d', $id));
+        usleep(100_000);
+
+        self::assertFalse($victim->ping());
+        $victim->close();
+        self::assertEquals(3, $victim->executeQuery('SELECT 3')->fetchOne(), 'reconnected on the next query');
+        self::assertTrue($victim->ping());
+        $victim->close();
+    }
+
     private function seed(): void
     {
         foreach ([1 => 'a', 2 => 'b', 3 => 'c'] as $id => $label) {
