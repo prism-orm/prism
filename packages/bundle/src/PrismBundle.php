@@ -256,6 +256,7 @@ final class PrismBundle extends AbstractBundle
         $builder->setAlias('prism.entity_manager', 'prism.entity_manager.' . $default);
         $builder->setParameter(RepositoryPass::PARAMETER, array_map(static fn (array $em): array => $em['entity_dirs'], $config['entity_managers']));
         $builder->setParameter(ListenerPass::PARAMETER, array_keys($config['entity_managers']));
+        $builder->setParameter('prism.connection_names', array_keys($config['connections']));
 
         // RG-05.1 : chargé au démarrage du bundle, généré au cache:warmup
         $builder->setDefinition('prism.metamodel_refresher', new Definition(MetamodelRefresher::class, [$metamodels]))->setPublic(true);
