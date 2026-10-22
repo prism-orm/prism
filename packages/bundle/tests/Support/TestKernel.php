@@ -8,6 +8,8 @@ use Prism\Bundle\PrismBundle;
 use Psr\Log\NullLogger;
 use Symfony\Bundle\FrameworkBundle\FrameworkBundle;
 use Symfony\Bundle\FrameworkBundle\Kernel\MicroKernelTrait;
+use Symfony\Bundle\TwigBundle\TwigBundle;
+use Symfony\Bundle\WebProfilerBundle\WebProfilerBundle;
 use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigurator;
 use Symfony\Component\HttpKernel\Kernel;
 use Symfony\Component\Routing\Loader\Configurator\RoutingConfigurator;
@@ -27,7 +29,7 @@ final class TestKernel extends Kernel
      * @param \Closure(ContainerConfigurator): void|null $services
      * @param \Closure(RoutingConfigurator): void|null   $routes
      */
-    public function __construct(private readonly array $prism, string $environment = 'test', bool $debug = true, private readonly ?\Closure $services = null, private readonly ?\Closure $routes = null)
+    public function __construct(private readonly array $prism, string $environment = 'test', bool $debug = true, private readonly ?\Closure $services = null, private readonly ?\Closure $routes = null, private readonly bool $profiler = false)
     {
         $this->dir = sys_get_temp_dir() . '/prism-bundle-' . bin2hex(random_bytes(4));
         parent::__construct($environment, $debug);
@@ -37,6 +39,10 @@ final class TestKernel extends Kernel
     {
         yield new FrameworkBundle();
         yield new PrismBundle();
+        if ($this->profiler) {
+            yield new TwigBundle();
+            yield new WebProfilerBundle();
+        }
     }
 
     public function getProjectDir(): string
@@ -69,6 +75,9 @@ final class TestKernel extends Kernel
 
     protected function configureRoutes(RoutingConfigurator $routes): void
     {
+        if ($this->profiler) {
+            $routes->import(\dirname((string) new \ReflectionClass(WebProfilerBundle::class)->getFileName()) . '/Resources/config/routing/profiler.php')->prefix('/_profiler');
+        }
         if (null !== $this->routes) {
             ($this->routes)($routes);
         }
@@ -78,6 +87,10 @@ final class TestKernel extends Kernel
     {
         $container->extension('framework', ['test' => true, 'secret' => 'prism', 'http_method_override' => false, 'handle_all_throwables' => true, 'php_errors' => ['log' => true]]);
         $container->extension('prism', $this->prism);
+        if ($this->profiler) {
+            $container->extension('framework', ['profiler' => ['enabled' => true, 'collect' => true]]);
+            $container->extension('web_profiler', ['toolbar' => ['enabled' => false]]);
+        }
         // le logger par défaut de Symfony écrit sur stderr
         $container->services()->set('logger', NullLogger::class);
         if (null !== $this->services) {

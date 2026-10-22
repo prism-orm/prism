@@ -7,6 +7,9 @@ namespace Prism\Bundle;
 use Prism\Bundle\Attribute\AsEntityListener;
 use Prism\Bundle\Attribute\AsPrismListener;
 use Prism\Bundle\Command\EntityManagerCommand;
+use Prism\Bundle\Debug\FlushRecorder;
+use Prism\Bundle\Debug\PrismDataCollector;
+use Prism\Bundle\Debug\QueryRecorder;
 use Prism\Bundle\DependencyInjection\Compiler\ListenerPass;
 use Prism\Bundle\DependencyInjection\Compiler\RepositoryPass;
 use Prism\Bundle\DependencyInjection\ConfigurationFactory;
@@ -23,15 +26,23 @@ use Prism\Dbal\Type\TypeRegistry;
 use Prism\Migrations\Console\Command as Migrations;
 use Prism\Migrations\MigrationsConfiguration;
 use Prism\Orm\Console\Command as Orm;
+use Prism\Orm\Debug\N1Detector;
 use Prism\Orm\EntityManager;
 use Prism\Orm\EntityManagerInterface;
+use Prism\Orm\Event\BatchLoadedEvent;
+use Prism\Orm\Event\PostFlushEvent;
+use Prism\Orm\Event\PostPersistEvent;
+use Prism\Orm\Event\PostRemoveEvent;
+use Prism\Orm\Event\PreUpdateEvent;
 use Prism\Orm\Metadata\Driver\AttributeDriver;
 use Prism\Orm\Metadata\MetadataFactory;
 use Symfony\Component\Config\Definition\Configurator\DefinitionConfigurator;
+use Symfony\Component\DependencyInjection\Argument\ServiceClosureArgument;
 use Symfony\Component\DependencyInjection\Argument\ServiceLocatorArgument;
 use Symfony\Component\DependencyInjection\Argument\TaggedIteratorArgument;
 use Symfony\Component\DependencyInjection\ChildDefinition;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
+use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\DependencyInjection\Definition;
 use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigurator;
 use Symfony\Component\DependencyInjection\Reference;
@@ -69,6 +80,20 @@ final class PrismBundle extends AbstractBundle
         'db:migrations:status' => [Migrations\StatusCommand::class, ['connection', 'migrations']],
         'db:migrations:list' => [Migrations\ListCommand::class, ['connection', 'migrations']],
         'db:migrations:lint' => [Migrations\LintCommand::class, ['connection', 'migrations', 'metadata']],
+    ];
+
+    // RG-07.4 : au plus 1 000 requêtes enregistrées par requête HTTP, toutes comptées
+    private const int RECORDED_QUERIES = 1000;
+
+    /**
+     * Ce que le profiler écoute sur le dispatcher de chaque EntityManager.
+     */
+    private const array RECORDED_EVENTS = [
+        PostPersistEvent::class => 'onPostPersist',
+        PreUpdateEvent::class => 'onPreUpdate',
+        PostRemoveEvent::class => 'onPostRemove',
+        PostFlushEvent::class => 'onPostFlush',
+        BatchLoadedEvent::class => 'onBatchLoaded',
     ];
 
     public function configure(DefinitionConfigurator $definition): void
@@ -121,8 +146,21 @@ final class PrismBundle extends AbstractBundle
         // les types natifs et les services tagués prism.type, sur chaque connexion
         $builder->setDefinition('prism.dbal_configuration', new Definition(Configuration::class, [new TaggedIteratorArgument('prism.type')]))
             ->setFactory([ConfigurationFactory::class, 'create']);
+        $profiled = [];
         foreach ($config['connections'] as $name => $connection) {
-            $builder->setDefinition('prism.connection.' . $name, new Definition(Connection::class, [$connection['url'], new Reference('prism.dbal_configuration')]))
+            $configuration = new Reference('prism.dbal_configuration');
+            // RG-07.4 et RG-04.16 : enregistreur et détecteur N+1 en dev seulement, absents en prod
+            if ($debug) {
+                $builder->setDefinition('prism.debug.queries.' . $name, new Definition(QueryRecorder::class, [self::RECORDED_QUERIES]))
+                    ->addTag('kernel.reset', ['method' => 'reset']);
+                $builder->setDefinition('prism.debug.n1_detector.' . $name, new Definition(N1Detector::class, [new Reference('event_dispatcher', ContainerInterface::NULL_ON_INVALID_REFERENCE)]))
+                    ->addTag('kernel.reset', ['method' => 'reset']);
+                $profiled[$name] = [new Reference('prism.debug.queries.' . $name), new Reference('prism.debug.n1_detector.' . $name)];
+                $builder->setDefinition('prism.dbal_configuration.' . $name, new Definition(Configuration::class, [new TaggedIteratorArgument('prism.type'), $profiled[$name]]))
+                    ->setFactory([ConfigurationFactory::class, 'create']);
+                $configuration = new Reference('prism.dbal_configuration.' . $name);
+            }
+            $builder->setDefinition('prism.connection.' . $name, new Definition(Connection::class, [$connection['url'], $configuration]))
                 ->setFactory([DriverManager::class, 'fromUrl']);
             $builder->registerAliasForArgument('prism.connection.' . $name, Connection::class, $name . 'Connection');
         }
@@ -134,6 +172,7 @@ final class PrismBundle extends AbstractBundle
 
         $commands = [];
         $metamodels = [];
+        $flushRecorders = [];
         foreach ($config['entity_managers'] as $name => $em) {
             $connection = new Reference('prism.connection.' . $em['connection']);
             $metadata = new Reference('prism.metadata_factory.' . $name);
@@ -153,7 +192,15 @@ final class PrismBundle extends AbstractBundle
             ]));
 
             // un dispatcher par EntityManager : ses événements ne disent pas qui les émet (ADR 0013)
-            $builder->setDefinition('prism.event_dispatcher.' . $name, new Definition(EventDispatcher::class));
+            $dispatcher = $builder->setDefinition('prism.event_dispatcher.' . $name, new Definition(EventDispatcher::class));
+            if ($debug) {
+                $recorder = 'prism.debug.flushes.' . $name;
+                $builder->setDefinition($recorder, new Definition(FlushRecorder::class, [$metadata]))->addTag('kernel.reset', ['method' => 'reset']);
+                foreach (self::RECORDED_EVENTS as $event => $method) {
+                    $dispatcher->addMethodCall('addListener', [$event, [new ServiceClosureArgument(new Reference($recorder)), $method]]);
+                }
+                $flushRecorders[$name] = new Reference($recorder);
+            }
             $builder->setDefinition('prism.entity_manager.' . $name, new Definition(EntityManager::class, [
                 $connection,
                 $metadata,
@@ -201,6 +248,12 @@ final class PrismBundle extends AbstractBundle
             new Reference('prism.metamodel_refresher'),
             $debug,
         ]))->addTag('kernel.cache_warmer');
+
+        // le panneau du profiler (dev seulement) ; retiré par le conteneur si le profiler est absent
+        if ($debug) {
+            $builder->setDefinition('prism.data_collector', new Definition(PrismDataCollector::class, [$profiled, $flushRecorders, self::RECORDED_QUERIES]))
+                ->addTag('data_collector', ['template' => PrismDataCollector::getTemplate(), 'id' => 'prism', 'priority' => 250]);
+        }
 
         // RG-07.3 : {id} → entité dans les contrôleurs, avant les resolvers de Symfony (comme Doctrine)
         $builder->setDefinition('prism.entity_value_resolver', new Definition(EntityValueResolver::class, [

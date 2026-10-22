@@ -20,7 +20,9 @@
         "phpstan/phpstan-phpunit": "^2.0",
         "phpstan/phpstan-strict-rules": "^2.0",
         "phpunit/phpunit": "^11.5",
-        "symfony/framework-bundle": "^7.4 || ^8.0"
+        "symfony/framework-bundle": "^7.4 || ^8.0",
+        "symfony/twig-bundle": "^7.4 || ^8.0",
+        "symfony/web-profiler-bundle": "^7.4 || ^8.0"
     },
     "replace": {
         "prism-orm/bundle": "self.version",

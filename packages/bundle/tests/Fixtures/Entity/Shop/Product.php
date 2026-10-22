@@ -17,4 +17,7 @@ final class Product
 
     #[Prism\Column]
     public int $stock = 0;
+
+    #[Prism\ManyToOne]
+    public ?Category $category = null;
 }
