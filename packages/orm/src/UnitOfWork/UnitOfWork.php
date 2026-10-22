@@ -10,6 +10,7 @@ use Prism\Dbal\Type\ConversionContext;
 use Prism\Dbal\Type\TypeRegistry;
 use Prism\Orm\Collection\Collection;
 use Prism\Orm\Collection\PersistentCollection;
+use Prism\Orm\Event\BatchLoadedEvent;
 use Prism\Orm\Event\DefaultEntityListenerResolver;
 use Prism\Orm\Event\EntityListenerResolver;
 use Prism\Orm\Event\InverseSideChangedEvent;
@@ -1245,6 +1246,7 @@ final class UnitOfWork
                 $row = $this->persisters->getPersister($metadata)->loadById($this->toDatabase($idField, $id));
             } else {
                 $ids = [$id, ...array_map(fn (object $other): mixed => $this->property($metadata->className, $metadata->id->fieldName)->getValue($other), $batch)];
+                $this->lifecycle->dispatch(new BatchLoadedEvent($metadata->className, null, \count($ids), $this));
                 foreach ($this->persisters->getPersister($metadata)->loadBy([$idField->fieldName => $ids]) as $loaded) {
                     $this->prefetched[$metadata->className][self::key($this->toPhp($idField, $loaded[$idField->columnName] ?? null))] = [$loaded, $cohort];
                 }
@@ -1343,6 +1345,9 @@ final class UnitOfWork
 
         $targets = [];
         foreach (array_chunk($members, $association->batch ? max(1, $association->batchSize ?? $this->batch->batchSize) : 1) as $chunk) {
+            if (\count($chunk) > 1) {
+                $this->lifecycle->dispatch(new BatchLoadedEvent($metadata->className, $association->fieldName, \count($chunk), $this));
+            }
             foreach ($this->findBy($association->targetEntity, [$mappedBy => $chunk]) as $target) {
                 $owner = $this->read($target, $target::class, $mappedBy);
                 if (\is_object($owner)) {
@@ -1499,6 +1504,10 @@ final class UnitOfWork
 
             return $collection instanceof PersistentCollection && !$collection->isInitialized();
         });
+
+        if (\count($owners) > 1) {
+            $this->lifecycle->dispatch(new BatchLoadedEvent($metadata->className, $field, \count($owners), $this));
+        }
 
         /** @var array<int, list<object>> éléments par propriétaire, dans l'ordre orderBy */
         $groups = [];
