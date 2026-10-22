@@ -12,7 +12,7 @@ use Prism\Orm\EntityManager;
 use Symfony\Component\Console\Command\Command;
 
 /**
- * docs/commands.md suit les commandes de bin/prism : une section par commande, et ses tableaux
+ * packages/bundle/docs/commands.md suit les commandes de bin/prism : une section par commande, et ses tableaux
  * listent exactement ses arguments et ses options, raccourcis compris (critère de sortie de la
  * phase 6). Une option ajoutée, renommée ou retirée sans la documentation fait échouer ce test.
  */
@@ -40,7 +40,7 @@ final class CommandsDocumentationTest extends TestCase
      */
     private static function sections(): array
     {
-        $doc = (string) file_get_contents(\dirname(__DIR__, 5) . '/docs/commands.md');
+        $doc = (string) file_get_contents(\dirname(__DIR__, 4) . '/bundle/docs/commands.md');
         preg_match_all('/^### `(db:[a-z:-]+)`\n(.*?)(?=^##)/ms', $doc . "\n##", $matches, \PREG_SET_ORDER);
 
         $sections = [];

@@ -4,7 +4,7 @@ Toutes les évolutions notables de Prism, par version. Format inspiré de [Keep 
 
 ## [0.7.0] — 2026-10-22
 
-Phase 7 : bundle Symfony. `composer require prism-orm/bundle` suffit pour remplacer Doctrine dans une application Symfony 7.4 ou 8 ; guide : [docs/symfony.md](docs/symfony.md).
+Phase 7 : bundle Symfony. `composer require prism-orm/bundle` suffit pour remplacer Doctrine dans une application Symfony 7.4 ou 8 ; guide : [Prism dans Symfony](packages/bundle/docs/symfony.md).
 
 ### Ajouté
 
@@ -43,7 +43,7 @@ Phase 6 : migrations et console.
 - `db:database:create` et `drop`, `db:mapping:info`, `db:query:sql` (`--param`, `--force` hors lecture), `db:cache:clear-metadata`.
 - `db:import` : entités `final` typées depuis une base existante, relations des clés étrangères, mapping exact ; tables sans clé primaire, clés composites, `ENUM` et colonnes de jointure approximées signalés ; `--force` pour remplacer un fichier (RG-06.10). Vérifié sur un schéma ERP réel de 165 tables.
 - `bin/prism` : toutes les commandes `db:*` hors Symfony, depuis un `prism.php` qui retourne l'EntityManager ou un `PrismConfig`.
-- Référence des commandes avec exemples : [docs/commands.md](docs/commands.md), vérifiée par un test contre les définitions des commandes.
+- Référence des commandes avec exemples : [commands.md](packages/bundle/docs/commands.md), vérifiée par un test contre les définitions des commandes.
 - Mapping : `#[ManyToOne|OneToOne(foreignKey: '…')]` nomme la contrainte ; `OnDelete::NoAction` ; `#[Column(length: 3, fixed: true)]` pour `CHAR` et `BINARY`.
 - DBAL : renommage de table, de colonne et de séquence ; `Column::$fixed` (`CHAR`, `BINARY`) ; `supportsTransactionalDdl()`, création d'index concurrente, SQL de création, suppression et liste des bases ; `Connection::withoutDatabase()` ; `SchemaManager::getIntrospectionNotes()`.
 
