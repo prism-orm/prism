@@ -9,8 +9,10 @@ use Prism\Dbal\Tests\Support\TestDatabase;
 use Prism\Dbal\Tests\Support\TestLogger;
 use Prism\Orm\EntityManager;
 use Prism\Orm\EntityManagerInterface;
+use Prism\Orm\Event\BatchLoadedEvent;
 use Prism\Orm\Tests\Functional\BatchFixtures\Bill;
 use Prism\Orm\Tests\Functional\BatchFixtures\Client;
+use Prism\Orm\Tests\Support\TestDispatcher;
 use Prism\Orm\Tests\Unit\UnitOfWork\Fixtures\Batch\Account;
 use Prism\Orm\Tests\Unit\UnitOfWork\Fixtures\Batch\Country;
 use Prism\Orm\Tests\Unit\UnitOfWork\Fixtures\Batch\Customer;
@@ -29,6 +31,8 @@ final class BatchFetchTest extends MappingSchemaTestCase
 
     private EntityManager $em;
 
+    private TestDispatcher $events;
+
     protected static function entities(): array
     {
         return [Client::class, Bill::class, Order::class, Customer::class, Country::class, Account::class, Group::class, Seller::class, Depot::class];
@@ -44,7 +48,8 @@ final class BatchFetchTest extends MappingSchemaTestCase
         if (':memory:' === $this->connection->getDatabase()) {
             $this->migrateTo($this->target());
         }
-        $this->em = new EntityManager($this->connection);
+        $this->events = new TestDispatcher();
+        $this->em = new EntityManager($this->connection, events: $this->events);
     }
 
     private function selects(): int
@@ -56,6 +61,21 @@ final class BatchFetchTest extends MappingSchemaTestCase
     {
         $this->em->clear();
         $this->logger->records = [];
+        $this->events->dispatched = [];
+    }
+
+    /**
+     * Les chargements par lot publiés, dans l'ordre : « classe::relation × nombre ».
+     *
+     * @return list<string>
+     */
+    private function batches(): array
+    {
+        return array_map(static function (object $e): string {
+            \assert($e instanceof BatchLoadedEvent);
+
+            return $e->entityClass . (null === $e->association ? '' : '::' . $e->association) . ' x' . $e->count;
+        }, $this->events->ofType(BatchLoadedEvent::class));
     }
 
     // critère de sortie de la phase 4 : 100 commandes et leur client → 2 requêtes au lieu de 101
@@ -76,6 +96,34 @@ final class BatchFetchTest extends MappingSchemaTestCase
 
         self::assertCount(100, $names);
         self::assertSame(2, $this->selects());
+        // le profiler du bundle le montre : 100 clients en une requête
+        self::assertSame([Client::class . ' x100'], $this->batches());
+    }
+
+    public function testNoBatchEventWithoutABatch(): void
+    {
+        $this->em->wrapInTransaction(static function (EntityManagerInterface $em): void {
+            $em->persist(new Bill($client = new Client('Ada'), 'B1'));
+            $em->persist($client);
+        });
+        $this->startCounting();
+
+        $bill = $this->em->getRepository(Bill::class)->findAll()[0];
+        self::assertSame('Ada', $bill->client->name);
+        self::assertSame([], $this->batches(), 'one client: an ordinary load');
+
+        // un seul propriétaire : ni sa collection, ni le côté inverse de son OneToOne ne forment un lot
+        $this->em->wrapInTransaction(static function (EntityManagerInterface $em): void {
+            $customer = new Customer('Grace');
+            $em->persist($customer);
+            $em->persist(new Order($customer, 'R1'));
+            $em->persist(new Account($customer, 3));
+        });
+        $this->startCounting();
+        $customer = $this->em->getRepository(Customer::class)->findAll()[0];
+        self::assertCount(1, $customer->orders);
+        self::assertSame(3, $customer->account?->balance);
+        self::assertSame([], $this->batches());
     }
 
     public function testCollectionsInverseSideAndJoinTableByBatch(): void
@@ -101,12 +149,14 @@ final class BatchFetchTest extends MappingSchemaTestCase
 
         $customers = $this->em->getRepository(Customer::class)->findAll();
         self::assertSame(2, $this->selects(), 'customers, then their accounts in one query');
+        self::assertSame([Customer::class . '::account x20'], $this->batches());
 
         foreach ($customers as $customer) {
             self::assertCount(3, $customer->orders);
             self::assertCount(1, $customer->groups);
         }
         self::assertSame(4, $this->selects(), 'the orders and the groups of the whole cohort, one query each');
+        self::assertSame([Customer::class . '::account x20', Customer::class . '::orders x20', Customer::class . '::groups x20'], $this->batches());
 
         $first = $customers[0];
         self::assertSame(['R01-3', 'R01-2', 'R01-1'], array_map(static fn (Order $o): string => $o->reference, array_values($first->orders->toArray())), 'orderBy kept');
