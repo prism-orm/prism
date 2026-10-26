@@ -78,6 +78,7 @@ final class PrismApplication
             new Orm\QuerySqlCommand($connection),
             new Orm\ImportCommand($connection),
             new Orm\CacheClearMetadataCommand($metadata),
+            new Orm\AuditPurgeCommand($connection, $metadata),
             new Orm\MetamodelGenerateCommand($metadata, $config->metamodelDir),
             new Migrations\GenerateCommand($migrations),
             new Migrations\DiffCommand($connection, $metadata, $migrations),

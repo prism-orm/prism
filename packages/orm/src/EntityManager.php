@@ -6,8 +6,11 @@ namespace Prism\Orm;
 
 use Prism\Dbal\Connection;
 use Prism\Dbal\LockMode;
+use Prism\Orm\Audit\AuditWriter;
+use Prism\Orm\Audit\RequestIdProvider;
 use Prism\Orm\Behavior\ActorProvider;
 use Prism\Orm\Behavior\SoftDeleteFilter;
+use Prism\Orm\Behavior\SystemClock;
 use Prism\Orm\Event\EntityListenerResolver;
 use Prism\Orm\Exception\MappingException;
 use Prism\Orm\Filter\FilterCollection;
@@ -58,6 +61,7 @@ final class EntityManager implements EntityManagerInterface
         ?FilterCollection $filters = null,
         ?ClockInterface $clock = null,
         ?ActorProvider $actorProvider = null,
+        ?RequestIdProvider $requestIdProvider = null,
     ) {
         $this->tenantContext = $tenantContext ?? new StackTenantContext();
         // les filtres de l'application d'abord ; celui du tenant, verrouillé, toujours présent
@@ -67,7 +71,7 @@ final class EntityManager implements EntityManagerInterface
             $this->filters->add(SoftDeleteFilter::NAME, new SoftDeleteFilter());
         }
         $this->metadata = $metadata ?? new MetadataFactory(new AttributeDriver(), types: $connection->getTypeRegistry());
-        $this->unitOfWork = new UnitOfWork($this->metadata, new DbalPersisterProvider($connection, $this->metadata, $this->filters), $connection->getConversionContext(), $connection->getTypeRegistry(), $events, $listeners, $batchSize, $this->tenantContext, $clock, $actorProvider);
+        $this->unitOfWork = new UnitOfWork($this->metadata, new DbalPersisterProvider($connection, $this->metadata, $this->filters), $connection->getConversionContext(), $connection->getTypeRegistry(), $events, $listeners, $batchSize, $this->tenantContext, $clock, $actorProvider, new AuditWriter($connection, $clock ?? new SystemClock(), $actorProvider, $requestIdProvider));
     }
 
     public function persist(object $entity): void

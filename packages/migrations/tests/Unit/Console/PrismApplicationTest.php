@@ -96,7 +96,7 @@ final class PrismApplicationTest extends TestCase
         sort($commands);
 
         self::assertSame([
-            'db:cache:clear-metadata', 'db:database:create', 'db:database:drop', 'db:import', 'db:mapping:info', 'db:metamodel:generate',
+            'db:audit:purge', 'db:cache:clear-metadata', 'db:database:create', 'db:database:drop', 'db:import', 'db:mapping:info', 'db:metamodel:generate',
             'db:migrations:diff', 'db:migrations:execute', 'db:migrations:generate', 'db:migrations:lint', 'db:migrations:list',
             'db:migrations:migrate', 'db:migrations:status', 'db:query:sql',
             'db:schema:create', 'db:schema:drop', 'db:schema:update', 'db:schema:validate',

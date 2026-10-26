@@ -1,0 +1,50 @@
+{# Panneau Audit du profiler (ADR 0015) : les lignes du journal écrites pendant la requête. #}
+{% extends '@WebProfiler/Profiler/layout.html.twig' %}
+
+{% block toolbar %}
+    {% if collector.entries is not empty %}
+        {% set icon %}
+            {{ source('@Prism/Collector/icon.svg') }}
+            <span class="sf-toolbar-value">{{ collector.entries|length }}</span>
+            <span class="sf-toolbar-label">audit</span>
+        {% endset %}
+        {% set text %}
+            <div class="sf-toolbar-info-piece"><b>Audit log rows</b><span>{{ collector.entries|length }}</span></div>
+        {% endset %}
+        {{ include('@WebProfiler/Profiler/toolbar_item.html.twig', { link: profiler_url }) }}
+    {% endif %}
+{% endblock %}
+
+{% block menu %}
+    <span class="label{{ collector.entries is empty ? ' disabled' }}">
+        <span class="icon">{{ source('@Prism/Collector/icon.svg') }}</span>
+        <strong>Audit</strong>
+        {% if collector.entries is not empty %}<span class="count"><span>{{ collector.entries|length }}</span></span>{% endif %}
+    </span>
+{% endblock %}
+
+{% block panel %}
+    <h2>Audit</h2>
+    {% if collector.entries is empty %}
+        <div class="empty"><p>No audit log row was written during this request.</p></div>
+    {% else %}
+        <table>
+            <thead><tr><th>Action</th><th>Entity</th><th>Tenant</th><th>Actor</th><th>Changes</th></tr></thead>
+            <tbody>
+            {% for entry in collector.entries %}
+                <tr>
+                    <td>{{ entry.action }}{% if entry.system %} <span class="label">system</span>{% endif %}</td>
+                    <td>{{ entry.class }} #{{ entry.id }}</td>
+                    <td>{{ entry.tenant ?? '-' }}</td>
+                    <td>{{ entry.actor ?? '-' }}</td>
+                    <td>
+                        {% for field, change in entry.changes %}
+                            <code>{{ field }}</code>: {{ change[0] }} → {{ change[1] }}<br>
+                        {% endfor %}
+                    </td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    {% endif %}
+{% endblock %}

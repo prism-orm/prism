@@ -8,10 +8,13 @@ use Prism\Dbal\LockMode;
 use Prism\Dbal\Query\Order;
 use Prism\Dbal\Type\ConversionContext;
 use Prism\Dbal\Type\TypeRegistry;
+use Prism\Orm\Audit\AuditLog;
+use Prism\Orm\Audit\AuditWriter;
 use Prism\Orm\Behavior\ActorProvider;
 use Prism\Orm\Behavior\SystemClock;
 use Prism\Orm\Collection\Collection;
 use Prism\Orm\Collection\PersistentCollection;
+use Prism\Orm\Event\AuditRecordedEvent;
 use Prism\Orm\Event\BatchLoadedEvent;
 use Prism\Orm\Event\DefaultEntityListenerResolver;
 use Prism\Orm\Event\EntityListenerResolver;
@@ -182,6 +185,9 @@ final class UnitOfWork implements TenantSwitchListener
     /** @var array<int, true> entités restaurées depuis le dernier flush (audit : restore) */
     private array $restored = [];
 
+    /** @var list<array{class-string, string, ?string, string, array<string, array{mixed, mixed}>, bool}> lignes d'audit du flush en cours */
+    private array $auditRecords = [];
+
     public function __construct(
         private readonly MetadataFactory $metadata,
         private readonly PersisterProvider $persisters,
@@ -193,6 +199,7 @@ final class UnitOfWork implements TenantSwitchListener
         ?TenantContext $tenants = null,
         ?ClockInterface $clock = null,
         private readonly ?ActorProvider $actors = null,
+        private readonly ?AuditWriter $audit = null,
     ) {
         $this->clock = $clock ?? new SystemClock();
         // sans contexte, une entité #[Tenanted] n'a jamais de tenant (RG-08.4)
@@ -868,13 +875,17 @@ final class UnitOfWork implements TenantSwitchListener
         /** @var list<array{object, \ReflectionProperty, mixed}> valeurs écrites sur les entités, à rétablir si rollback */
         $written = [];
 
+        $this->auditRecords = [];
         try {
             $done = $this->persisters->transactional(function () use ($updates, $collections, $insertions, $deletions, &$written): array {
                 $inserted = $this->executeInsertions($insertions, $written);
                 $updated = $this->executeUpdates($updates, $written);
                 $this->executeCollections($collections);
+                $deleted = $this->executeDeletions($deletions);
+                // RG-08.10 : dans la transaction du flush, après les écritures des entités
+                $entries = null === $this->audit ? [] : $this->audit->write($this->auditRecords);
 
-                return [$inserted, $updated, $this->executeDeletions($deletions)];
+                return [$inserted, $updated, $deleted, $entries];
             });
         } catch (\Throwable $e) {
             foreach (array_reverse($written) as [$entity, $property, $value]) {
@@ -888,7 +899,11 @@ final class UnitOfWork implements TenantSwitchListener
             throw $e;
         }
 
-        $this->afterCommit(...$done);
+        [$inserted, $updated, $deleted, $entries] = $done;
+        $this->afterCommit($inserted, $updated, $deleted);
+        if ([] !== $entries) {
+            $this->lifecycle->dispatch(new AuditRecordedEvent($entries));
+        }
         foreach ($collections as [$oid, $association]) {
             $collection = $this->read($this->entities[$oid] ?? throw new \LogicException('Unknown owner.'), $this->metadataOf($this->entities[$oid])->className, $association->fieldName);
             if ($collection instanceof Collection) {
@@ -945,6 +960,16 @@ final class UnitOfWork implements TenantSwitchListener
             $this->persisters->getPersister($metadata)->update($this->currentId($metadata, $entity), [$column => $this->databaseRow($metadata, $entity)[$column]]);
         }
 
+        foreach ($inserted as $entity) {
+            $metadata = $this->metadataOf($entity);
+            if ($metadata->behaviors->auditable) {
+                $oid = spl_object_id($entity);
+                $row = $this->databaseRow($metadata, $entity);
+                $tenant = null === $metadata->tenancy ? null : ($row[$metadata->tenancy->column] ?? $this->insertedTenants[$oid] ?? null);
+                $this->audit($metadata, AuditLog::INSERT, $this->currentId($metadata, $entity), $tenant, [], $row);
+            }
+        }
+
         return $inserted;
     }
 
@@ -985,6 +1010,10 @@ final class UnitOfWork implements TenantSwitchListener
             $affected = $this->persisters->getPersister($metadata)->update($this->idOf($metadata, $oid), $changes, $version);
             if (0 === $affected && null !== $version) {
                 throw OptimisticLockException::versionMismatch($entity, $this->toPhp($metadata->getField($metadata->versionField), $version[1]));
+            }
+            if ($metadata->behaviors->auditable && 0 !== $affected) {
+                $action = isset($this->softDeleted[$oid]) ? AuditLog::SOFT_DELETE : (isset($this->restored[$oid]) ? AuditLog::RESTORE : AuditLog::UPDATE);
+                $this->audit($metadata, $action, $this->idOf($metadata, $oid), $this->snapshotTenant($metadata, $oid), array_intersect_key($this->snapshots[$oid] ?? [], $changes), $changes);
             }
             $updated[] = [$entity, $changes];
         }
@@ -1028,6 +1057,9 @@ final class UnitOfWork implements TenantSwitchListener
             $affected = $this->persisters->getPersister($metadata)->delete($this->idOf($metadata, $oid), $version);
             if (0 === $affected && null !== $version) {
                 throw OptimisticLockException::versionMismatch($entity, $this->toPhp($metadata->getField($metadata->versionField), $version[1]));
+            }
+            if ($metadata->behaviors->auditable && 0 !== $affected) {
+                $this->audit($metadata, AuditLog::DELETE, $this->idOf($metadata, $oid), $this->snapshotTenant($metadata, $oid), $this->snapshots[$oid] ?? [], []);
             }
             $deleted[] = $entity;
         }
@@ -1243,6 +1275,73 @@ final class UnitOfWork implements TenantSwitchListener
         $fraction = $m[2] ?? '';
 
         return \strlen($fraction) >= $scale ? $value : $m[1] . '.' . str_pad($fraction, $scale, '0');
+    }
+
+    /**
+     * RG-08.10, RG-08.11 : une ligne d'audit de ce flush ; un champ par colonne changée (la
+     * relation ToOne par sa clé étrangère), sans les champs exclus, « *** » pour un champ
+     * sensible ; la colonne du tenant que ne porte aucun champ donne le tenant, pas un changement.
+     *
+     * @param ClassMetadata<object> $metadata
+     * @param array<string, mixed>  $old      valeurs de la base avant, par colonne
+     * @param array<string, mixed>  $new      valeurs de la base après, par colonne
+     */
+    private function audit(ClassMetadata $metadata, string $action, mixed $id, mixed $tenant, array $old, array $new): void
+    {
+        if (null === $this->audit) {
+            return;
+        }
+        $changes = [];
+        foreach (array_unique([...array_keys($old), ...array_keys($new)]) as $column) {
+            $field = $metadata->getFieldPathByColumn($column) ?? $this->joinFieldOf($metadata, $column);
+            if (null === $field || \in_array($field, $metadata->behaviors->auditExclude, true)) {
+                continue;
+            }
+            $before = \array_key_exists($column, $old) ? self::auditValue($old[$column]) : null;
+            $after = \array_key_exists($column, $new) ? self::auditValue($new[$column]) : null;
+            if ($metadata->hasField($field) && $metadata->getField($field)->sensitive) {
+                [$before, $after] = [\array_key_exists($column, $old) ? AuditLog::MASK : null, \array_key_exists($column, $new) ? AuditLog::MASK : null];
+            }
+            $changes[$field] = [$before, $after];
+        }
+        // une mise à jour des seuls champs exclus n'a rien à journaliser
+        if ([] === $changes && AuditLog::UPDATE === $action) {
+            return;
+        }
+        $this->auditRecords[] = [$metadata->className, self::auditKey($id), null === $tenant ? null : self::auditKey($tenant), $action, $changes, $this->tenants->isSystem()];
+    }
+
+    /**
+     * @param ClassMetadata<object> $metadata
+     */
+    private function joinFieldOf(ClassMetadata $metadata, string $column): ?string
+    {
+        foreach ($metadata->getAssociations() as $association) {
+            if (null !== $association->joinColumn && 0 === strcasecmp($association->joinColumn, $column)) {
+                return $association->fieldName;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @param ClassMetadata<object> $metadata
+     */
+    private function snapshotTenant(ClassMetadata $metadata, int $oid): mixed
+    {
+        return null === $metadata->tenancy ? null : ($this->snapshots[$oid][$metadata->tenancy->column] ?? null);
+    }
+
+    // une valeur de la base, encodable en JSON : un binaire passe en base64
+    private static function auditValue(mixed $value): mixed
+    {
+        return \is_string($value) && !mb_check_encoding($value, 'UTF-8') ? 'base64:' . base64_encode($value) : $value;
+    }
+
+    private static function auditKey(mixed $value): string
+    {
+        return \is_scalar($value) ? (string) $value : get_debug_type($value);
     }
 
     /**

@@ -11,6 +11,7 @@ use Prism\Dbal\Schema\Schema;
 use Prism\Dbal\Schema\Sequence;
 use Prism\Dbal\Schema\Table;
 use Prism\Dbal\Type\TypeRegistry;
+use Prism\Orm\Audit\AuditLog;
 use Prism\Orm\Exception\MappingException;
 use Prism\Orm\Id\GenerationStrategyResolver;
 use Prism\Orm\Mapping\GenerationStrategy;
@@ -32,6 +33,7 @@ use Prism\Orm\Metadata\MetadataValidator;
  *   contraintes d'unicité (RG-08.1).
  * - Les contraintes d'unicité d'une entité #[SoftDeletable] ne couvrent que les lignes non
  *   supprimées (index partiel, RG-08.15).
+ * - Une entité #[Auditable] ajoute la table prism_audit_log (RG-08.10).
  * - Les noms générés sont déterministes (RG-01.7) : le diff reste stable.
  *
  * @api
@@ -75,6 +77,10 @@ final class SchemaTool
                     $tables[] = $this->joinTable($class, $association, $byClass[$association->targetEntity]);
                 }
             }
+        }
+        // RG-08.10 : le journal d'audit, géré comme une table mappée (ADR 0015)
+        if ([] !== array_filter($metadata, static fn (ClassMetadata $class): bool => $class->behaviors->auditable)) {
+            $tables[] = AuditLog::table();
         }
 
         return new Schema($tables, $sequences);

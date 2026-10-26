@@ -273,6 +273,35 @@ Dans un test, posez le tenant avant d'utiliser les entités :
 static::getContainer()->get(StackTenantContext::class)->setTenantId(1);
 ```
 
+## Audit et comportements
+
+Quatre attributs de classe, sans paquet externe :
+
+```php
+#[Prism\Entity]
+#[Prism\Timestampable]                                  // createdAt, updatedAt (UTC)
+#[Prism\Blameable]                                      // createdBy, updatedBy (?string)
+#[Prism\SoftDeletable]                                  // deletedAt (?DateTimeImmutable)
+#[Prism\Auditable(exclude: ['updatedAt'], retention: 'P10Y')]
+final class Invoice
+{
+    #[Prism\Column(length: 34, sensitive: true)]        // « *** » dans le journal
+    public string $iban = '';
+    // ...
+}
+```
+
+- **Horodatage et auteur** : posés à l'INSERT, si l'application ne l'a pas déjà fait (reprise de données) ; `updatedAt` et `updatedBy` ne changent que si un autre champ change. L'auteur est l'utilisateur connecté, sinon `cli:<commande>` en console ; remplacez l'alias `Prism\Orm\Behavior\ActorProvider` pour une autre source. L'heure vient de l'horloge de Symfony, figeable en test.
+- **Suppression logique** : `remove()` écrit `deletedAt` au lieu de supprimer la ligne ; `remove($entity, hardDelete: true)` la supprime vraiment ; `$em->restore($entity)` l'annule. Les lignes supprimées disparaissent de `find()`, `findBy()`, du QueryBuilder et des collections ; `->withDeleted()` les réintègre à une requête. Une relation vers une ligne supprimée reste lisible : `$invoice->customer` charge le client même supprimé. Une contrainte d'unicité ne porte que sur les lignes non supprimées.
+- **Journal d'audit** : chaque insertion, modification, suppression, suppression logique et restauration d'une entité `#[Auditable]` écrit une ligne dans `prism_audit_log`, **dans la transaction du flush** : changeset (ancienne et nouvelle valeur), tenant, auteur, identifiant de requête (en-tête `X-Request-Id`, sinon tiré par requête), date UTC, et si l'écriture a eu lieu en mode système. La table vient avec la migration générée par `db:migrations:diff`. Le journal est en ajout seul : seule `db:audit:purge --force` en supprime, selon la `retention` de chaque entité.
+
+```php
+$history = new AuditReader($em)->history(Invoice::class, 42);            // list<AuditEntry>
+$state = new AuditReader($em)->stateAt(Invoice::class, 42, $lastMonth);  // champ → valeur, ou null
+```
+
+En dev, le panneau **Audit** du profiler liste les lignes écrites pendant la requête.
+
 ## Profiler
 
 En dev, le panneau Prism montre les requêtes et leur durée, les **N+1 détectés avec la ligne de votre code qui les provoque**, les chargements par lot et les changesets de chaque flush. En prod, ni le panneau, ni l'enregistrement des requêtes, ni le détecteur n'existent.
@@ -329,4 +358,4 @@ final class OrderFactory extends Factory
 
 - Un type personnalisé convertit ses valeurs, mais ne sait pas encore déclarer sa colonne (`db:schema:create`).
 - Un EntityManager accepte une entité d'un autre EntityManager et l'interroge dans sa propre base ; le resolver des contrôleurs, `#[UniqueEntity]` et le test-pack choisissent, eux, le bon.
-- L'audit arrive en 0.8, la recherche vectorielle en 0.9.
+- La recherche vectorielle arrive en 0.9.
