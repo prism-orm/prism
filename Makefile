@@ -12,7 +12,7 @@ URL_sqlite  := sqlite:///:memory:
 DATABASES := mysql mariadb pgsql sqlite
 
 .DEFAULT_GOAL := help
-.PHONY: help up down build install shell test test-unit test-db test-all-db stan cs cs-check infection bench bench-tenancy bench-baseline bench-compare coverage compat test-symfony demo-install demo-test worker-test ci
+.PHONY: help up down build install shell test test-unit test-db test-all-db stan cs cs-check infection bench bench-tenancy bench-baseline bench-compare coverage compat test-symfony demo-install demo-test worker-test docs-install docs-dev docs-build ci
 
 help: ## Affiche cette aide
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
@@ -89,5 +89,14 @@ worker-test: ## La démo en worker FrankenPHP, 10 000 requêtes, mémoire mesur�
 	$(DC) --profile demo up -d --build --wait frankenphp
 	$(RUN) php tools/worker/load.php http://frankenphp $(or $(N),10000)
 	$(DC) --profile demo stop frankenphp
+
+docs-install: ## Le site de documentation : dépendances npm (ADR 0016)
+	$(DC) run --rm node npm ci
+
+docs-dev: ## Le site en local avec rechargement : http://localhost:5173 (après make docs-install)
+	$(DC) run --rm --service-ports node npm run dev
+
+docs-build: ## Construit le site dans website/.vitepress/dist ; échoue sur un lien interne cassé
+	$(DC) run --rm node npm run build
 
 ci: cs-check stan test ## Tout ce que la CI vérifie : à lancer avant de terminer une tâche

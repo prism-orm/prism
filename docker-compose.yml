@@ -30,6 +30,17 @@ services:
         depends_on:
             mysql: { condition: service_healthy }
 
+    # le site de documentation (ADR 0016) : make docs-dev, make docs-build
+    node:
+        image: node:22-alpine
+        profiles: [docs]
+        volumes:
+            - .:/app
+        working_dir: /app/website
+        environment:
+            npm_config_cache: /app/var/npm
+        ports: ["${PRISM_DOCS_PORT:-5173}:5173"]
+
     mysql:
         image: mysql:8.4
         environment:
