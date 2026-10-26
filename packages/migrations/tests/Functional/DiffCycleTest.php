@@ -27,7 +27,7 @@ use Symfony\Component\Console\Tester\CommandTester;
  */
 final class DiffCycleTest extends TestCase
 {
-    private const array TABLES = ['df_bill', 'df_invoice', 'df_client', VersionStorage::TABLE];
+    private const array TABLES = ['df_bill', 'df_invoice', 'df_client', 'df_page', 'prism_audit_log', VersionStorage::TABLE];
 
     private Connection $connection;
 
@@ -71,7 +71,7 @@ final class DiffCycleTest extends TestCase
             $this->connection->executeStatement('DROP TABLE IF EXISTS ' . $platform->quoteIdentifier($table));
         }
         if ('PostgreSQL' === $platform->getName()) {
-            foreach (['df_client_id_seq', 'df_invoice_id_seq', 'df_bill_id_seq'] as $sequence) {
+            foreach (['df_client_id_seq', 'df_invoice_id_seq', 'df_bill_id_seq', 'df_page_id_seq'] as $sequence) {
                 $this->connection->executeStatement('DROP SEQUENCE IF EXISTS ' . $platform->quoteIdentifier($sequence));
             }
         }
@@ -185,6 +185,22 @@ final class DiffCycleTest extends TestCase
     }
 
     // RG-06.3 : sans question possible, drop + add et un avertissement ; down() irréversible (RG-06.7)
+    // ADR 0015 : un index partiel et la table du journal d'audit passent par diff → migrate → diff vide
+    public function testPartialUniqueIndexAndAuditLog(): void
+    {
+        [$code] = $this->diff('SoftDelete');
+        self::assertSame(Command::SUCCESS, $code);
+        $file = $this->lastFile();
+        self::assertStringContainsString("whereNull: 'deleted_at'", $file);
+        self::assertStringContainsString("new Table('prism_audit_log'", $file);
+
+        $this->migrate();
+        [$code, $display] = $this->diff('SoftDelete');
+        self::assertSame(Command::SUCCESS, $code);
+        self::assertStringContainsString('No changes', $display);
+        self::assertCount(1, $this->files());
+    }
+
     public function testNonInteractiveDiffWarnsAboutPossibleRenames(): void
     {
         $this->diff('V1');

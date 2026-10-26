@@ -32,6 +32,16 @@ final class SqlTenantAnalyzer
 
     private const array JOINS = ['JOIN', 'INNER', 'LEFT', 'RIGHT', 'FULL', 'CROSS', 'NATURAL', 'OUTER', 'STRAIGHT_JOIN'];
 
+    // mots réservés : une table qui porte ce nom est forcément citée (« order », « group », « user »)
+    private const array RESERVED = [
+        'ALL', 'ALTER', 'AND', 'ANY', 'AS', 'ASC', 'BETWEEN', 'BY', 'CASE', 'CHECK', 'COLUMN', 'CONSTRAINT', 'CREATE', 'CROSS',
+        'DEFAULT', 'DELETE', 'DESC', 'DISTINCT', 'DROP', 'ELSE', 'END', 'EXCEPT', 'EXISTS', 'FOR', 'FOREIGN', 'FROM', 'FULL',
+        'GROUP', 'HAVING', 'IN', 'INDEX', 'INNER', 'INSERT', 'INTERSECT', 'INTO', 'IS', 'JOIN', 'KEY', 'LEFT', 'LIKE', 'LIMIT',
+        'NOT', 'NULL', 'OFFSET', 'ON', 'OR', 'ORDER', 'OUTER', 'OVER', 'PARTITION', 'PRIMARY', 'RANGE', 'REFERENCES', 'RIGHT',
+        'ROW', 'ROWS', 'SELECT', 'SET', 'TABLE', 'THEN', 'TO', 'UNION', 'UNIQUE', 'UPDATE', 'USER', 'USING', 'VALUES', 'WHEN',
+        'WHERE', 'WINDOW', 'WITH',
+    ];
+
     private const string PATTERN = <<<'REGEX'
         ~
           (?<ws>\s+)
@@ -156,7 +166,7 @@ final class SqlTenantAnalyzer
     }
 
     /**
-     * Tables tenantées nommées, une fois chacune.
+     * Tables tenantées nommées, une fois chacune ; un mot réservé sans guillemets est un mot-clé.
      *
      * @param list<array{string, string}> $tokens
      *
@@ -166,7 +176,7 @@ final class SqlTenantAnalyzer
     {
         $tables = [];
         foreach ($tokens as [$type, $value]) {
-            if (('w' === $type || 'i' === $type) && isset($this->tables[strtolower($value)])) {
+            if (('i' === $type || ('w' === $type && !\in_array(strtoupper($value), self::RESERVED, true))) && isset($this->tables[strtolower($value)])) {
                 $tables[strtolower($value)] = true;
             }
         }
@@ -327,6 +337,13 @@ final class SqlTenantAnalyzer
         $where = self::whereClause($tokens);
         $alone = 1 === \count($refs);
         $violations = [];
+        // filet de sécurité : une table tenantée nommée hors des listes analysées est refusée
+        $analyzed = array_map(static fn (array $ref): ?string => $ref[0], $refs);
+        foreach ($this->mentioned($tokens) as $table) {
+            if (!\in_array($table, $analyzed, true)) {
+                $violations[$table] = [self::UNPARSABLE, $table];
+            }
+        }
         foreach ($refs as [$table, $qualifier, $on]) {
             if (null === $table || !isset($this->tables[$table])) {
                 continue;
@@ -587,13 +604,13 @@ final class SqlTenantAnalyzer
     }
 
     /**
-     * Mot d'une jointure ; LEFT( et RIGHT( sont des fonctions.
+     * Mot d'une jointure ; LEFT( et RIGHT( sont des fonctions, JOIN ( une jointure entre parenthèses.
      *
      * @param list<array{string, string}> $tokens
      */
     private static function isJoin(array $tokens, int $i): bool
     {
-        return self::isWord($tokens[$i], ...self::JOINS) && !(isset($tokens[$i + 1]) && self::isPunct($tokens[$i + 1], '('));
+        return self::isWord($tokens[$i], ...self::JOINS) && !(self::isWord($tokens[$i], 'LEFT', 'RIGHT') && isset($tokens[$i + 1]) && self::isPunct($tokens[$i + 1], '('));
     }
 
     /**

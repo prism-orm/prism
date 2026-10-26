@@ -30,5 +30,6 @@ parameters:
     additionalConstructors:
         - Prism\Benchmarks\HydrationBench::setUp
         - Prism\Benchmarks\FlushBench::setUp
+        - Prism\Benchmarks\TenancyBench::setUp
     checkImplicitMixed: true
     reportUnmatchedIgnoredErrors: true

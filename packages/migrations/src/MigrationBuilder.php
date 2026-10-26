@@ -87,13 +87,14 @@ final class MigrationBuilder
     /**
      * Index nommé de façon déterministe (RG-01.7) quand $name est null. $concurrently : sans
      * verrou des écritures sous PostgreSQL, la migration tourne alors hors transaction
-     * (RG-06.5) ; sans effet sur les autres bases.
+     * (RG-06.5) ; sans effet sur les autres bases. $whereNull : index partiel, sur les lignes où
+     * cette colonne est NULL (suppression logique, RG-08.15).
      *
      * @param list<string> $columns
      */
-    public function createIndex(string $table, array $columns, bool $unique = false, ?string $name = null, bool $concurrently = false): void
+    public function createIndex(string $table, array $columns, bool $unique = false, ?string $name = null, bool $concurrently = false, ?string $whereNull = null): void
     {
-        $this->operations[] = new Operation\CreateIndex($table, $columns, $unique, $name, $concurrently);
+        $this->operations[] = new Operation\CreateIndex($table, $columns, $unique, $name, $concurrently, $whereNull);
     }
 
     /**

@@ -265,6 +265,8 @@ Il est autoconfiguré (tag `prism.filter`) ; `name` et `entity_manager` dans le 
 
 ### Profiler et tests
 
+La démo (`demo/`) en est un exemple complet : une société par sous-domaine (`acme.localhost`, `globex.localhost`), un `TenantLoader` qui traduit le sous-domaine, un catalogue de produits partagé.
+
 En dev, le panneau **Tenant** montre le tenant de la requête, comment il a été résolu, et les passages en `runAs()` et `runAsSystem()`.
 
 Dans un test, posez le tenant avant d'utiliser les entités :
