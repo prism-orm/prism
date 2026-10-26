@@ -57,7 +57,9 @@
             "Prism\\Bundle\\Tests\\": "packages/bundle/tests/",
             "Prism\\PHPStan\\Tests\\": "packages/phpstan/tests/",
             "Prism\\TestPack\\Tests\\": "packages/test-pack/tests/",
-            "Prism\\Benchmarks\\": "benchmarks/"
+            "Prism\\Benchmarks\\": "benchmarks/",
+            "Prism\\Website\\Tests\\": "website/tests/",
+            "App\\": "demo/src/"
         }
     },
     "config": {

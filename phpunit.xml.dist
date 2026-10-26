@@ -16,6 +16,7 @@
             <directory>packages/bundle/tests/Unit</directory>
             <directory>packages/phpstan/tests/Unit</directory>
             <directory>packages/test-pack/tests/Unit</directory>
+            <directory>website/tests/Unit</directory>
         </testsuite>
         <testsuite name="functional">
             <directory>packages/dbal/tests/Functional</directory>
@@ -23,6 +24,7 @@
             <directory>packages/migrations/tests/Functional</directory>
             <directory>packages/bundle/tests/Functional</directory>
             <directory>packages/test-pack/tests/Functional</directory>
+            <directory>website/tests/Functional</directory>
         </testsuite>
     </testsuites>
     <extensions>

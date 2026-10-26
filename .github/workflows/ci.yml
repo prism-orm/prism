@@ -175,6 +175,10 @@ jobs:
                   cache-dependency-path: website/package-lock.json
             - run: npm ci --no-fund --no-audit
             - run: npm run build
+            # RG-10.3 : les exemples non exécutés, à garder rares (exécutés par website/tests/Functional/ExamplesTest)
+            - name: Exemples marqués no-run
+              working-directory: .
+              run: grep -rn --include='*.md' --exclude-dir=node_modules -E '^ {0,3}(```|~~~)php[^ ]*.* no-run' website packages/*/docs || echo 'Aucun.'
             # le site construit, à publier sur l'hébergement du projet (GitLab Pages)
             - uses: actions/upload-artifact@v4
               with:

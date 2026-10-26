@@ -66,7 +66,7 @@ bin/console make:entity Order
 
 `make:entity` crée l'entité et son repository, puis ajoute champs et relations à la demande. Pour une relation, il propose le côté inverse et écrit les deux (`inversedBy`, `mappedBy`) ; une collection est initialisée dans le constructeur. Sur une entité existante, il n'ajoute que les nouveaux membres : votre code et vos commentaires sont gardés.
 
-```php
+```php no-run
 #[Prism\Entity(repositoryClass: OrderRepository::class)]
 final class Order
 {
@@ -106,7 +106,7 @@ Une migration décrit des opérations portables : la même s'exécute sur les 4 
 
 `EntityManagerInterface`, `Connection` et les repositories s'injectent par autowiring ; un EntityManager nommé, par le nom de l'argument :
 
-```php
+```php no-run
 public function __construct(
     private EntityManagerInterface $em,               // celui par défaut
     private EntityManagerInterface $billingEntityManager,
@@ -129,7 +129,7 @@ $o = $i->order->as('o');
 $c = $o->customer->as('c');
 $rows = $em->query($i)->join($o)->join($c)
     ->groupBy($c->id, $c->name)
-    ->selectInto(CustomerRevenue::class, customer: $c->name, invoices: $i->id->count(), total: $i->total->sum())
+    ->selectInto(CustomerRevenue::class, customer: $c->name, invoices: $i->id->count(), total: $i->total->sum(), lastInvoice: $i->issuedAt->max())
     ->getResult();
 ```
 
@@ -139,12 +139,12 @@ Les relations sont chargées par lot (pilier 1) : dans la démo, 20 commandes, l
 
 Un argument typé par une entité est chargé depuis la route : `{id}`, ou le paramètre qui porte le nom de l'argument. Une entité absente donne une 404 ; un argument nullable reçoit `null`.
 
-```php
+```php no-run
 #[Route('/orders/{id}')]
-public function show(Order $order): Response
+public function show(Order $order): Response { /* ... */ }
 
 #[Route('/invoices/{number}')]
-public function byNumber(#[MapEntity(mapping: ['number' => 'number'])] Invoice $invoice): Response
+public function byNumber(#[MapEntity(mapping: ['number' => 'number'])] Invoice $invoice): Response { /* ... */ }
 ```
 
 `#[MapEntity]` accepte aussi `id:`, `entityManager:` et `disabled: true`.
@@ -184,7 +184,7 @@ Sans `property`, le repository implémente `Prism\Bundle\Security\UserLoaderInte
 
 Une entité `#[Tenanted]` reçoit une colonne `tenant_id`, et **toute** lecture et écriture de Prism la filtre : `find()`, `findBy()`, le QueryBuilder typé, les relations paresseuses, le batch fetching, les collections, la pagination. Sans tenant, toute opération sur une entité tenantée lève une exception : il n'existe pas de mode « tous les tenants » implicite.
 
-```php
+```php no-run
 #[Prism\Entity]
 #[Prism\Tenanted]
 final class Invoice
@@ -214,18 +214,20 @@ Le tenant d'une requête vient d'**une** de ces sources :
 
 Un sous-domaine est un nom, pas un identifiant : un service `TenantLoader` fait la traduction (`loader: App\Tenancy\SlugLoader`). Sans `resolver`, l'application pose le tenant elle-même :
 
-```php
+```php no-run
 public function __construct(private readonly StackTenantContext $tenants) {}
 
-// ...
-$this->tenants->setTenantId($company->getId());
+public function onCompanySelected(Company $company): void
+{
+    $this->tenants->setTenantId($company->id);
+}
 ```
 
 Avec la stratégie `user`, l'entité utilisateur ne doit pas être tenantée : le firewall la charge avant que le tenant soit connu.
 
 ### Changer de tenant, administrer
 
-```php
+```php no-run
 $tenants->runAs(42, fn () => $reports->generate());                  // le tenant 42, le temps du callback
 $total = $tenants->runAsSystem(fn () => $invoices->count());          // tous les tenants, explicitement
 ```
@@ -240,7 +242,7 @@ Les commandes `db:*` s'exécutent en mode système : ce sont des outils d'admini
 
 Le SQL que vous écrivez vous-même passe par une garde : une requête sur une table tenantée sans condition sur `tenant_id` est refusée en dev et en test, et journalisée en log critique en prod.
 
-```php
+```php no-run
 $connection->executeQuery('SELECT id FROM invoice WHERE tenant_id = ? AND total > ?', [$tenantId, 1000]); // accepté
 $connection->executeQuery('SELECT id FROM invoice WHERE total > ?', [1000]);                            // refusé
 ```
@@ -271,7 +273,7 @@ En dev, le panneau **Tenant** montre le tenant de la requête, comment il a ét�
 
 Dans un test, posez le tenant avant d'utiliser les entités :
 
-```php
+```php no-run
 static::getContainer()->get(StackTenantContext::class)->setTenantId(1);
 ```
 
@@ -279,7 +281,7 @@ static::getContainer()->get(StackTenantContext::class)->setTenantId(1);
 
 Quatre attributs de classe, sans paquet externe :
 
-```php
+```php no-run
 #[Prism\Entity]
 #[Prism\Timestampable]                                  // createdAt, updatedAt (UTC)
 #[Prism\Blameable]                                      // createdBy, updatedBy (?string)
@@ -297,7 +299,7 @@ final class Invoice
 - **Suppression logique** : `remove()` écrit `deletedAt` au lieu de supprimer la ligne ; `remove($entity, hardDelete: true)` la supprime vraiment ; `$em->restore($entity)` l'annule. Les lignes supprimées disparaissent de `find()`, `findBy()`, du QueryBuilder et des collections ; `->withDeleted()` les réintègre à une requête. Une relation vers une ligne supprimée reste lisible : `$invoice->customer` charge le client même supprimé. Une contrainte d'unicité ne porte que sur les lignes non supprimées.
 - **Journal d'audit** : chaque insertion, modification, suppression, suppression logique et restauration d'une entité `#[Auditable]` écrit une ligne dans `prism_audit_log`, **dans la transaction du flush** : changeset (ancienne et nouvelle valeur), tenant, auteur, identifiant de requête (en-tête `X-Request-Id`, sinon tiré par requête), date UTC, et si l'écriture a eu lieu en mode système. La table vient avec la migration générée par `db:migrations:diff`. Le journal est en ajout seul : seule `db:audit:purge --force` en supprime, selon la `retention` de chaque entité.
 
-```php
+```php no-run
 $history = new AuditReader($em)->history(Invoice::class, 42);            // list<AuditEntry>
 $state = new AuditReader($em)->stateAt(Invoice::class, 42, $lastMonth);  // champ → valeur, ou null
 ```
@@ -324,7 +326,7 @@ framework:
 
 ## Tester
 
-```php
+```php no-run
 final class OrderPagesTest extends WebTestCase
 {
     use ResetDatabase;          // schéma créé une fois, une transaction annulée par test

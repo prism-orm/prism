@@ -22,6 +22,8 @@ export default defineConfig({
     ],
     rewrites: {
         'website/:page*': ':page*',
+        // la référence de chaque paquet rejoint /reference/, à côté de celle de website/reference
+        'packages/:pkg/docs/reference/:page*': 'reference/:page*',
         'packages/:pkg/docs/:page*': ':pkg/:page*',
     },
 
