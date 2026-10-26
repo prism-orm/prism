@@ -87,6 +87,38 @@ final class PrismConfiguration
                     ->min(0)
                     ->defaultValue(60)
                 ->end()
+                ->arrayNode('tenancy')
+                    ->info('Multi-tenancy (ADR 0014): the tenant column, the raw SQL guard and how a request finds its tenant.')
+                    ->addDefaultsIfNotSet()
+                    ->children()
+                        ->enumNode('type')
+                            ->info('Type of the tenant_id column of every #[Tenanted] entity (RG-08.1).')
+                            ->values(['integer', 'bigint', 'uuid'])
+                            ->defaultValue('integer')
+                        ->end()
+                        ->enumNode('guard')
+                            ->info('Raw SQL on a tenanted table without tenant condition (RG-08.7): "exception", or "log" (critical); by default, exception in debug, log otherwise.')
+                            ->values(['exception', 'log', null])
+                            ->defaultNull()
+                        ->end()
+                        ->arrayNode('resolver')
+                            ->info('How a request finds its tenant: one of header, subdomain, user; none: the application sets it on the TenantContext.')
+                            ->children()
+                                ->scalarNode('header')->info('Name of the header holding the tenant; only behind a gateway that sets it.')->cannotBeEmpty()->end()
+                                ->scalarNode('subdomain')->info('Domain under which the subdomain names the tenant: acme.example.com under example.com.')->cannotBeEmpty()->end()
+                                ->booleanNode('user')->info('The logged-in user, a TenantAwareUserInterface.')->end()
+                            ->end()
+                            ->validate()
+                                ->ifTrue(static fn (array $resolver): bool => \count(array_filter($resolver, static fn (mixed $value): bool => null !== $value && false !== $value)) > 1)
+                                ->thenInvalid('Choose one tenant resolver: header, subdomain or user.')
+                            ->end()
+                        ->end()
+                        ->scalarNode('loader')
+                            ->info('Id of a TenantLoader service turning the identifier read (header, subdomain) into the tenant id; without it, the identifier itself (an integer for integer and bigint).')
+                            ->defaultNull()
+                        ->end()
+                    ->end()
+                ->end()
                 ->arrayNode('metamodel')
                     ->addDefaultsIfNotSet()
                     ->children()
@@ -133,9 +165,9 @@ final class PrismConfiguration
      * Un EntityManager par défaut s'il n'y en a aucun, ses connexions résolues, l'EntityManager
      * par défaut nommé.
      *
-     * @param array{default_entity_manager: ?string, connections: array<string, array{url: string}>, entity_managers: array<string, array{connection: ?string, entity_dirs: list<string>, batch_size: int, migrations: array{dir: ?string, namespace: ?string}}>, metamodel: array{dir: string}, connection_idle_ttl: int} $config
+     * @param array{default_entity_manager: ?string, connections: array<string, array{url: string}>, entity_managers: array<string, array{connection: ?string, entity_dirs: list<string>, batch_size: int, migrations: array{dir: ?string, namespace: ?string}}>, metamodel: array{dir: string}, connection_idle_ttl: int, tenancy: array{type: string, guard: ?string, resolver: array{header?: string, subdomain?: string, user?: bool}, loader: ?string}} $config
      *
-     * @return array{default_entity_manager: string, connections: array<string, array{url: string}>, entity_managers: array<string, array{connection: string, entity_dirs: list<string>, batch_size: int, migrations: array{dir: ?string, namespace: ?string}}>, metamodel: array{dir: string}, connection_idle_ttl: int}
+     * @return array{default_entity_manager: string, connections: array<string, array{url: string}>, entity_managers: array<string, array{connection: string, entity_dirs: list<string>, batch_size: int, migrations: array{dir: ?string, namespace: ?string}}>, metamodel: array{dir: string}, connection_idle_ttl: int, tenancy: array{type: string, guard: ?string, resolver: array{header?: string, subdomain?: string, user?: bool}, loader: ?string}}
      */
     private static function resolve(array $config): array
     {

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Prism\Bundle\Command;
 
+use Prism\Orm\Tenancy\TenantContext;
 use Psr\Container\ContainerInterface;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\ArrayInput;
@@ -15,7 +16,8 @@ use Symfony\Component\Console\Style\SymfonyStyle;
 /**
  * Une commande db:* de bin/console (ADR 0013) : la définition de la commande d'origine, plus
  * --em ; l'exécution est déléguée à l'instance câblée sur l'EntityManager demandé. Les commandes
- * des paquets orm et migrations ne changent pas.
+ * des paquets orm et migrations ne changent pas. Elle s'exécute en mode système : les commandes
+ * db:* administrent toute la base (ADR 0014).
  *
  * @internal
  */
@@ -31,6 +33,7 @@ final class EntityManagerCommand extends Command
         private readonly ContainerInterface $commands,
         private readonly string $defaultEntityManager,
         private readonly array $entityManagers,
+        private readonly TenantContext $tenantContext,
     ) {
         $default = $commands->get($defaultEntityManager);
         \assert($default instanceof Command);
@@ -76,6 +79,6 @@ final class EntityManagerCommand extends Command
         $inner = new ArrayInput($parameters);
         $inner->setInteractive($input->isInteractive());
 
-        return $command->run($inner, $output);
+        return $this->tenantContext->runAsSystem(static fn (): int => $command->run($inner, $output));
     }
 }

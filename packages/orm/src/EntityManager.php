@@ -52,9 +52,11 @@ final class EntityManager implements EntityManagerInterface
         ?EntityListenerResolver $listeners = null,
         int $batchSize = 100,
         ?TenantContext $tenantContext = null,
+        ?FilterCollection $filters = null,
     ) {
         $this->tenantContext = $tenantContext ?? new StackTenantContext();
-        $this->filters = new FilterCollection();
+        // les filtres de l'application d'abord ; celui du tenant, verrouillé, toujours présent
+        $this->filters = $filters ?? new FilterCollection();
         $this->filters->add(TenantFilter::NAME, new TenantFilter($this->tenantContext), locked: true);
         $this->metadata = $metadata ?? new MetadataFactory(new AttributeDriver(), types: $connection->getTypeRegistry());
         $this->unitOfWork = new UnitOfWork($this->metadata, new DbalPersisterProvider($connection, $this->metadata, $this->filters), $connection->getConversionContext(), $connection->getTypeRegistry(), $events, $listeners, $batchSize, $this->tenantContext);
