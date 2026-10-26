@@ -1468,7 +1468,8 @@ final class UnitOfWork implements TenantSwitchListener
 
     /**
      * La colonne du tenant que ne porte aucun champ, telle que lue, pour le snapshot : l'UoW
-     * connaît ainsi le tenant de chaque entité chargée, même en mode système (RG-08.6).
+     * connaît ainsi le tenant de chaque entité chargée, même en mode système (RG-08.6). Gardée
+     * brute : elle n'est normalisée qu'à la comparaison (tenantOf), bien plus rare qu'une lecture.
      *
      * @param ClassMetadata<object> $metadata
      * @param array<string, mixed>  $row      ligne de la base
@@ -1481,9 +1482,8 @@ final class UnitOfWork implements TenantSwitchListener
         if (null === $tenancy || null !== $tenancy->field || !\array_key_exists($tenancy->column, $row)) {
             return [];
         }
-        $field = $this->tenantField($metadata);
 
-        return [$tenancy->column => null === $row[$tenancy->column] ? null : $this->toDatabase($field, $this->toPhp($field, $row[$tenancy->column]))];
+        return [$tenancy->column => $row[$tenancy->column]];
     }
 
     /**
@@ -1512,7 +1512,10 @@ final class UnitOfWork implements TenantSwitchListener
             return null === $current ? [false, null] : [true, $this->toDatabase($field, $current)];
         }
         if (isset($this->snapshots[$oid]) && \array_key_exists($tenancy->column, $this->snapshots[$oid])) {
-            return [true, $this->snapshots[$oid][$tenancy->column]];
+            $raw = $this->snapshots[$oid][$tenancy->column];
+
+            // la colonne que ne porte aucun champ est gardée brute (tenantColumn)
+            return [true, null === $raw || null !== $tenancy->field ? $raw : $this->toDatabase($field, $this->toPhp($field, $raw))];
         }
 
         return [false, null];

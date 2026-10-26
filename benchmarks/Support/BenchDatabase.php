@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Prism\Benchmarks\Support;
 
 use Prism\Benchmarks\Entity\BenchItem;
+use Prism\Benchmarks\Entity\TenantBenchItem;
 use Prism\Dbal\Connection;
 use Prism\Dbal\ConnectionParameters;
 use Prism\Dbal\Driver;
@@ -28,9 +29,10 @@ final class BenchDatabase
     }
 
     /**
-     * Recrée la base, puis la table de BenchItem et $rows lignes (une transaction).
+     * Recrée la base, puis la table de BenchItem et $rows lignes (une transaction) ; avec
+     * $tenanted, aussi celle de TenantBenchItem, les mêmes lignes au tenant 1.
      */
-    public static function create(string $name, int $rows): void
+    public static function create(string $name, int $rows, bool $tenanted = false): void
     {
         $admin = DriverManager::fromUrl(self::serverUrl());
         $quoted = $admin->getPlatform()->quoteIdentifier($name);
@@ -39,21 +41,30 @@ final class BenchDatabase
         $admin->close();
 
         $connection = self::connection($name);
-        $target = new SchemaTool($connection->getPlatform())->fromMetadata([new AttributeDriver()->loadMetadata(BenchItem::class)]);
+        $classes = $tenanted ? [BenchItem::class, TenantBenchItem::class] : [BenchItem::class];
+        $target = new SchemaTool($connection->getPlatform())->fromMetadata(array_map(new AttributeDriver()->loadMetadata(...), $classes));
         $connection->createSchemaManager()->migrate(new Comparator($connection->getPlatform())->compare(new Schema(), $target));
 
-        $connection->transactional(static function (Connection $connection) use ($rows): void {
-            for ($i = 1; $i <= $rows; ++$i) {
-                $connection->createQueryBuilder()->insert('bench_item')
-                    ->set('code', \sprintf('IT-%06d', $i))
-                    ->set('name', 'Item ' . $i)
-                    ->set('price', \sprintf('%d.%02d', $i % 1000, $i % 100), 'decimal')
-                    ->set('quantity', $i % 50)
-                    ->set('active', 0 !== $i % 3, 'boolean')
-                    ->set('created_at', new \DateTimeImmutable('2026-10-19 08:00:00'), 'datetime_immutable')
-                    ->executeStatement();
+        $connection->transactional(static function (Connection $connection) use ($rows, $tenanted): void {
+            foreach ($tenanted ? ['bench_item', 'tenant_bench_item'] : ['bench_item'] as $table) {
+                for ($i = 1; $i <= $rows; ++$i) {
+                    $qb = $connection->createQueryBuilder()->insert($table)
+                        ->set('code', \sprintf('IT-%06d', $i))
+                        ->set('name', 'Item ' . $i)
+                        ->set('price', \sprintf('%d.%02d', $i % 1000, $i % 100), 'decimal')
+                        ->set('quantity', $i % 50)
+                        ->set('active', 0 !== $i % 3, 'boolean')
+                        ->set('created_at', new \DateTimeImmutable('2026-10-19 08:00:00'), 'datetime_immutable');
+                    ('tenant_bench_item' === $table ? $qb->set('tenant_id', 1) : $qb)->executeStatement();
+                }
             }
         });
+        if ($tenanted) {
+            // les deux tables dans le même état physique : l'écart mesuré est celui de l'ORM
+            foreach (['bench_item', 'tenant_bench_item'] as $table) {
+                $connection->executeStatement(Driver::PostgreSql === ConnectionParameters::fromUrl(self::serverUrl())->driver ? 'VACUUM ANALYZE ' . $table : 'OPTIMIZE TABLE ' . $table);
+            }
+        }
         $connection->close();
     }
 
@@ -65,7 +76,7 @@ final class BenchDatabase
     }
 
     // DATABASE_URL du Makefile, la base remplacée par celle du benchmark
-    private static function url(string $name): string
+    public static function url(string $name): string
     {
         return (string) preg_replace('#/[^/?]*(\?.*)?$#', '/' . $name . '$1', self::serverUrl(), 1);
     }
