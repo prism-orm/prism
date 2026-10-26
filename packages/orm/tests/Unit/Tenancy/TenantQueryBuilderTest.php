@@ -23,7 +23,8 @@ use Prism\Orm\Tests\Unit\Tenancy\Fixtures\Tag_;
  */
 final class TenantQueryBuilderTest extends TestCase
 {
-    private const string INVOICE = 'SELECT "i"."id", "i"."number", "i"."amount", "i"."client_id", "i"."currency_id" FROM "tenant_invoice" "i"';
+    // la colonne du tenant est lue : l'UoW garde le tenant de chaque entité (RG-08.6)
+    private const string INVOICE = 'SELECT "i"."id", "i"."number", "i"."amount", "i"."client_id", "i"."currency_id", "i"."tenant_id" FROM "tenant_invoice" "i"';
 
     private StackTenantContext $context;
 
@@ -131,6 +132,6 @@ final class TenantQueryBuilderTest extends TestCase
             self::INVOICE . ' LEFT JOIN "tenant_line" "l" ON "l"."invoice_id" = "i"."id"',
             $this->context->runAsSystem(fn (): string => $this->em->query($i)->leftJoin($i->lines->as('l'))->toSql()),
         );
-        self::assertSame('SELECT "t"."id", "t"."name" FROM "tenant_tag" "t"', $this->context->runAsSystem(fn (): string => $this->em->query(Tag_::as('t'))->toSql()));
+        self::assertSame('SELECT "t"."id", "t"."name", "t"."tenant_id" FROM "tenant_tag" "t"', $this->context->runAsSystem(fn (): string => $this->em->query(Tag_::as('t'))->toSql()));
     }
 }

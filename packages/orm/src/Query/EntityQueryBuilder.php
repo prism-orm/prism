@@ -9,9 +9,13 @@ use Prism\Dbal\ParameterType;
 use Prism\Dbal\Query\Expression;
 use Prism\Dbal\Query\Order;
 use Prism\Dbal\Query\QueryBuilder;
+use Prism\Orm\EntityManager;
 use Prism\Orm\EntityManagerInterface;
+use Prism\Orm\Exception\MappingException;
 use Prism\Orm\Exception\NonUniqueResultException;
 use Prism\Orm\Exception\QueryException;
+use Prism\Orm\Filter\FilterCollection;
+use Prism\Orm\Filter\FilterTarget;
 use Prism\Orm\Mapping\Order as MappingOrder;
 use Prism\Orm\Metadata\AssociationMapping;
 use Prism\Orm\Metadata\ClassMetadata;
@@ -19,6 +23,8 @@ use Prism\Orm\Metadata\MetadataFactory;
 use Prism\Orm\Query\Metamodel\Field;
 use Prism\Orm\Query\Metamodel\Metamodel;
 use Prism\Orm\Query\Metamodel\MixedField;
+use Prism\Orm\Tenancy\StackTenantContext;
+use Prism\Orm\Tenancy\TenantFilter;
 
 /**
  * Requête typée (pilier 2) sur une entité racine, sans chaîne de nom de champ :
@@ -42,6 +48,9 @@ use Prism\Orm\Query\Metamodel\MixedField;
  * d'une requête groupée (ADR 0010) :
  *
  *     $em->query($o)->groupBy($o->status)->selectInto(StatusTotal::class, status: $o->status, total: $o->total->sum());
+ *
+ * Les filtres de l'EntityManager, dont celui du tenant, portent sur chaque entité : la racine
+ * dans le WHERE, après la condition de l'appelant, une entité jointe dans son ON (ADR 0014).
  *
  * @template T of object
  *
@@ -68,14 +77,28 @@ final class EntityQueryBuilder
 
     private ?Condition $having = null;
 
+    private readonly FilterCollection $filters;
+
     /**
-     * @param Metamodel<T> $root
+     * @param Metamodel<T>          $root
+     * @param FilterCollection|null $filters ceux de l'EntityManager ; à défaut, aucune entité
+     *                                       #[Tenanted] n'est lisible (RG-08.4)
      */
     public function __construct(
         private readonly EntityManagerInterface $em,
         private readonly MetadataFactory $metadata,
         private readonly Metamodel $root,
+        ?FilterCollection $filters = null,
     ) {
+        $this->filters = $filters ?? ($em instanceof EntityManager ? $em->getFilters() : self::failClosed());
+    }
+
+    private static function failClosed(): FilterCollection
+    {
+        $filters = new FilterCollection();
+        $filters->add(TenantFilter::NAME, new TenantFilter(new StackTenantContext()), locked: true);
+
+        return $filters;
     }
 
     /**
@@ -278,6 +301,7 @@ final class EntityQueryBuilder
         if (null !== $this->where) {
             $qb = $qb->where($this->where->compile($context));
         }
+        $qb = $this->restrict($qb);
         if ([] !== $grouped) {
             $qb = $qb->groupBy(...$grouped);
         }
@@ -436,6 +460,7 @@ final class EntityQueryBuilder
         if (null !== $this->where) {
             $qb = $qb->where($this->where->compile($context));
         }
+        $qb = $this->restrict($qb);
         foreach ($ordered->orderBy as $i => $ordering) {
             $qb = $qb->addOrderBy($orderings[$i], $ordering->order);
         }
@@ -495,6 +520,7 @@ final class EntityQueryBuilder
         if (null !== $this->where) {
             $qb = $qb->where($this->where->compile($context));
         }
+        $qb = $this->restrict($qb);
         $count = $qb->executeQuery()->fetchOne();
 
         return is_numeric($count) ? (int) $count : 0;
@@ -577,7 +603,10 @@ final class EntityQueryBuilder
         // avec une relation chargée, chaque colonne est nommée « alias__colonne » pour séparer les entités
         $select = [];
         foreach ($nodes as $alias => $node) {
-            foreach ($node->metadata->getColumnNames() as $column) {
+            // la colonne du tenant que ne porte aucun champ est lue aussi : l'UoW garde le tenant de chaque entité
+            $tenancy = $node->metadata->tenancy;
+            $tenant = null === $tenancy || null !== $tenancy->field ? [] : [$tenancy->column];
+            foreach ([...$node->metadata->getColumnNames(), ...$tenant] as $column) {
                 if (1 === \count($nodes)) {
                     $select[] = $qb->column($column, $alias);
                     continue;
@@ -593,6 +622,7 @@ final class EntityQueryBuilder
         if (null !== $this->where) {
             $qb = $qb->where($this->where->compile($context));
         }
+        $qb = $this->restrict($qb);
         foreach ($this->orderBy as $ordering) {
             $qb = $qb->addOrderBy($ordering->operand->toSql($context), $ordering->order);
         }
@@ -618,12 +648,27 @@ final class EntityQueryBuilder
         foreach ($this->joins as [$target, $left, $fetch]) {
             [$association, $joins] = $context->join($target);
             foreach ($joins as [$table, $alias, $on]) {
+                // la table de l'entité jointe, pas une table pivot : ses filtres dans le ON
+                $condition = $alias === $target->alias ? $this->filters->condition($this->metadata->getMetadataFor($target->entity), new FilterTarget($qb, $alias)) : null;
+                $on = null === $condition ? $on : $qb->expr()->and($on, $condition);
                 $qb = $left ? $qb->leftJoin($table, $alias, $on) : $qb->join($table, $alias, $on);
             }
             $joined[] = [$target, $fetch, $association];
         }
 
         return [$qb, $metadata, $joined];
+    }
+
+    /**
+     * Les filtres de l'entité racine, après la condition de l'appelant.
+     *
+     * @throws MappingException
+     */
+    private function restrict(QueryBuilder $qb): QueryBuilder
+    {
+        $condition = $this->filters->condition($this->metadata->getMetadataFor($this->root->entity), new FilterTarget($qb, $this->root->alias));
+
+        return null === $condition ? $qb : $qb->andWhere($condition);
     }
 
     /**

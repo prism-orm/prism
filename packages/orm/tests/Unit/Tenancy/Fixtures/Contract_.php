@@ -19,12 +19,16 @@ final class Contract_ extends M\Metamodel
 
     public readonly M\StringField $reference;
 
+    /** @var M\Relation<\Prism\Orm\Tests\Unit\Tenancy\Fixtures\Rate_> */
+    public readonly M\Relation $rate;
+
     public function __construct(string $alias = 'contract')
     {
         parent::__construct($alias);
         $this->id = new M\IntField($this, 'id');
         $this->tenantId = new M\IntField($this, 'tenantId');
         $this->reference = new M\StringField($this, 'reference');
+        $this->rate = new M\Relation($this, 'rate', \Prism\Orm\Tests\Unit\Tenancy\Fixtures\Rate_::class);
     }
 
     public static function as(string $alias): self

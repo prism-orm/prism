@@ -71,7 +71,7 @@ final class BasicEntityPersister implements EntityPersister
         }
         $this->joins = $joins;
         $this->bindings = $bindings;
-        // colonne du tenant que ne porte aucun champ : écrite à l'INSERT, jamais lue
+        // colonne du tenant que ne porte aucun champ : écrite à l'INSERT, lue pour l'UoW (RG-08.6)
         $tenancy = $metadata->tenancy;
         $this->tenantBinding = null === $tenancy || null !== $tenancy->field ? [] : [$tenancy->column => $connection->getTypeRegistry()->get($tenancy->type)->getBindingType()];
         $this->identity = GenerationStrategy::Identity === GenerationStrategyResolver::resolve($metadata->id->strategy, $connection->getPlatform());
@@ -181,7 +181,7 @@ final class BasicEntityPersister implements EntityPersister
         $qb = $this->connection->createQueryBuilder();
         $owner = $this->connection->getPlatform()->quoteIdentifier(self::OWNER_ALIAS);
         $t = self::TARGET_ALIAS;
-        $qb = $qb->select($qb->column($ownerColumn, 'p') . ' AS ' . $owner, ...array_map(static fn (string $column): string => $qb->column($column, $t), array_keys($this->bindings)))
+        $qb = $qb->select($qb->column($ownerColumn, 'p') . ' AS ' . $owner, ...array_map(static fn (string $column): string => $qb->column($column, $t), $this->columns()))
             ->from($this->metadata->tableName, $t)
             ->join($table, 'p', $qb->column($targetColumn, 'p') . ' = ' . $qb->column($this->idColumn, $t));
         $qb = $this->filtered($qb->where($qb->expr()->in($qb->column($ownerColumn, 'p'), $ownerIds, $this->bindingOf($ownerType))), alias: $t);
@@ -251,7 +251,17 @@ final class BasicEntityPersister implements EntityPersister
     {
         $qb = $this->connection->createQueryBuilder();
 
-        return $qb->select(...array_map($qb->column(...), array_keys($this->bindings)))->from($this->metadata->tableName);
+        return $qb->select(...array_map($qb->column(...), $this->columns()))->from($this->metadata->tableName);
+    }
+
+    /**
+     * Colonnes lues : celles des champs et des jointures, puis celle du tenant que ne porte aucun champ.
+     *
+     * @return list<string>
+     */
+    private function columns(): array
+    {
+        return [...array_keys($this->bindings), ...array_keys($this->tenantBinding)];
     }
 
     /**

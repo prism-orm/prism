@@ -18,6 +18,10 @@ final class Contract
     #[Prism\Column]
     public int $tenantId;
 
+    // une ligne partagée (tenant NULL) est une cible permise (RG-08.6)
+    #[Prism\ManyToOne]
+    public ?Rate $rate = null;
+
     public function __construct(
         #[Prism\Column(length: 20)]
         public string $reference = '',
