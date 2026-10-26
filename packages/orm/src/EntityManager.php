@@ -8,16 +8,12 @@ use Prism\Dbal\Connection;
 use Prism\Dbal\LockMode;
 use Prism\Orm\Event\EntityListenerResolver;
 use Prism\Orm\Exception\MappingException;
-use Prism\Orm\Filter\FilterCollection;
 use Prism\Orm\Metadata\Driver\AttributeDriver;
 use Prism\Orm\Metadata\MetadataFactory;
 use Prism\Orm\Persister\DbalPersisterProvider;
 use Prism\Orm\Query\EntityQueryBuilder;
 use Prism\Orm\Query\Metamodel\Metamodel;
 use Prism\Orm\Repository\EntityRepository;
-use Prism\Orm\Tenancy\StackTenantContext;
-use Prism\Orm\Tenancy\TenantContext;
-use Prism\Orm\Tenancy\TenantFilter;
 use Prism\Orm\UnitOfWork\UnitOfWork;
 use Psr\EventDispatcher\EventDispatcherInterface;
 
@@ -27,8 +23,6 @@ use Psr\EventDispatcher\EventDispatcherInterface;
  * seuls les callbacks et les listeners d'entité sont appelés (décision E) ; sans résolveur, un
  * listener d'entité est construit sans argument (DefaultEntityListenerResolver). $batchSize est
  * la taille de lot du batch fetching par défaut (RG-04.11), qu'une relation peut changer.
- * Sans TenantContext, les entités #[Tenanted] n'ont jamais de tenant : toute opération sur
- * elles échoue (RG-08.4, ADR 0014).
  *
  * @api
  */
@@ -37,10 +31,6 @@ final class EntityManager implements EntityManagerInterface
     private readonly MetadataFactory $metadata;
 
     private readonly UnitOfWork $unitOfWork;
-
-    private readonly TenantContext $tenantContext;
-
-    private readonly FilterCollection $filters;
 
     /** @var array<class-string, EntityRepository<object>> */
     private array $repositories = [];
@@ -51,11 +41,7 @@ final class EntityManager implements EntityManagerInterface
         ?EventDispatcherInterface $events = null,
         ?EntityListenerResolver $listeners = null,
         int $batchSize = 100,
-        ?TenantContext $tenantContext = null,
     ) {
-        $this->tenantContext = $tenantContext ?? new StackTenantContext();
-        $this->filters = new FilterCollection();
-        $this->filters->add(TenantFilter::NAME, new TenantFilter($this->tenantContext), locked: true);
         $this->metadata = $metadata ?? new MetadataFactory(new AttributeDriver(), types: $connection->getTypeRegistry());
         $this->unitOfWork = new UnitOfWork($this->metadata, new DbalPersisterProvider($connection, $this->metadata), $connection->getConversionContext(), $connection->getTypeRegistry(), $events, $listeners, $batchSize);
     }
@@ -172,19 +158,6 @@ final class EntityManager implements EntityManagerInterface
     public function getMetadataFactory(): MetadataFactory
     {
         return $this->metadata;
-    }
-
-    public function getTenantContext(): TenantContext
-    {
-        return $this->tenantContext;
-    }
-
-    /**
-     * Filtres appliqués à chaque table d'entité lue ou écrite ; le TenantFilter est verrouillé.
-     */
-    public function getFilters(): FilterCollection
-    {
-        return $this->filters;
     }
 
     public function getUnitOfWork(): UnitOfWork
