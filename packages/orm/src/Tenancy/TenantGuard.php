@@ -30,6 +30,8 @@ final class TenantGuard implements QueryGuard
 
     private ?SqlTenantAnalyzer $analyzer = null;
 
+    private readonly LoggerInterface $logger;
+
     /** @var array<string, list<array{string, string}>> violations, par texte SQL */
     private array $cache = [];
 
@@ -37,8 +39,9 @@ final class TenantGuard implements QueryGuard
         private readonly MetadataFactory $metadata,
         private readonly TenantContext $context,
         private readonly TenantGuardMode $mode = TenantGuardMode::Exception,
-        private readonly LoggerInterface $logger = new NullLogger(),
+        ?LoggerInterface $logger = null,
     ) {
+        $this->logger = $logger ?? new NullLogger();
     }
 
     /**
@@ -65,11 +68,15 @@ final class TenantGuard implements QueryGuard
      */
     private function violations(string $sql): array
     {
+        $this->tables ??= $this->tenantedTables();
+        // sans entité tenantée, rien à analyser
+        if ([] === $this->tables) {
+            return [];
+        }
         if (!isset($this->cache[$sql])) {
             if (\count($this->cache) >= self::CACHE_SIZE) {
                 $this->cache = [];
             }
-            $this->tables ??= $this->tenantedTables();
             $this->analyzer ??= new SqlTenantAnalyzer($this->tables);
             $this->cache[$sql] = $this->analyzer->violations($sql);
         }

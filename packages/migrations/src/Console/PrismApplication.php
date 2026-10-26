@@ -9,7 +9,11 @@ use Prism\Orm\Console\Command as Orm;
 use Prism\Orm\EntityManager;
 use Prism\Orm\EntityManagerInterface;
 use Prism\Orm\Metadata\MetadataFactory;
+use Prism\Orm\Tenancy\TenantContext;
 use Symfony\Component\Console\Application;
+use Symfony\Component\Console\Command\Command;
+use Symfony\Component\Console\Input\InputInterface;
+use Symfony\Component\Console\Output\OutputInterface;
 
 /**
  * La console de bin/prism, hors Symfony : toutes les commandes db:*, câblées depuis le prism.php
@@ -50,7 +54,19 @@ final class PrismApplication
         $metadata = $config->metadata ?? ($em instanceof EntityManager ? $em->getMetadataFactory() : throw new \InvalidArgumentException(\sprintf('%s does not expose its MetadataFactory: give it to PrismConfig(metadata: ...).', $em::class)));
         $migrations = $config->migrations;
 
-        $application = new Application('Prism', self::version());
+        // les commandes db:* administrent toute la base : en mode système (ADR 0014)
+        $context = $em instanceof EntityManager ? $em->getTenantContext() : null;
+        $application = null === $context ? new Application('Prism', self::version()) : new class('Prism', self::version(), $context) extends Application {
+            public function __construct(string $name, string $version, private readonly TenantContext $context)
+            {
+                parent::__construct($name, $version);
+            }
+
+            protected function doRunCommand(Command $command, InputInterface $input, OutputInterface $output): int
+            {
+                return $this->context->runAsSystem(fn (): int => parent::doRunCommand($command, $input, $output));
+            }
+        };
         $application->addCommands([
             new Orm\DatabaseCreateCommand($connection),
             new Orm\DatabaseDropCommand($connection, $migrations->environment),

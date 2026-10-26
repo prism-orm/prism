@@ -180,6 +180,99 @@ security:
 
 Sans `property`, le repository implémente `Prism\Bundle\Security\UserLoaderInterface`. Le hash d'un mot de passe est mis à niveau par le repository s'il implémente `PasswordUpgraderInterface`.
 
+## Multi-tenancy
+
+Une entité `#[Tenanted]` reçoit une colonne `tenant_id`, et **toute** lecture et écriture de Prism la filtre : `find()`, `findBy()`, le QueryBuilder typé, les relations paresseuses, le batch fetching, les collections, la pagination. Sans tenant, toute opération sur une entité tenantée lève une exception : il n'existe pas de mode « tous les tenants » implicite.
+
+```php
+#[Prism\Entity]
+#[Prism\Tenanted]
+final class Invoice
+{
+    // ...
+}
+```
+
+### Configurer
+
+```yaml
+prism:
+    tenancy:
+        type: integer          # integer, bigint ou uuid : la colonne tenant_id de toutes les entités
+        resolver:
+            header: X-Tenant-Id
+        # guard: log           # par défaut : exception en debug, log critique sinon
+```
+
+Le tenant d'une requête vient d'**une** de ces sources :
+
+| `resolver` | Source | Quand |
+| --- | --- | --- |
+| `header: X-Tenant-Id` | un en-tête | avant le firewall ; **uniquement derrière une passerelle qui pose l'en-tête elle-même** |
+| `subdomain: example.com` | `acme` dans `acme.example.com` | avant le firewall |
+| `user: true` | l'utilisateur connecté, qui implémente `TenantAwareUserInterface` | après le firewall |
+
+Un sous-domaine est un nom, pas un identifiant : un service `TenantLoader` fait la traduction (`loader: App\Tenancy\SlugLoader`). Sans `resolver`, l'application pose le tenant elle-même :
+
+```php
+public function __construct(private readonly StackTenantContext $tenants) {}
+
+// ...
+$this->tenants->setTenantId($company->getId());
+```
+
+Avec la stratégie `user`, l'entité utilisateur ne doit pas être tenantée : le firewall la charge avant que le tenant soit connu.
+
+### Changer de tenant, administrer
+
+```php
+$tenants->runAs(42, fn () => $reports->generate());                  // le tenant 42, le temps du callback
+$total = $tenants->runAsSystem(fn () => $invoices->count());          // tous les tenants, explicitement
+```
+
+À chaque changement de tenant, l'EntityManager est vidé : aucune entité ne passe d'un tenant à l'autre. **Les entités chargées avant un `runAs()` ou un `runAsSystem()` sont donc détachées ensuite** ; rechargez-les. S'il reste des modifications non flushées, le changement est refusé (`TenantSwitchException`) ; flushez avant d'entrer, et avant de sortir.
+
+Une relation entre deux entités de tenants différents est refusée au flush, même en mode système. Une ligne d'une entité `#[Tenanted(global: true)]` sans tenant est partagée : tous les tenants la lisent, seul le mode système l'écrit.
+
+Les commandes `db:*` s'exécutent en mode système : ce sont des outils d'administration de toute la base. Dans une migration de données, écrivez dans un `runAs()` par tenant.
+
+### SQL brut
+
+Le SQL que vous écrivez vous-même passe par une garde : une requête sur une table tenantée sans condition sur `tenant_id` est refusée en dev et en test, et journalisée en log critique en prod.
+
+```php
+$connection->executeQuery('SELECT id FROM invoice WHERE tenant_id = ? AND total > ?', [$tenantId, 1000]); // accepté
+$connection->executeQuery('SELECT id FROM invoice WHERE total > ?', [1000]);                            // refusé
+```
+
+En cas de doute, la garde refuse : sous-requête, `WITH`, `UNION`, `INSERT … SELECT` sur une table tenantée, `TRUNCATE`. Elle vérifie la présence de la condition, pas la valeur que vous liez. En mode système, elle laisse tout passer.
+
+### Filtres
+
+Un service qui implémente `EntityFilter` ajoute sa condition à chaque table d'entité, comme celle du tenant :
+
+```php
+final class ActiveCustomersFilter implements EntityFilter
+{
+    public function condition(ClassMetadata $metadata, FilterTarget $target): ?Expression
+    {
+        return Customer::class === $metadata->className ? $target->expr()->eq($target->column('active'), true) : null;
+    }
+}
+```
+
+Il est autoconfiguré (tag `prism.filter`) ; `name` et `entity_manager` dans le tag le nomment ou le limitent à un EntityManager. Le filtre du tenant, lui, ne se désactive pas.
+
+### Profiler et tests
+
+En dev, le panneau **Tenant** montre le tenant de la requête, comment il a été résolu, et les passages en `runAs()` et `runAsSystem()`.
+
+Dans un test, posez le tenant avant d'utiliser les entités :
+
+```php
+static::getContainer()->get(StackTenantContext::class)->setTenantId(1);
+```
+
 ## Profiler
 
 En dev, le panneau Prism montre les requêtes et leur durée, les **N+1 détectés avec la ligne de votre code qui les provoque**, les chargements par lot et les changesets de chaque flush. En prod, ni le panneau, ni l'enregistrement des requêtes, ni le détecteur n'existent.
@@ -236,4 +329,4 @@ final class OrderFactory extends Factory
 
 - Un type personnalisé convertit ses valeurs, mais ne sait pas encore déclarer sa colonne (`db:schema:create`).
 - Un EntityManager accepte une entité d'un autre EntityManager et l'interroge dans sa propre base ; le resolver des contrôleurs, `#[UniqueEntity]` et le test-pack choisissent, eux, le bon.
-- Multi-tenancy et audit arrivent en 0.8, la recherche vectorielle en 0.9.
+- L'audit arrive en 0.8, la recherche vectorielle en 0.9.
