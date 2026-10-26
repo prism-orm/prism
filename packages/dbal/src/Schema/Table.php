@@ -200,10 +200,7 @@ final class Table
      */
     public function withIndexOn(array $columns, bool $unique = false, ?string $name = null, ?string $whereNull = null): self
     {
-        // un index partiel ne prend pas le nom de l'index complet sur les mêmes colonnes
-        $named = null === $whereNull ? $columns : [...$columns, 'where ' . $whereNull . ' is null'];
-
-        return $this->withIndex(new Index($name ?? NameGenerator::generate($unique ? 'uniq' : 'idx', $this->name, $named), $columns, $unique, $whereNull));
+        return $this->withIndex(new Index($name ?? NameGenerator::index($this->name, $columns, $unique, $whereNull), $columns, $unique, $whereNull));
     }
 
     public function withoutIndex(string $name): self

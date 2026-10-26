@@ -11,6 +11,7 @@ use Prism\Dbal\Schema\Schema;
 /**
  * Crée un index ; nommé de façon déterministe (RG-01.7) sans nom explicite. Concurrently :
  * sans verrou des écritures sous PostgreSQL, hors transaction (RG-06.5) ; sans effet ailleurs.
+ * whereNull : index partiel, sur les lignes où cette colonne est NULL (RG-08.15, ADR 0015).
  *
  * @internal créée par MigrationBuilder
  */
@@ -25,18 +26,21 @@ final class CreateIndex implements SchemaOperation
         public readonly bool $unique = false,
         public readonly ?string $name = null,
         public readonly bool $concurrently = false,
+        public readonly ?string $whereNull = null,
     ) {
     }
 
     public function describe(): array
     {
         // concurrently seulement s'il est demandé : les checksums d'avant restent valables
-        return ['operation' => 'createIndex', 'table' => $this->table, 'columns' => $this->columns, 'unique' => $this->unique, 'name' => $this->name] + ($this->concurrently ? ['concurrently' => true] : []);
+        return ['operation' => 'createIndex', 'table' => $this->table, 'columns' => $this->columns, 'unique' => $this->unique, 'name' => $this->name]
+            + ($this->concurrently ? ['concurrently' => true] : [])
+            + (null === $this->whereNull ? [] : ['whereNull' => $this->whereNull]);
     }
 
     public function apply(Schema $schema): Schema
     {
-        return $schema->withTable($schema->getTable($this->table)->withIndexOn($this->columns, $this->unique, $this->name));
+        return $schema->withTable($schema->getTable($this->table)->withIndexOn($this->columns, $this->unique, $this->name, $this->whereNull));
     }
 
     /**
@@ -44,6 +48,6 @@ final class CreateIndex implements SchemaOperation
      */
     public function index(): Index
     {
-        return new Index($this->name ?? NameGenerator::generate($this->unique ? 'uniq' : 'idx', $this->table, $this->columns), $this->columns, $this->unique);
+        return new Index($this->name ?? NameGenerator::index($this->table, $this->columns, $this->unique, $this->whereNull), $this->columns, $this->unique, $this->whereNull);
     }
 }
