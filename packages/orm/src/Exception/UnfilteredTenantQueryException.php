@@ -21,4 +21,9 @@ final class UnfilteredTenantQueryException extends \RuntimeException implements 
     {
         return new self(\sprintf('The query uses the tenanted table "%s" in a form the TenantGuard cannot check (subquery, WITH…); filter it explicitly or run it in runAsSystem(): %s', $table, $sql));
     }
+
+    public static function truncate(string $table, string $sql): self
+    {
+        return new self(\sprintf('TRUNCATE empties the tenanted table "%s" for every tenant; run it in runAsSystem(): %s', $table, $sql));
+    }
 }
