@@ -93,7 +93,11 @@ interface EntityPersister
      */
     public function loadByJoinTable(string $table, string $ownerColumn, string $targetColumn, array $ownerIds, string $ownerType, array $orderBy = []): array;
 
-    public function countJoinTable(string $table, string $ownerColumn, mixed $ownerId, string $ownerType): int;
+    /**
+     * Nombre de lignes de cette entité liées au propriétaire $ownerId par la table pivot $table ;
+     * appelée sur le persister de la cible, pour que ses filtres s'appliquent.
+     */
+    public function countJoinTable(string $table, string $ownerColumn, string $targetColumn, mixed $ownerId, string $ownerType): int;
 
     /**
      * @param array<string, mixed>  $row   colonne → valeur de la base

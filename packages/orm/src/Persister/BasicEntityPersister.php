@@ -10,6 +10,9 @@ use Prism\Dbal\ParameterType;
 use Prism\Dbal\Query\Order;
 use Prism\Dbal\Query\QueryBuilder;
 use Prism\Orm\Exception\MappingException;
+use Prism\Orm\Filter\FilterCollection;
+use Prism\Orm\Filter\FilterOperation;
+use Prism\Orm\Filter\FilterTarget;
 use Prism\Orm\Id\GenerationStrategyResolver;
 use Prism\Orm\Id\IdentityGenerator;
 use Prism\Orm\Mapping\GenerationStrategy;
@@ -20,6 +23,9 @@ use Prism\Orm\Metadata\FieldMapping;
  * Écrit et lit les lignes d'une entité par le QueryBuilder du DBAL : noms cités, valeurs liées,
  * aucun SQL brut. Les lignes reçues et rendues contiennent des valeurs de la base.
  *
+ * Chaque lecture et chaque UPDATE ou DELETE porte la condition des filtres de l'EntityManager,
+ * dont celle du tenant (RG-08.2, ADR 0014) ; une table pivot n'en a pas, sa cible si.
+ *
  * @internal
  */
 final class BasicEntityPersister implements EntityPersister
@@ -27,12 +33,18 @@ final class BasicEntityPersister implements EntityPersister
     // colonne du propriétaire dans le résultat d'une jointure sur une table pivot
     private const string OWNER_ALIAS = 'prism_owner';
 
+    // alias de la table de l'entité jointe à une table pivot
+    private const string TARGET_ALIAS = 't';
+
     private readonly string $idColumn;
 
     /** @var array<string, ParameterType> type de liaison par colonne */
     private readonly array $bindings;
 
     private readonly bool $identity;
+
+    /** @var array<string, ParameterType> type de liaison de la colonne du tenant que ne porte aucun champ */
+    private readonly array $tenantBinding;
 
     /** @var array<string, FieldMapping> colonne de jointure de chaque relation possédée, typée comme l'identifiant visé */
     private readonly array $joins;
@@ -45,6 +57,7 @@ final class BasicEntityPersister implements EntityPersister
         private readonly Connection $connection,
         private readonly ClassMetadata $metadata,
         array $joinColumns = [],
+        private readonly FilterCollection $filters = new FilterCollection(),
     ) {
         $this->idColumn = $metadata->getIdField()->columnName;
         $bindings = [];
@@ -58,6 +71,9 @@ final class BasicEntityPersister implements EntityPersister
         }
         $this->joins = $joins;
         $this->bindings = $bindings;
+        // colonne du tenant que ne porte aucun champ : écrite à l'INSERT, jamais lue
+        $tenancy = $metadata->tenancy;
+        $this->tenantBinding = null === $tenancy || null !== $tenancy->field ? [] : [$tenancy->column => $connection->getTypeRegistry()->get($tenancy->type)->getBindingType()];
         $this->identity = GenerationStrategy::Identity === GenerationStrategyResolver::resolve($metadata->id->strategy, $connection->getPlatform());
     }
 
@@ -93,17 +109,17 @@ final class BasicEntityPersister implements EntityPersister
             $qb = $qb->set($column, $value, $this->binding($column, $value));
         }
 
-        return $this->whereKey($qb, $id, $version)->executeStatement();
+        return $this->filtered($this->whereKey($qb, $id, $version), FilterOperation::Write)->executeStatement();
     }
 
     public function delete(mixed $id, ?array $version = null): int
     {
-        return $this->whereKey($this->connection->createQueryBuilder()->delete($this->metadata->tableName), $id, $version)->executeStatement();
+        return $this->filtered($this->whereKey($this->connection->createQueryBuilder()->delete($this->metadata->tableName), $id, $version), FilterOperation::Write)->executeStatement();
     }
 
     public function loadById(mixed $id): ?array
     {
-        $row = $this->whereKey($this->select(), $id, null)->executeQuery()->fetchAssociative();
+        $row = $this->filtered($this->whereKey($this->select(), $id, null))->executeQuery()->fetchAssociative();
 
         return false === $row ? null : $row;
     }
@@ -120,7 +136,7 @@ final class BasicEntityPersister implements EntityPersister
      */
     public function loadBy(array $criteria, array $orderBy = [], ?int $limit = null, int $offset = 0): array
     {
-        $qb = $this->where($this->select(), $criteria);
+        $qb = $this->filtered($this->where($this->select(), $criteria));
         foreach ($orderBy as $field => $order) {
             $qb = $qb->addOrderBy($qb->column($this->field($field)->columnName), $order);
         }
@@ -136,14 +152,14 @@ final class BasicEntityPersister implements EntityPersister
     public function count(array $criteria = []): int
     {
         $qb = $this->connection->createQueryBuilder()->select('COUNT(*)')->from($this->metadata->tableName);
-        $count = $this->where($qb, $criteria)->executeQuery()->fetchOne();
+        $count = $this->filtered($this->where($qb, $criteria))->executeQuery()->fetchOne();
 
         return is_numeric($count) ? (int) $count : 0;
     }
 
     public function loadAfter(array $criteria, mixed $afterId, int $limit): array
     {
-        $qb = $this->where($this->select(), $criteria);
+        $qb = $this->filtered($this->where($this->select(), $criteria));
         $id = $qb->column($this->idColumn);
         if (null !== $afterId) {
             $qb = $qb->andWhere($qb->expr()->gt($id, $afterId, $this->bindings[$this->idColumn]));
@@ -157,19 +173,20 @@ final class BasicEntityPersister implements EntityPersister
         $qb = $this->connection->createQueryBuilder();
         $qb = $qb->select($qb->column($this->idColumn))->from($this->metadata->tableName);
 
-        return false !== $this->whereKey($qb, $id, null)->lock($mode)->executeQuery()->fetchOne();
+        return false !== $this->filtered($this->whereKey($qb, $id, null))->lock($mode)->executeQuery()->fetchOne();
     }
 
     public function loadByJoinTable(string $table, string $ownerColumn, string $targetColumn, array $ownerIds, string $ownerType, array $orderBy = []): array
     {
         $qb = $this->connection->createQueryBuilder();
         $owner = $this->connection->getPlatform()->quoteIdentifier(self::OWNER_ALIAS);
-        $qb = $qb->select($qb->column($ownerColumn, 'p') . ' AS ' . $owner, ...array_map(static fn (string $column): string => $qb->column($column, 't'), array_keys($this->bindings)))
-            ->from($this->metadata->tableName, 't')
-            ->join($table, 'p', $qb->column($targetColumn, 'p') . ' = ' . $qb->column($this->idColumn, 't'));
-        $qb = $qb->where($qb->expr()->in($qb->column($ownerColumn, 'p'), $ownerIds, $this->bindingOf($ownerType)));
+        $t = self::TARGET_ALIAS;
+        $qb = $qb->select($qb->column($ownerColumn, 'p') . ' AS ' . $owner, ...array_map(static fn (string $column): string => $qb->column($column, $t), array_keys($this->bindings)))
+            ->from($this->metadata->tableName, $t)
+            ->join($table, 'p', $qb->column($targetColumn, 'p') . ' = ' . $qb->column($this->idColumn, $t));
+        $qb = $this->filtered($qb->where($qb->expr()->in($qb->column($ownerColumn, 'p'), $ownerIds, $this->bindingOf($ownerType))), alias: $t);
         foreach ($orderBy as $field => $order) {
-            $qb = $qb->addOrderBy($qb->column($this->field($field)->columnName, 't'), $order);
+            $qb = $qb->addOrderBy($qb->column($this->field($field)->columnName, $t), $order);
         }
 
         $rows = [];
@@ -182,10 +199,16 @@ final class BasicEntityPersister implements EntityPersister
         return $rows;
     }
 
-    public function countJoinTable(string $table, string $ownerColumn, mixed $ownerId, string $ownerType): int
+    public function countJoinTable(string $table, string $ownerColumn, string $targetColumn, mixed $ownerId, string $ownerType): int
     {
         $qb = $this->connection->createQueryBuilder();
-        $count = $qb->select('COUNT(*)')->from($table)->where($qb->expr()->eq($qb->column($ownerColumn), $ownerId, $this->bindingOf($ownerType)))->executeQuery()->fetchOne();
+        $condition = $this->filters->condition($this->metadata, new FilterTarget($qb, self::TARGET_ALIAS));
+        $qb = $qb->select('COUNT(*)')->from($table, 'p')->where($qb->expr()->eq($qb->column($ownerColumn, 'p'), $ownerId, $this->bindingOf($ownerType)));
+        if (null !== $condition) {
+            // une cible filtrée : seules ses lignes visibles comptent
+            $qb = $qb->join($this->metadata->tableName, self::TARGET_ALIAS, $qb->column($this->idColumn, self::TARGET_ALIAS) . ' = ' . $qb->column($targetColumn, 'p'))->andWhere($condition);
+        }
+        $count = $qb->executeQuery()->fetchOne();
 
         return is_numeric($count) ? (int) $count : 0;
     }
@@ -207,6 +230,16 @@ final class BasicEntityPersister implements EntityPersister
         }
 
         return $qb->executeStatement();
+    }
+
+    /**
+     * Conditions des filtres sur la table de l'entité, sans alias sauf jointure.
+     */
+    private function filtered(QueryBuilder $qb, FilterOperation $operation = FilterOperation::Read, ?string $alias = null): QueryBuilder
+    {
+        $condition = $this->filters->condition($this->metadata, new FilterTarget($qb, $alias, $operation));
+
+        return null === $condition ? $qb : $qb->andWhere($condition);
     }
 
     private function bindingOf(string $type): ParameterType
@@ -280,6 +313,6 @@ final class BasicEntityPersister implements EntityPersister
 
     private function binding(string $column, mixed $value): ParameterType
     {
-        return null === $value ? ParameterType::Null : ($this->bindings[$column] ?? ParameterType::String);
+        return null === $value ? ParameterType::Null : ($this->bindings[$column] ?? $this->tenantBinding[$column] ?? ParameterType::String);
     }
 }

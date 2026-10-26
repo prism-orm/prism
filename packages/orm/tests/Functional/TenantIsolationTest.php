@@ -248,16 +248,16 @@ final class TenantIsolationTest extends MappingSchemaTestCase
         self::assertSame($this->idsNamed('A.f1', 'A.f2', 'A.only', 'A.f9'), $ids);
     }
 
-    // scénario 8 : la ligne est passée chez B entre la lecture et le refresh
+    // scénario 8 : la ligne est passée chez B entre la lecture et le refresh (F-A-only : sans homonyme chez B)
     public function testRefreshOfARowMovedToAnotherTenant(): void
     {
-        $f2 = $this->em->find(Invoice::class, $this->ids['A.f2']);
-        self::assertNotNull($f2);
-        $this->context->runAsSystem(fn () => $this->update('tenant_invoice', $this->ids['A.f2'], 'tenant_id', self::B));
+        $only = $this->em->find(Invoice::class, $this->ids['A.only']);
+        self::assertNotNull($only);
+        $this->context->runAsSystem(fn () => $this->update('tenant_invoice', $this->ids['A.only'], 'tenant_id', self::B));
 
         $this->expectException(EntityNotFoundException::class);
 
-        $this->em->refresh($f2);
+        $this->em->refresh($only);
     }
 
     // ----- relations et chargement paresseux -----
@@ -429,20 +429,21 @@ final class TenantIsolationTest extends MappingSchemaTestCase
         self::assertSame(self::A, $this->em->find(Contract::class, $contract->id)?->tenantId);
     }
 
-    // scénario 25 : la ligne passée chez B n'est ni modifiée ni supprimée (sans #[Version] : sans exception)
+    // scénario 25 : la ligne passée chez B n'est ni modifiée ni supprimée (sans #[Version] : sans exception) ;
+    // F-A-only : sans homonyme chez B, l'unicité par tenant (RG-08.1) laisse la déplacer
     public function testWritesNeverTouchAnotherTenantsRow(): void
     {
-        $f2 = $this->em->find(Invoice::class, $this->ids['A.f2']);
-        self::assertNotNull($f2);
-        $this->context->runAsSystem(fn () => $this->update('tenant_invoice', $this->ids['A.f2'], 'tenant_id', self::B));
+        $only = $this->em->find(Invoice::class, $this->ids['A.only']);
+        self::assertNotNull($only);
+        $this->context->runAsSystem(fn () => $this->update('tenant_invoice', $this->ids['A.only'], 'tenant_id', self::B));
 
-        $f2->amount = 999;
+        $only->amount = 999;
         $this->em->flush();
-        self::assertSame(20, $this->raw('tenant_invoice', $this->ids['A.f2'], 'amount'));
+        self::assertSame(5, $this->raw('tenant_invoice', $this->ids['A.only'], 'amount'));
 
-        $this->em->remove($f2);
+        $this->em->remove($only);
         $this->em->flush();
-        self::assertSame(self::B, $this->raw('tenant_invoice', $this->ids['A.f2'], 'tenant_id'), 'still there');
+        self::assertSame(self::B, $this->raw('tenant_invoice', $this->ids['A.only'], 'tenant_id'), 'still there');
     }
 
     // scénario 26 : RG-08.6, refusé même en mode système ; rien n'est écrit
