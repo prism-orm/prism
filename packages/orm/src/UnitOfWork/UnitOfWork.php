@@ -37,6 +37,7 @@ use Prism\Orm\Exception\OptimisticLockException;
 use Prism\Orm\Exception\OrphanReattachedException;
 use Prism\Orm\Exception\ReentrantFlushException;
 use Prism\Orm\Exception\TenantMismatchException;
+use Prism\Orm\Exception\TenantSwitchException;
 use Prism\Orm\Exception\TransactionRequiredException;
 use Prism\Orm\Exception\UnpersistedRelationException;
 use Prism\Orm\Hydrator\ObjectHydrator;
@@ -54,6 +55,8 @@ use Prism\Orm\Metadata\MetadataFactory;
 use Prism\Orm\Persister\PersisterProvider;
 use Prism\Orm\Tenancy\StackTenantContext;
 use Prism\Orm\Tenancy\TenantContext;
+use Prism\Orm\Tenancy\TenantScope;
+use Prism\Orm\Tenancy\TenantSwitchListener;
 use Psr\EventDispatcher\EventDispatcherInterface;
 
 /**
@@ -87,7 +90,7 @@ use Psr\EventDispatcher\EventDispatcherInterface;
  *
  * @api
  */
-final class UnitOfWork
+final class UnitOfWork implements TenantSwitchListener
 {
     /** @var array<int, EntityState> */
     private array $states = [];
@@ -179,6 +182,7 @@ final class UnitOfWork
     ) {
         // sans contexte, une entité #[Tenanted] n'a jamais de tenant (RG-08.4)
         $this->tenants = $tenants ?? new StackTenantContext();
+        $this->tenants->addSwitchListener($this);
         $this->batch = new BatchLoader($batchSize);
         $this->detached = new \WeakMap();
         $this->hydrator = new ObjectHydrator($conversion, $types);
@@ -689,6 +693,9 @@ final class UnitOfWork
      * @throws UnpersistedRelationException entité NEW atteinte sans cascade: persist (RG-04.2)
      * @throws CyclicDependencyException    cycle de FK obligatoires (RG-04.4)
      * @throws OrphanReattachedException    orphelin rattaché à un autre parent (RG-04.5)
+     * @throws MissingTenantException       entité #[Tenanted] à écrire sans tenant (RG-08.4)
+     * @throws TenantMismatchException      tenant d'un autre, ou changé (RG-08.3)
+     * @throws CrossTenantRelationException relation entre deux tenants (RG-08.6)
      */
     public function commit(): void
     {
@@ -718,6 +725,37 @@ final class UnitOfWork
         } finally {
             $this->flushing = false;
         }
+    }
+
+    /**
+     * RG-08.8 : aucune entité ne passe d'un tenant à l'autre. Sans changement en attente,
+     * l'identity map est vidée ; avec, le changement est refusé à l'entrée, et les changements
+     * abandonnés à la sortie d'un runAs() (ADR 0014).
+     *
+     * @throws TenantSwitchException
+     */
+    public function switching(TenantScope $from, TenantScope $to, bool $leaving): void
+    {
+        if ([] === $this->entities && [] === $this->insertions) {
+            return;
+        }
+        if ($this->hasPendingChanges()) {
+            if (!$leaving) {
+                throw TenantSwitchException::pendingChanges($from, $to);
+            }
+            $this->clear();
+
+            throw TenantSwitchException::discarded($from, $to);
+        }
+        $this->clear();
+    }
+
+    /**
+     * Vrai si un flush écrirait quelque chose (calculé à l'appel, comme un flush).
+     */
+    public function hasPendingChanges(): bool
+    {
+        return [] !== $this->insertions || [] !== $this->deletions || [] !== $this->pendingUpdates() || [] !== $this->pendingCollections();
     }
 
     /**
