@@ -141,7 +141,7 @@ final class InMemoryPersister implements EntityPersister
         }, $rows);
     }
 
-    public function countJoinTable(string $table, string $ownerColumn, mixed $ownerId, string $ownerType): int
+    public function countJoinTable(string $table, string $ownerColumn, string $targetColumn, mixed $ownerId, string $ownerType): int
     {
         $this->storage->log[] = ['COUNT', $table, []];
 

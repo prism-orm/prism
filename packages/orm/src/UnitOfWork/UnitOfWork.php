@@ -31,9 +31,11 @@ use Prism\Orm\Exception\EntityNotFoundException;
 use Prism\Orm\Exception\InvalidArgumentException;
 use Prism\Orm\Exception\InvalidEntityStateException;
 use Prism\Orm\Exception\MappingException;
+use Prism\Orm\Exception\MissingTenantException;
 use Prism\Orm\Exception\OptimisticLockException;
 use Prism\Orm\Exception\OrphanReattachedException;
 use Prism\Orm\Exception\ReentrantFlushException;
+use Prism\Orm\Exception\TenantMismatchException;
 use Prism\Orm\Exception\TransactionRequiredException;
 use Prism\Orm\Exception\UnpersistedRelationException;
 use Prism\Orm\Hydrator\ObjectHydrator;
@@ -49,6 +51,8 @@ use Prism\Orm\Metadata\ClassMetadata;
 use Prism\Orm\Metadata\FieldMapping;
 use Prism\Orm\Metadata\MetadataFactory;
 use Prism\Orm\Persister\PersisterProvider;
+use Prism\Orm\Tenancy\StackTenantContext;
+use Prism\Orm\Tenancy\TenantContext;
 use Psr\EventDispatcher\EventDispatcherInterface;
 
 /**
@@ -154,6 +158,11 @@ final class UnitOfWork
     /** @var array<class-string, array<string, array{array<string, mixed>, Cohort}>> lignes chargées par lot, en attente de leur ghost */
     private array $prefetched = [];
 
+    private readonly TenantContext $tenants;
+
+    /** @var array<class-string, FieldMapping> colonne du tenant de chaque entité #[Tenanted], typée */
+    private array $tenantFields = [];
+
     public function __construct(
         private readonly MetadataFactory $metadata,
         private readonly PersisterProvider $persisters,
@@ -162,7 +171,10 @@ final class UnitOfWork
         ?EventDispatcherInterface $events = null,
         ?EntityListenerResolver $listeners = null,
         int $batchSize = 100,
+        ?TenantContext $tenants = null,
     ) {
+        // sans contexte, une entité #[Tenanted] n'a jamais de tenant (RG-08.4)
+        $this->tenants = $tenants ?? new StackTenantContext();
         $this->batch = new BatchLoader($batchSize);
         $this->detached = new \WeakMap();
         $this->hydrator = new ObjectHydrator($conversion, $types);
@@ -753,6 +765,10 @@ final class UnitOfWork
             });
         } catch (\Throwable $e) {
             foreach (array_reverse($written) as [$entity, $property, $value]) {
+                // une propriété non initialisée et non nullable ne peut pas le redevenir
+                if (null === $value && false === $property->getType()?->allowsNull()) {
+                    continue;
+                }
                 $property->setValue($entity, $value);
             }
 
@@ -799,6 +815,7 @@ final class UnitOfWork
             foreach ($nulled[$oid] ?? [] as $column) {
                 $row[$column] = null;
             }
+            $row = $this->withTenant($metadata, $entity, $row, $written);
             $identity = $this->persisters->getPersister($metadata)->insert($row);
             if (null !== $identity) {
                 $this->write($entity, $idField->fieldName, $this->toPhp($idField, $identity), $written);
@@ -836,6 +853,7 @@ final class UnitOfWork
             if ([] === $changes) {
                 continue;
             }
+            $this->assertTenantUnchanged($metadata, $oid, $changes);
 
             $version = null;
             if (null !== $metadata->versionField) {
@@ -1102,6 +1120,81 @@ final class UnitOfWork
         $fraction = $m[2] ?? '';
 
         return \strlen($fraction) >= $scale ? $value : $m[1] . '.' . str_pad($fraction, $scale, '0');
+    }
+
+    /**
+     * RG-08.3, RG-08.4 : la colonne du tenant d'une ligne à insérer, depuis le TenantContext ;
+     * une propriété du tenant est remplie. En mode système, seule une propriété remplie, ou une
+     * entité global (ligne partagée, NULL), donne le tenant (ADR 0014).
+     *
+     * @param ClassMetadata<object>                           $metadata
+     * @param array<string, mixed>                            $row
+     * @param list<array{object, \ReflectionProperty, mixed}> $written
+     *
+     * @return array<string, mixed>
+     *
+     * @throws MissingTenantException
+     * @throws TenantMismatchException
+     */
+    private function withTenant(ClassMetadata $metadata, object $entity, array $row, array &$written): array
+    {
+        $tenancy = $metadata->tenancy;
+        if (null === $tenancy) {
+            return $row;
+        }
+        $field = $this->tenantField($metadata);
+        $given = $row[$tenancy->column] ?? null;
+
+        if ($this->tenants->isSystem()) {
+            if (null === $given && !$tenancy->global) {
+                throw MissingTenantException::inSystemMode($metadata->className);
+            }
+            $value = $given;
+        } else {
+            $current = $this->tenants->getTenantId() ?? throw MissingTenantException::forEntity($metadata->className);
+            $value = $this->toDatabase($field, $current);
+            if (null !== $given && $given !== $value) {
+                throw TenantMismatchException::forEntity($entity, (string) $tenancy->field, $current, $this->toPhp($field, $given));
+            }
+        }
+
+        if (null !== $tenancy->field) {
+            $this->write($entity, $tenancy->field, $this->toPhp($field, $value), $written);
+        }
+        $row[$tenancy->column] = $value;
+
+        return $row;
+    }
+
+    /**
+     * Le tenant d'une ligne ne change jamais par l'ORM, même en mode système (ADR 0014).
+     *
+     * @param ClassMetadata<object> $metadata
+     * @param array<string, mixed>  $changes
+     *
+     * @throws TenantMismatchException
+     */
+    private function assertTenantUnchanged(ClassMetadata $metadata, int $oid, array $changes): void
+    {
+        $tenancy = $metadata->tenancy;
+        if (null === $tenancy?->field || !\array_key_exists($tenancy->column, $changes)) {
+            return;
+        }
+        $field = $this->tenantField($metadata);
+
+        throw TenantMismatchException::changed($this->entities[$oid] ?? throw new \LogicException('Unknown entity.'), $tenancy->field, $this->toPhp($field, $this->snapshots[$oid][$tenancy->column] ?? null), $this->toPhp($field, $changes[$tenancy->column]));
+    }
+
+    /**
+     * @param ClassMetadata<object> $metadata
+     */
+    private function tenantField(ClassMetadata $metadata): FieldMapping
+    {
+        $tenancy = $metadata->tenancy ?? throw new \LogicException(\sprintf('%s is not #[Tenanted].', $metadata->className));
+
+        return $this->tenantFields[$metadata->className] ??= null !== $tenancy->field
+            ? $metadata->getField($tenancy->field)
+            : new FieldMapping('tenant', $tenancy->column, $tenancy->type, $tenancy->global);
     }
 
     /**
@@ -1588,9 +1681,10 @@ final class UnitOfWork
         if (AssociationType::OneToMany === $association->type) {
             return $this->count($association->targetEntity, [(string) $association->mappedBy => $owner]);
         }
-        [$table, $ownerColumn] = $this->joinTableOf($association);
+        [$table, $ownerColumn, $targetColumn] = $this->joinTableOf($association);
 
-        return $this->persisters->getPersister($metadata)->countJoinTable($table, $ownerColumn, $this->currentId($metadata, $owner), $metadata->getIdField()->type);
+        // compté par la cible : ses filtres s'appliquent (RG-08.2)
+        return $this->persisters->getPersister($this->metadata->getMetadataFor($association->targetEntity))->countJoinTable($table, $ownerColumn, $targetColumn, $this->currentId($metadata, $owner), $metadata->getIdField()->type);
     }
 
     /**

@@ -57,7 +57,7 @@ final class EntityManager implements EntityManagerInterface
         $this->filters = new FilterCollection();
         $this->filters->add(TenantFilter::NAME, new TenantFilter($this->tenantContext), locked: true);
         $this->metadata = $metadata ?? new MetadataFactory(new AttributeDriver(), types: $connection->getTypeRegistry());
-        $this->unitOfWork = new UnitOfWork($this->metadata, new DbalPersisterProvider($connection, $this->metadata), $connection->getConversionContext(), $connection->getTypeRegistry(), $events, $listeners, $batchSize);
+        $this->unitOfWork = new UnitOfWork($this->metadata, new DbalPersisterProvider($connection, $this->metadata, $this->filters), $connection->getConversionContext(), $connection->getTypeRegistry(), $events, $listeners, $batchSize, $this->tenantContext);
     }
 
     public function persist(object $entity): void
