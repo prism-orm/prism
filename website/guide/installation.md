@@ -1,0 +1,109 @@
+# Installation
+
+Prism needs PHP 8.4 or later with the PDO driver of your database (`pdo_mysql`, `pdo_pgsql` or `pdo_sqlite`). The supported database versions are listed in the [requirements](/guide/introduction#requirements).
+
+## In a Symfony application
+
+Prism replaces Doctrine in a Symfony 7.4 or 8 application:
+
+```bash
+composer require prism-orm/bundle
+```
+
+With Symfony Flex and the Prism recipe, this registers the bundle, creates `config/packages/prism.yaml`, the `src/Entity/` and `migrations/` directories, and adds `DATABASE_URL` to `.env`. Without the recipe, register the bundle yourself:
+
+```php
+// config/bundles.php
+return [
+    // ...
+    Prism\Bundle\PrismBundle::class => ['all' => true],
+];
+```
+
+Without a `prism.yaml` file, Prism reads `DATABASE_URL` and maps the entities of `src/Entity/`.
+
+The development tools are separate packages:
+
+```bash
+composer require --dev symfony/maker-bundle prism-orm/test-pack
+```
+
+`symfony/maker-bundle` brings `make:entity` and `make:migration` for Prism, and `prism-orm/test-pack` the factories and database helpers for your tests.
+
+## Without Symfony
+
+Install the ORM and the migrations package, which provides the `vendor/bin/prism` console:
+
+```bash
+composer require prism-orm/orm prism-orm/migrations
+```
+
+Create a `prism.php` file at the root of your project. It returns the `EntityManager` that your code and the console share:
+
+```php
+<?php // prism.php
+
+declare(strict_types=1);
+
+use Prism\Dbal\DriverManager;
+use Prism\Orm\EntityManager;
+use Prism\Orm\Metadata\Driver\AttributeDriver;
+use Prism\Orm\Metadata\MetadataFactory;
+
+return new EntityManager(
+    DriverManager::fromUrl((string) getenv('DATABASE_URL')),
+    new MetadataFactory(new AttributeDriver([__DIR__ . '/src/Entity'])),
+);
+```
+
+Check that the console finds it:
+
+```console
+$ vendor/bin/prism list db
+```
+
+## The database URL
+
+Prism reads the same URL format as Symfony. `serverVersion` is required: it selects the SQL dialect without connecting first.
+
+```dotenv
+DATABASE_URL="postgresql://app:!ChangeMe!@127.0.0.1:5432/app?serverVersion=16"
+DATABASE_URL="mysql://app:!ChangeMe!@127.0.0.1:3306/app?serverVersion=8.4"
+DATABASE_URL="mysql://app:!ChangeMe!@127.0.0.1:3306/app?serverVersion=11.8.0-MariaDB"
+DATABASE_URL="sqlite:///%kernel.project_dir%/var/app.db?serverVersion=3.46.0"
+```
+
+Create the database if it does not exist yet:
+
+::: code-group
+
+```console [Symfony]
+$ bin/console db:database:create
+```
+
+```console [Without Symfony]
+$ vendor/bin/prism db:database:create
+```
+
+:::
+
+## PHPStan
+
+The PHPStan extension checks your queries and repository calls during analysis:
+
+```bash
+composer require --dev prism-orm/phpstan phpstan/extension-installer
+```
+
+With `phpstan/extension-installer`, the extension loads automatically. It reads the generated metamodel; in a Symfony application, tell it where the metamodel of your entity manager is:
+
+```neon
+# phpstan.neon
+parameters:
+    prism:
+        metamodelDir: %currentWorkingDirectory%/var/cache/dev/prism/metamodel/default
+```
+
+## Next
+
+[Create your first entity →](/guide/getting-started)

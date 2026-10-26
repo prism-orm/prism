@@ -31,8 +31,9 @@ use Symfony\Component\Console\Style\SymfonyStyle;
 
 /**
  * RG-10.3 : chaque bloc PHP des pages du site s'exécute sur la base de test, sur les 4 bases,
- * dans son propre processus, sur les données de la démo ERP (app:seed, 2 sociétés). Un bloc
- * marqué no-run n'est que vérifié en syntaxe (CodeBlocksTest).
+ * dans son propre processus, sur les données de la démo ERP (app:seed, 2 sociétés). Une page
+ * « examples: sequence » exécute ses blocs à la suite, dans un seul processus. Un bloc marqué
+ * no-run n'est que vérifié en syntaxe (CodeBlocksTest).
  */
 final class ExamplesTest extends TestCase
 {
@@ -90,10 +91,19 @@ final class ExamplesTest extends TestCase
      */
     public static function examples(): iterable
     {
+        $sequences = [];
         foreach (DocPages::codeBlocks('php') as $block) {
-            if ($block->runs()) {
-                yield $block->name() => [$block];
+            if (!$block->runs()) {
+                continue;
             }
+            if (DocPages::isSequence($block->file)) {
+                $sequences[$block->file][] = $block;
+                continue;
+            }
+            yield $block->name() => [$block];
+        }
+        foreach ($sequences as $file => $blocks) {
+            yield $file . ' (sequence)' => [ExampleScript::combine($blocks)];
         }
     }
 

@@ -59,6 +59,15 @@ final class DocPages
     }
 
     /**
+     * « examples: sequence » dans le frontmatter : les blocs PHP de la page s'exécutent à la suite,
+     * dans un même processus (un guide pas à pas), au lieu d'un processus par bloc.
+     */
+    public static function isSequence(string $file): bool
+    {
+        return 1 === preg_match('/\A---\n(?:.*\n)*?examples:\s*sequence\s*\n(?:.*\n)*?---\n/', self::read($file));
+    }
+
+    /**
      * Les blocs d'un langage dans toutes les pages, dans l'ordre des fichiers puis des lignes.
      *
      * @return list<CodeBlock>

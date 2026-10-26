@@ -80,6 +80,28 @@ final class CodeBlocksTest extends TestCase
         self::assertSame(1, substr_count($script, 'declare(strict_types=1)'));
     }
 
+    public function testNamespaceAliasIsNotImportedOverAFullName(): void
+    {
+        $script = ExampleScript::render(new CodeBlock('page.md', 1, 'php', [], "return [Prism\\Bundle\\PrismBundle::class => ['all' => true]];"));
+
+        self::assertStringNotContainsString('use Prism\\Orm\\Mapping as Prism;', $script);
+    }
+
+    public function testCombineRunsTheBlocksOfASequenceAsOneScript(): void
+    {
+        $combined = ExampleScript::combine([
+            new CodeBlock('guide.md', 3, 'php', [], "<?php\n\nnamespace App\\Entity;\n\nuse Prism\\Orm\\Mapping as Prism;\n\n#[Prism\\Entity]\nfinal class Post\n{\n    use Timestamps;\n}"),
+            new CodeBlock('guide.md', 20, 'php', [], "use Prism\\Orm\\Mapping as Prism;\n\n\$post = new Post();"),
+        ]);
+        $script = ExampleScript::render($combined);
+
+        self::assertSame(['guide.md', 3], [$combined->file, $combined->line]);
+        self::assertSame(1, substr_count($script, 'namespace App\\Entity;'));
+        self::assertSame(1, substr_count($script, 'use Prism\\Orm\\Mapping as Prism;'));
+        self::assertStringContainsString("    use Timestamps;\n", $script, 'a trait stays in its class');
+        self::assertLessThan(strpos($script, '$post = new Post();'), strpos($script, 'final class Post'));
+    }
+
     public function testNoRunFragmentsMayBeClassMembers(): void
     {
         $member = 'public function __construct(private EntityManagerInterface $em) {}';

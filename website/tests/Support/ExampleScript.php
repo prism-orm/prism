@@ -51,6 +51,16 @@ final class ExampleScript
             if (\in_array($short, $taken, true) || 1 !== preg_match('/(?<![\w\\\\$>:])' . preg_quote($short, '/') . '\b/', $code)) {
                 continue;
             }
+            // un alias d'espace de noms (Prism → Prism\Orm\Mapping) seulement si chaque Prism\X en est une classe :
+            // Prism\Bundle\PrismBundle::class reste un nom complet
+            if (!class_exists($class) && !interface_exists($class) && !enum_exists($class)) {
+                preg_match_all('/(?<![\w\\\\$>:])' . preg_quote($short, '/') . '\\\\(\w+)(\\\\)?/', $code, $qualified, \PREG_SET_ORDER | \PREG_UNMATCHED_AS_NULL);
+                foreach ($qualified as $name) {
+                    if (null !== $name[2] || !class_exists($class . '\\' . $name[1])) {
+                        continue 2;
+                    }
+                }
+            }
             $imports[] = 'use ' . $class . (SourceClasses::shortName($class) === $short ? '' : ' as ' . $short) . ';';
         }
         sort($imports);
@@ -59,6 +69,39 @@ final class ExampleScript
             . (null === $namespace ? '' : 'namespace ' . $namespace . ";\n\n")
             . ([] === $imports ? '' : implode("\n", $imports) . "\n\n")
             . trim($code, "\n") . "\n";
+    }
+
+    /**
+     * Les blocs exécutables d'une page en séquence, réunis en un seul : chacun perd son ouverture,
+     * son declare et son espace de noms (un seul pour la page), ses « use » remontent en tête.
+     *
+     * @param non-empty-list<CodeBlock> $blocks
+     */
+    public static function combine(array $blocks): CodeBlock
+    {
+        $namespaces = [];
+        $uses = [];
+        $parts = [];
+        foreach ($blocks as $block) {
+            $code = (string) preg_replace('/^\s*<\?php\b[ \t]*/', '', $block->code);
+            $code = (string) preg_replace('/^\s*declare\s*\(\s*strict_types\s*=\s*1\s*\)\s*;\s*$/m', '', $code);
+            if (1 === preg_match('/^\s*namespace\s+([\w\\\\]+)\s*;\s*$/m', $code, $m)) {
+                $namespaces[] = $m[1];
+                $code = (string) preg_replace('/^\s*namespace\s+[\w\\\\]+\s*;\s*$/m', '', $code, 1);
+            }
+            // les imports seulement, en début de ligne ; un « use » de trait est indenté dans sa classe
+            preg_match_all('/^use\s+[\w\\\\]+(?:\s+as\s+\w+)?\s*;\s*$/m', $code, $m);
+            array_push($uses, ...array_map('trim', $m[0]));
+            $code = (string) preg_replace('/^use\s+[\w\\\\]+(?:\s+as\s+\w+)?\s*;\s*$/m', '', $code);
+            $parts[] = '// ' . $block->name() . "\n" . trim($code, "\n");
+        }
+        $namespaces = array_values(array_unique($namespaces));
+        if (\count($namespaces) > 1) {
+            throw new \LogicException(\sprintf('%s: the blocks of a sequence share one namespace, not %s.', $blocks[0]->file, implode(', ', $namespaces)));
+        }
+        $head = [...([] === $namespaces ? [] : ['namespace ' . $namespaces[0] . ';']), ...array_values(array_unique($uses))];
+
+        return new CodeBlock($blocks[0]->file, $blocks[0]->line, 'php', [], implode("\n\n", [...([] === $head ? [] : [implode("\n", $head)]), ...$parts]));
     }
 
     /**

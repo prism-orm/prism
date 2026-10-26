@@ -36,10 +36,19 @@ export default defineConfig({
     themeConfig: {
         logo: '/logo.svg',
         nav: [
-            { text: 'Symfony', link: '/bundle/symfony' },
-            { text: 'Commands', link: '/bundle/commands' },
+            { text: 'Guide', link: '/guide/introduction', activeMatch: '^/guide/' },
+            { text: 'Symfony', link: '/bundle/symfony', activeMatch: '^/bundle/symfony' },
+            { text: 'Commands', link: '/bundle/commands', activeMatch: '^/bundle/commands' },
         ],
         sidebar: [
+            {
+                text: 'Getting started',
+                items: [
+                    { text: 'What is Prism?', link: '/guide/introduction' },
+                    { text: 'Installation', link: '/guide/installation' },
+                    { text: 'Your first entity', link: '/guide/getting-started' },
+                ],
+            },
             {
                 text: 'Symfony',
                 items: [
@@ -61,6 +70,8 @@ export default defineConfig({
     },
 
     vite: {
+        // srcDir est la racine du monorepo : les fichiers statiques restent dans website/public
+        publicDir: fileURLToPath(new URL('../public', import.meta.url)),
         resolve: {
             // une page de packages/ ne voit pas website/node_modules en remontant les dossiers
             alias: { vue: fileURLToPath(new URL('../node_modules/vue', import.meta.url)) },
