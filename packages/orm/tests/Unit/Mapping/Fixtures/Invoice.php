@@ -60,7 +60,7 @@ final class Invoice
     public ?\DateTimeImmutable $updatedAt = null;
 
     #[Prism\Column(length: 120)]
-    public string $createdBy = '';
+    public ?string $createdBy = null;
 
     #[Prism\Column(length: 120, nullable: true)]
     public ?string $updatedBy = null;

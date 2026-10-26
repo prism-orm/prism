@@ -6,6 +6,7 @@ namespace Prism\Orm;
 
 use Prism\Dbal\Connection;
 use Prism\Dbal\LockMode;
+use Prism\Orm\Behavior\ActorProvider;
 use Prism\Orm\Event\EntityListenerResolver;
 use Prism\Orm\Exception\MappingException;
 use Prism\Orm\Filter\FilterCollection;
@@ -19,6 +20,7 @@ use Prism\Orm\Tenancy\StackTenantContext;
 use Prism\Orm\Tenancy\TenantContext;
 use Prism\Orm\Tenancy\TenantFilter;
 use Prism\Orm\UnitOfWork\UnitOfWork;
+use Psr\Clock\ClockInterface;
 use Psr\EventDispatcher\EventDispatcherInterface;
 
 /**
@@ -53,13 +55,15 @@ final class EntityManager implements EntityManagerInterface
         int $batchSize = 100,
         ?TenantContext $tenantContext = null,
         ?FilterCollection $filters = null,
+        ?ClockInterface $clock = null,
+        ?ActorProvider $actorProvider = null,
     ) {
         $this->tenantContext = $tenantContext ?? new StackTenantContext();
         // les filtres de l'application d'abord ; celui du tenant, verrouillé, toujours présent
         $this->filters = $filters ?? new FilterCollection();
         $this->filters->add(TenantFilter::NAME, new TenantFilter($this->tenantContext), locked: true);
         $this->metadata = $metadata ?? new MetadataFactory(new AttributeDriver(), types: $connection->getTypeRegistry());
-        $this->unitOfWork = new UnitOfWork($this->metadata, new DbalPersisterProvider($connection, $this->metadata, $this->filters), $connection->getConversionContext(), $connection->getTypeRegistry(), $events, $listeners, $batchSize, $this->tenantContext);
+        $this->unitOfWork = new UnitOfWork($this->metadata, new DbalPersisterProvider($connection, $this->metadata, $this->filters), $connection->getConversionContext(), $connection->getTypeRegistry(), $events, $listeners, $batchSize, $this->tenantContext, $clock, $actorProvider);
     }
 
     public function persist(object $entity): void

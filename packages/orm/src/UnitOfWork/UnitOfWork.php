@@ -8,6 +8,8 @@ use Prism\Dbal\LockMode;
 use Prism\Dbal\Query\Order;
 use Prism\Dbal\Type\ConversionContext;
 use Prism\Dbal\Type\TypeRegistry;
+use Prism\Orm\Behavior\ActorProvider;
+use Prism\Orm\Behavior\SystemClock;
 use Prism\Orm\Collection\Collection;
 use Prism\Orm\Collection\PersistentCollection;
 use Prism\Orm\Event\BatchLoadedEvent;
@@ -57,6 +59,7 @@ use Prism\Orm\Tenancy\StackTenantContext;
 use Prism\Orm\Tenancy\TenantContext;
 use Prism\Orm\Tenancy\TenantScope;
 use Prism\Orm\Tenancy\TenantSwitchListener;
+use Psr\Clock\ClockInterface;
 use Psr\EventDispatcher\EventDispatcherInterface;
 
 /**
@@ -164,6 +167,8 @@ final class UnitOfWork implements TenantSwitchListener
 
     private readonly TenantContext $tenants;
 
+    private readonly ClockInterface $clock;
+
     /** @var array<class-string, FieldMapping> colonne du tenant de chaque entité #[Tenanted], typée */
     private array $tenantFields = [];
 
@@ -179,7 +184,10 @@ final class UnitOfWork implements TenantSwitchListener
         ?EntityListenerResolver $listeners = null,
         int $batchSize = 100,
         ?TenantContext $tenants = null,
+        ?ClockInterface $clock = null,
+        private readonly ?ActorProvider $actors = null,
     ) {
+        $this->clock = $clock ?? new SystemClock();
         // sans contexte, une entité #[Tenanted] n'a jamais de tenant (RG-08.4)
         $this->tenants = $tenants ?? new StackTenantContext();
         $this->tenants->addSwitchListener($this);
@@ -849,6 +857,7 @@ final class UnitOfWork implements TenantSwitchListener
             $entity = $this->insertions[$oid];
             $metadata = $this->metadataOf($entity);
             $this->lifecycle->lifecycle($metadata, LifecycleEvent::PrePersist, $entity, fn (): PrePersistEvent => new PrePersistEvent($entity, $this));
+            $this->stampInsert($metadata, $entity, $written);
             $idField = $metadata->getIdField();
 
             if (null !== $generated = $this->persisters->nextId($metadata)) {
@@ -896,6 +905,9 @@ final class UnitOfWork implements TenantSwitchListener
             $changes = $this->changes($metadata, $entity);
             if ([] === $changes) {
                 continue;
+            }
+            if ($this->stampUpdate($metadata, $entity, $changes, $written)) {
+                $changes = $this->changes($metadata, $entity);
             }
             $this->assertTenantUnchanged($metadata, $oid, $changes);
 
@@ -1168,6 +1180,63 @@ final class UnitOfWork implements TenantSwitchListener
         $fraction = $m[2] ?? '';
 
         return \strlen($fraction) >= $scale ? $value : $m[1] . '.' . str_pad($fraction, $scale, '0');
+    }
+
+    /**
+     * RG-08.13, RG-08.16 : à l'INSERT, l'heure et l'auteur des champs encore vides ; une valeur
+     * posée par l'application (reprise de données) est gardée (ADR 0015).
+     *
+     * @param ClassMetadata<object>                           $metadata
+     * @param list<array{object, \ReflectionProperty, mixed}> $written
+     */
+    private function stampInsert(ClassMetadata $metadata, object $entity, array &$written): void
+    {
+        $behaviors = $metadata->behaviors;
+        if (!$behaviors->isTimestampable() && !$behaviors->isBlameable()) {
+            return;
+        }
+        $now = $this->now();
+        $actor = $this->actors?->getActor();
+        foreach ([[$behaviors->createdAt, $now], [$behaviors->updatedAt, $now], [$behaviors->createdBy, $actor], [$behaviors->updatedBy, $actor]] as [$field, $value]) {
+            if (null !== $field && null === $this->read($entity, $metadata->className, $field)) {
+                $this->write($entity, $field, $value, $written);
+            }
+        }
+    }
+
+    /**
+     * RG-08.13 : updatedAt et updatedBy ne changent que si un autre champ a changé.
+     *
+     * @param ClassMetadata<object>                           $metadata
+     * @param array<string, mixed>                            $changes
+     * @param list<array{object, \ReflectionProperty, mixed}> $written
+     *
+     * @return bool vrai si l'entité a été modifiée : le changeset est à recalculer
+     */
+    private function stampUpdate(ClassMetadata $metadata, object $entity, array $changes, array &$written): bool
+    {
+        $fields = $metadata->behaviors->updateFields();
+        if ([] === $fields) {
+            return false;
+        }
+        $own = array_map(static fn (string $field): string => $metadata->getField($field)->columnName, $fields);
+        if ([] === array_diff(array_keys($changes), $own)) {
+            return false;
+        }
+        if (null !== $metadata->behaviors->updatedAt) {
+            $this->write($entity, $metadata->behaviors->updatedAt, $this->now(), $written);
+        }
+        if (null !== $metadata->behaviors->updatedBy) {
+            $this->write($entity, $metadata->behaviors->updatedBy, $this->actors?->getActor(), $written);
+        }
+
+        return true;
+    }
+
+    // RG-08.13 : en UTC, quelle que soit l'horloge fournie
+    private function now(): \DateTimeImmutable
+    {
+        return $this->clock->now()->setTimezone(new \DateTimeZone('UTC'));
     }
 
     /**
