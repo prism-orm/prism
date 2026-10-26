@@ -50,6 +50,14 @@ export default defineConfig({
                 ],
             },
             {
+                text: 'Essentials',
+                items: [
+                    { text: 'Mapping entities', link: '/guide/mapping' },
+                    { text: 'Working with entities', link: '/guide/entity-manager' },
+                    { text: 'Relations', link: '/guide/relations' },
+                ],
+            },
+            {
                 text: 'Symfony',
                 items: [
                     { text: 'Prism in Symfony', link: '/bundle/symfony' },
