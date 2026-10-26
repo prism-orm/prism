@@ -67,6 +67,7 @@ final class ClassMetadata
         public readonly ?string $repositoryClass = null,
         public readonly array $tableOptions = [],
         public readonly array $entityListenerCallbacks = [],
+        public readonly ?TenancyMapping $tenancy = null,
     ) {
         $this->fields = self::byName($className, $fields, static fn (FieldMapping $f): string => $f->fieldName);
         $this->embedded = self::byName($className, $embedded, static fn (EmbeddedMapping $e): string => $e->fieldName);
@@ -102,6 +103,9 @@ final class ClassMetadata
         }
         if (null !== $versionField && !isset($this->fields[$versionField])) {
             throw MappingException::invalidField($className, $versionField, 'the version field must be a mapped scalar field.');
+        }
+        if (null !== $tenancy?->field && !isset($this->fields[$tenancy->field])) {
+            throw MappingException::invalidField($className, $tenancy->field, 'the tenant field must be a mapped scalar field.');
         }
     }
 

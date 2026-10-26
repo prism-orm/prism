@@ -18,6 +18,7 @@ use Prism\Orm\Metadata\IndexMapping;
 use Prism\Orm\Metadata\JoinTableMapping;
 use Prism\Orm\Metadata\Naming\NamingStrategy;
 use Prism\Orm\Metadata\Naming\UnderscoreNamingStrategy;
+use Prism\Orm\Metadata\TenancyMapping;
 
 /**
  * Construit les ClassMetadata à partir des attributs PHP (ADR 0002).
@@ -36,10 +37,12 @@ final class AttributeDriver implements MetadataDriver
 
     /**
      * @param list<string> $directories dossiers où chercher les entités (getAllClassNames)
+     * @param string       $tenantType  type DBAL de la colonne du tenant (TenancyMapping::TYPES)
      */
     public function __construct(
         private readonly array $directories = [],
         private readonly NamingStrategy $naming = new UnderscoreNamingStrategy(),
+        private readonly string $tenantType = 'integer',
     ) {
     }
 
@@ -118,7 +121,30 @@ final class AttributeDriver implements MetadataDriver
             self::classString($class, $entity->repositoryClass),
             $table->options ?? [],
             self::listenerCallbacks($listeners),
+            $this->tenancy($reflection, $fields),
         );
+    }
+
+    /**
+     * RG-08.1 : une propriété mappée sur la colonne du tenant la rend lisible ; sinon la colonne
+     * n'appartient qu'à l'ORM (ADR 0014).
+     *
+     * @param \ReflectionClass<object> $class
+     * @param list<FieldMapping>       $fields
+     */
+    private function tenancy(\ReflectionClass $class, array $fields): ?TenancyMapping
+    {
+        $tenanted = self::attribute($class, Attr\Tenanted::class);
+        if (null === $tenanted) {
+            return null;
+        }
+        if ($tenanted->strictForeignKeys) {
+            throw MappingException::invalidMetadata($class->getName(), '#[Tenanted(strictForeignKeys: true)] is not supported in 1.0: it needs composite foreign keys on (tenant_id, id). Remove it; relations between tenants are refused at flush (RG-08.6).');
+        }
+        $column = $tenanted->column ?? $this->naming->propertyToColumnName('tenantId');
+        $field = array_find($fields, static fn (FieldMapping $f): bool => 0 === strcasecmp($f->columnName, $column));
+
+        return new TenancyMapping($column, $this->tenantType, $tenanted->global, $field?->fieldName);
     }
 
     private function isField(\ReflectionProperty $property): bool

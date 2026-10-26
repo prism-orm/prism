@@ -19,6 +19,7 @@ use Prism\Orm\Metadata\ClassMetadata;
 use Prism\Orm\Metadata\Driver\AttributeDriver;
 use Prism\Orm\Metadata\FieldMapping;
 use Prism\Orm\Metadata\Naming\DefaultNamingStrategy;
+use Prism\Orm\Metadata\TenancyMapping;
 use Prism\Orm\Tests\Unit\Mapping\Fixtures\Address;
 use Prism\Orm\Tests\Unit\Mapping\Fixtures\Client;
 use Prism\Orm\Tests\Unit\Mapping\Fixtures\FixtureStatus;
@@ -29,6 +30,7 @@ use Prism\Orm\Tests\Unit\Mapping\Fixtures\Tag;
 use Prism\Orm\Tests\Unit\Metadata\Fixtures\Inferred;
 use Prism\Orm\Tests\Unit\Metadata\Fixtures\Person;
 use Prism\Orm\Tests\Unit\Metadata\Fixtures\Priority;
+use Prism\Orm\Tests\Unit\Tools\Fixtures\Ledger;
 
 final class AttributeDriverTest extends TestCase
 {
@@ -219,6 +221,23 @@ final class AttributeDriverTest extends TestCase
         self::assertSame('InvoiceLine', new AttributeDriver([], new DefaultNamingStrategy())->loadMetadata(InvoiceLine::class)->tableName);
     }
 
+    // RG-08.1, ADR 0014
+    public function testTenancyIsReadFromTheAttribute(): void
+    {
+        $driver = new AttributeDriver();
+
+        self::assertEquals(new TenancyMapping('tenant_id'), $driver->loadMetadata(Client::class)->tenancy);
+        self::assertEquals(new TenancyMapping('tenant_id', global: true), $driver->loadMetadata(Tag::class)->tenancy);
+        self::assertEquals(new TenancyMapping('company_id', field: 'companyId'), $driver->loadMetadata(Ledger::class)->tenancy, 'a property mapped on the tenant column');
+        self::assertNull($driver->loadMetadata(Person::class)->tenancy);
+
+        self::assertSame('uuid', new AttributeDriver(tenantType: 'uuid')->loadMetadata(Client::class)->tenancy?->type, 'the type of the EntityManager');
+        self::assertSame('tenantId', new AttributeDriver([], new DefaultNamingStrategy())->loadMetadata(Client::class)->tenancy?->column);
+
+        $metadata = $driver->loadMetadata(Ledger::class);
+        self::assertEquals($metadata, unserialize(serialize($metadata)), 'cached with the metadata');
+    }
+
     public function testEntitiesAreDiscoveredWithoutExecutingFiles(): void
     {
         $driver = new AttributeDriver([__DIR__ . '/../Mapping/Fixtures', __DIR__ . '/missing-directory']);
@@ -258,6 +277,8 @@ final class AttributeDriverTest extends TestCase
         yield 'missing repository' => [$ns . 'MissingRepository', 'MissingRepository: repository class App\Missing\Repository does not exist.'];
         yield 'not an entity' => [$ns . 'NotAnEntity', 'NotAnEntity is not an entity: add #[Entity] to the class.'];
         yield 'unknown class' => [$ns . 'DoesNotExist', 'DoesNotExist does not exist or cannot be autoloaded.'];
+        // ADR 0014 : reporté en 1.x
+        yield 'tenant strict foreign keys' => [$ns . 'StrictTenantForeignKeys', 'StrictTenantForeignKeys: #[Tenanted(strictForeignKeys: true)] is not supported in 1.0: it needs composite foreign keys on (tenant_id, id). Remove it; relations between tenants are refused at flush (RG-08.6).'];
     }
 
     #[DataProvider('invalidEntities')]

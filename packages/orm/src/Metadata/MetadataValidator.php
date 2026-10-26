@@ -67,6 +67,7 @@ final class MetadataValidator
             $this->validateAssociations($class, $byClass);
             $this->validateIndexes($class);
             $this->validateCallbacks($class);
+            $this->validateTenancy($class);
         }
 
         return $this->errors;
@@ -143,6 +144,45 @@ final class MetadataValidator
             if ($association->isOwningSide() && null !== $association->joinColumn) {
                 $register($association->joinColumn, $association->fieldName);
             }
+        }
+        // colonne du tenant que ne porte aucune propriété (ADR 0014)
+        $tenancy = $class->tenancy;
+        if (null !== $tenancy && null === $tenancy->field) {
+            $this->assertLength($class->className, null, 'column', $tenancy->column);
+            if (isset($owners[strtolower($tenancy->column)])) {
+                $this->error($class->className, null, \sprintf('the #[Tenanted] column "%s" is already used by $%s; rename one of them (#[Tenanted(column: ...)]).', $tenancy->column, $owners[strtolower($tenancy->column)]));
+            }
+        }
+    }
+
+    /**
+     * RG-08.1 : type de l'identifiant du tenant, et propriété qui porte sa colonne (ADR 0014).
+     *
+     * @param ClassMetadata<object> $class
+     */
+    private function validateTenancy(ClassMetadata $class): void
+    {
+        $tenancy = $class->tenancy;
+        if (null === $tenancy) {
+            return;
+        }
+        if (!\in_array($tenancy->type, TenancyMapping::TYPES, true)) {
+            $this->error($class->className, null, \sprintf('the tenant type "%s" is not supported; use one of: %s.', $tenancy->type, implode(', ', TenancyMapping::TYPES)));
+        }
+        if (null === $tenancy->field) {
+            return;
+        }
+        $field = $class->getField($tenancy->field);
+        if ($tenancy->field === $class->id->fieldName) {
+            $this->error($class->className, $field->fieldName, \sprintf('the identifier cannot be the #[Tenanted] column "%s".', $tenancy->column));
+        }
+        if ($field->type !== $tenancy->type) {
+            $this->error($class->className, $field->fieldName, \sprintf('the #[Tenanted] column "%s" has type "%s", but the tenant type is "%s".', $tenancy->column, $field->type, $tenancy->type));
+        }
+        if ($field->nullable !== $tenancy->global) {
+            $this->error($class->className, $field->fieldName, $tenancy->global
+                ? \sprintf('the #[Tenanted(global: true)] column "%s" holds NULL for shared rows; make the property nullable.', $tenancy->column)
+                : \sprintf('the #[Tenanted] column "%s" is never NULL; make the property non-nullable, or use #[Tenanted(global: true)] for shared rows.', $tenancy->column));
         }
     }
 
