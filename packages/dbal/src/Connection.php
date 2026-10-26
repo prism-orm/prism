@@ -419,6 +419,10 @@ final class Connection
      */
     private function run(string $sql, array $params, array $types): \PDOStatement
     {
+        // ADR 0014 : une garde qui lève une exception empêche la requête, rien n'est envoyé
+        foreach ($this->configuration->guards as $guard) {
+            $guard->guard($sql);
+        }
         $pdo = $this->pdo();
         $bound = $this->bindings($params, $types);
         $start = hrtime(true);

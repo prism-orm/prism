@@ -16,15 +16,22 @@ use Psr\Log\NullLogger;
  * porter une condition sur sa colonne du tenant (WHERE, ON, ou colonne d'un INSERT). Une
  * requête qu'elle ne sait pas analyser est refusée. Inactive en mode système.
  *
- * Phase 8, étape 2 : l'analyse du SQL arrive à l'étape 6 ; les scénarios de référence sont
- * dans tests/Functional/TenantIsolationTest.
+ * L'analyse (SqlTenantAnalyzer) est mise en cache par texte SQL : le SQL paramétré de l'ORM est
+ * stable ; le cache est vidé au-delà de 1 000 requêtes, les listes IN en produisant beaucoup.
  *
  * @api
  */
 final class TenantGuard implements QueryGuard
 {
+    private const int CACHE_SIZE = 1000;
+
     /** @var array<string, string>|null colonne du tenant, par nom de table en minuscules */
     private ?array $tables = null;
+
+    private ?SqlTenantAnalyzer $analyzer = null;
+
+    /** @var array<string, list<array{string, string}>> violations, par texte SQL */
+    private array $cache = [];
 
     public function __construct(
         private readonly MetadataFactory $metadata,
@@ -58,12 +65,21 @@ final class TenantGuard implements QueryGuard
      */
     private function violations(string $sql): array
     {
-        $this->tables ??= $this->tenantedTables();
-        if ([] === $this->tables) {
-            return [];
+        if (!isset($this->cache[$sql])) {
+            if (\count($this->cache) >= self::CACHE_SIZE) {
+                $this->cache = [];
+            }
+            $this->tables ??= $this->tenantedTables();
+            $this->analyzer ??= new SqlTenantAnalyzer($this->tables);
+            $this->cache[$sql] = $this->analyzer->violations($sql);
         }
+        $tables = $this->tables ?? [];
 
-        throw new \LogicException(\sprintf('The SQL analysis of the TenantGuard is implemented in phase 8, step 6 (%d tenanted tables, query: %s).', \count($this->tables), $sql));
+        return array_map(static fn (array $violation): UnfilteredTenantQueryException => match ($violation[0]) {
+            SqlTenantAnalyzer::UNPARSABLE => UnfilteredTenantQueryException::unparsable($violation[1], $sql),
+            SqlTenantAnalyzer::TRUNCATE => UnfilteredTenantQueryException::truncate($violation[1], $sql),
+            default => UnfilteredTenantQueryException::forTable($violation[1], $tables[$violation[1]] ?? '', $sql),
+        }, $this->cache[$sql]);
     }
 
     /**
