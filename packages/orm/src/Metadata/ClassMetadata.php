@@ -38,6 +38,9 @@ final class ClassMetadata
     /** Reflection créée au premier usage, jamais sérialisée (reconstruite après le cache). */
     private readonly ReflectionCache $reflection;
 
+    /** Comportements déclarés par attributs (ADR 0015) ; aucun par défaut. */
+    public readonly BehaviorMapping $behaviors;
+
     /**
      * @param class-string<T>                                                    $className
      * @param list<FieldMapping>                                                 $fields
@@ -68,7 +71,9 @@ final class ClassMetadata
         public readonly array $tableOptions = [],
         public readonly array $entityListenerCallbacks = [],
         public readonly ?TenancyMapping $tenancy = null,
+        ?BehaviorMapping $behaviors = null,
     ) {
+        $this->behaviors = $behaviors ?? new BehaviorMapping();
         $this->fields = self::byName($className, $fields, static fn (FieldMapping $f): string => $f->fieldName);
         $this->embedded = self::byName($className, $embedded, static fn (EmbeddedMapping $e): string => $e->fieldName);
         $this->associations = self::byName($className, $associations, static fn (AssociationMapping $a): string => $a->fieldName);

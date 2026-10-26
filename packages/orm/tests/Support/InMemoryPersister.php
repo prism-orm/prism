@@ -6,6 +6,7 @@ namespace Prism\Orm\Tests\Support;
 
 use Prism\Dbal\LockMode;
 use Prism\Dbal\Query\Order;
+use Prism\Orm\Filter\FilterOperation;
 use Prism\Orm\Mapping\GenerationStrategy;
 use Prism\Orm\Metadata\ClassMetadata;
 use Prism\Orm\Persister\EntityPersister;
@@ -45,12 +46,12 @@ final class InMemoryPersister implements EntityPersister
         return $this->storage->delete($this->table, $id, $version);
     }
 
-    public function loadById(mixed $id): ?array
+    public function loadById(mixed $id, FilterOperation $operation = FilterOperation::Read): ?array
     {
         return $this->storage->load($this->table, $id);
     }
 
-    public function loadBy(array $criteria, array $orderBy = [], ?int $limit = null, int $offset = 0): array
+    public function loadBy(array $criteria, array $orderBy = [], ?int $limit = null, int $offset = 0, FilterOperation $operation = FilterOperation::Read): array
     {
         self::assertOrder($orderBy);
         $rows = $this->matching($criteria);

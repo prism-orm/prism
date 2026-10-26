@@ -152,7 +152,9 @@ final class Comparator
 
     private static function sameIndex(Index $a, Index $b): bool
     {
-        return $a->unique === $b->unique && self::normalizedList($a->columns) === self::normalizedList($b->columns);
+        return $a->unique === $b->unique
+            && self::normalizedList($a->columns) === self::normalizedList($b->columns)
+            && strtolower($a->whereNull ?? '') === strtolower($b->whereNull ?? '');
     }
 
     private static function sameForeignKey(ForeignKey $a, ForeignKey $b): bool

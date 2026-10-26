@@ -9,6 +9,7 @@ use Prism\Dbal\ParameterType;
 use Prism\Dbal\Query\Expression;
 use Prism\Dbal\Query\Order;
 use Prism\Dbal\Query\QueryBuilder;
+use Prism\Orm\Behavior\SoftDeleteFilter;
 use Prism\Orm\EntityManager;
 use Prism\Orm\EntityManagerInterface;
 use Prism\Orm\Exception\MappingException;
@@ -71,6 +72,8 @@ final class EntityQueryBuilder
     private array $joins = [];
 
     private bool $batch = true;
+
+    private bool $withDeleted = false;
 
     /** @var list<Operand> */
     private array $groupBy = [];
@@ -649,7 +652,7 @@ final class EntityQueryBuilder
             [$association, $joins] = $context->join($target);
             foreach ($joins as [$table, $alias, $on]) {
                 // la table de l'entité jointe, pas une table pivot : ses filtres dans le ON
-                $condition = $alias === $target->alias ? $this->filters->condition($this->metadata->getMetadataFor($target->entity), new FilterTarget($qb, $alias)) : null;
+                $condition = $alias === $target->alias ? $this->filters->condition($this->metadata->getMetadataFor($target->entity), new FilterTarget($qb, $alias), $this->except()) : null;
                 $on = null === $condition ? $on : $qb->expr()->and($on, $condition);
                 $qb = $left ? $qb->leftJoin($table, $alias, $on) : $qb->join($table, $alias, $on);
             }
@@ -660,13 +663,33 @@ final class EntityQueryBuilder
     }
 
     /**
+     * RG-08.14 : les lignes supprimées logiquement (#[SoftDeletable]) réintègrent la requête.
+     *
+     * @return static<T>
+     */
+    public function withDeleted(): static
+    {
+        return $this->with(static function (self $qb): void {
+            $qb->withDeleted = true;
+        });
+    }
+
+    /**
+     * @return list<string> filtres écartés pour cette requête
+     */
+    private function except(): array
+    {
+        return $this->withDeleted ? [SoftDeleteFilter::NAME] : [];
+    }
+
+    /**
      * Les filtres de l'entité racine, après la condition de l'appelant.
      *
      * @throws MappingException
      */
     private function restrict(QueryBuilder $qb): QueryBuilder
     {
-        $condition = $this->filters->condition($this->metadata->getMetadataFor($this->root->entity), new FilterTarget($qb, $this->root->alias));
+        $condition = $this->filters->condition($this->metadata->getMetadataFor($this->root->entity), new FilterTarget($qb, $this->root->alias), $this->except());
 
         return null === $condition ? $qb : $qb->andWhere($condition);
     }

@@ -117,9 +117,9 @@ final class BasicEntityPersister implements EntityPersister
         return $this->filtered($this->whereKey($this->connection->createQueryBuilder()->delete($this->metadata->tableName), $id, $version), FilterOperation::Write)->executeStatement();
     }
 
-    public function loadById(mixed $id): ?array
+    public function loadById(mixed $id, FilterOperation $operation = FilterOperation::Read): ?array
     {
-        $row = $this->filtered($this->whereKey($this->select(), $id, null))->executeQuery()->fetchAssociative();
+        $row = $this->filtered($this->whereKey($this->select(), $id, null), $operation)->executeQuery()->fetchAssociative();
 
         return false === $row ? null : $row;
     }
@@ -134,9 +134,9 @@ final class BasicEntityPersister implements EntityPersister
      *
      * @throws MappingException champ inconnu
      */
-    public function loadBy(array $criteria, array $orderBy = [], ?int $limit = null, int $offset = 0): array
+    public function loadBy(array $criteria, array $orderBy = [], ?int $limit = null, int $offset = 0, FilterOperation $operation = FilterOperation::Read): array
     {
-        $qb = $this->filtered($this->where($this->select(), $criteria));
+        $qb = $this->filtered($this->where($this->select(), $criteria), $operation);
         foreach ($orderBy as $field => $order) {
             $qb = $qb->addOrderBy($qb->column($this->field($field)->columnName), $order);
         }

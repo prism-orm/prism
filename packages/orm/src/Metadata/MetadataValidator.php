@@ -68,6 +68,7 @@ final class MetadataValidator
             $this->validateIndexes($class);
             $this->validateCallbacks($class);
             $this->validateTenancy($class);
+            $this->validateBehaviors($class);
         }
 
         return $this->errors;
@@ -151,6 +152,43 @@ final class MetadataValidator
             $this->assertLength($class->className, null, 'column', $tenancy->column);
             if (isset($owners[strtolower($tenancy->column)])) {
                 $this->error($class->className, null, \sprintf('the #[Tenanted] column "%s" is already used by $%s; rename one of them (#[Tenanted(column: ...)]).', $tenancy->column, $owners[strtolower($tenancy->column)]));
+            }
+        }
+    }
+
+    /**
+     * ADR 0015 : les champs que les comportements écrivent ou lisent existent et ont le bon type.
+     *
+     * @param ClassMetadata<object> $class
+     */
+    private function validateBehaviors(ClassMetadata $class): void
+    {
+        $behaviors = $class->behaviors;
+        $expect = function (?string $field, string $attribute, string $type, ?bool $nullable) use ($class): void {
+            if (null === $field) {
+                return;
+            }
+            if (!$class->hasField($field) || str_contains($field, '.')) {
+                $this->error($class->className, null, \sprintf('%s names "%s", which is not a mapped field.', $attribute, $field));
+
+                return;
+            }
+            $mapping = $class->getField($field);
+            if ($mapping->type !== $type) {
+                $this->error($class->className, $field, \sprintf('%s needs a "%s" field, not "%s".', $attribute, $type, $mapping->type));
+            } elseif (null !== $nullable && $mapping->nullable !== $nullable) {
+                $this->error($class->className, $field, \sprintf('%s needs a %s field.', $attribute, $nullable ? 'nullable' : 'non-nullable'));
+            }
+        };
+        $expect($behaviors->createdAt, '#[Timestampable]', 'datetime_immutable', null);
+        $expect($behaviors->updatedAt, '#[Timestampable]', 'datetime_immutable', null);
+        // sans acteur (commande, tâche), l'auteur reste NULL
+        $expect($behaviors->createdBy, '#[Blameable]', 'string', true);
+        $expect($behaviors->updatedBy, '#[Blameable]', 'string', true);
+        $expect($behaviors->deletedAt, '#[SoftDeletable]', 'datetime_immutable', true);
+        foreach ($behaviors->auditExclude as $field) {
+            if (!$class->hasField($field) && !$class->hasAssociation($field)) {
+                $this->error($class->className, null, \sprintf('#[Auditable] excludes "%s", which is not a mapped field or relation.', $field));
             }
         }
     }

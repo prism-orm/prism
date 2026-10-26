@@ -15,6 +15,7 @@ use Prism\Orm\Mapping\OnDelete;
 use Prism\Orm\Mapping\Order;
 use Prism\Orm\Mapping\TrackingPolicy;
 use Prism\Orm\Metadata\AssociationType;
+use Prism\Orm\Metadata\BehaviorMapping;
 use Prism\Orm\Metadata\ClassMetadata;
 use Prism\Orm\Metadata\Driver\AttributeDriver;
 use Prism\Orm\Metadata\FieldMapping;
@@ -219,6 +220,19 @@ final class AttributeDriverTest extends TestCase
         self::assertSame('issuedAt', $metadata->getField('issuedAt')->columnName);
         self::assertSame('client_id', $metadata->getAssociation('client')->joinColumn);
         self::assertSame('InvoiceLine', new AttributeDriver([], new DefaultNamingStrategy())->loadMetadata(InvoiceLine::class)->tableName);
+    }
+
+    // ADR 0015 : les quatre comportements, lus avec la metadata et mis en cache avec elle
+    public function testBehaviorsAreReadFromTheAttributes(): void
+    {
+        $driver = new AttributeDriver();
+        $invoice = $driver->loadMetadata(Invoice::class);
+
+        self::assertEquals(new BehaviorMapping('createdAt', 'updatedAt', 'createdBy', 'updatedBy', 'deletedAt', true, ['updatedAt'], 'P10Y'), $invoice->behaviors);
+        self::assertSame(['updatedAt', 'updatedBy'], $invoice->behaviors->updateFields());
+        self::assertEquals(new BehaviorMapping(), $driver->loadMetadata(Client::class)->behaviors);
+        self::assertFalse($driver->loadMetadata(Client::class)->behaviors->isSoftDeletable());
+        self::assertEquals($invoice, unserialize(serialize($invoice)));
     }
 
     // RG-08.1, ADR 0014

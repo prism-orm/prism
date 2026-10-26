@@ -10,6 +10,7 @@ use Prism\Orm\Mapping\LifecycleCallbackAttribute;
 use Prism\Orm\Mapping\MappingAttribute;
 use Prism\Orm\Metadata\AssociationMapping;
 use Prism\Orm\Metadata\AssociationType;
+use Prism\Orm\Metadata\BehaviorMapping;
 use Prism\Orm\Metadata\ClassMetadata;
 use Prism\Orm\Metadata\EmbeddedMapping;
 use Prism\Orm\Metadata\FieldMapping;
@@ -122,6 +123,35 @@ final class AttributeDriver implements MetadataDriver
             $table->options ?? [],
             self::listenerCallbacks($listeners),
             $this->tenancy($reflection, $fields),
+            self::behaviors($reflection),
+        );
+    }
+
+    /**
+     * ADR 0015 : #[Timestampable], #[Blameable], #[SoftDeletable], #[Auditable] ; leurs champs
+     * sont vérifiés par le MetadataValidator.
+     *
+     * @param \ReflectionClass<object> $class
+     */
+    private static function behaviors(\ReflectionClass $class): ?BehaviorMapping
+    {
+        $timestampable = self::attribute($class, Attr\Timestampable::class);
+        $blameable = self::attribute($class, Attr\Blameable::class);
+        $softDeletable = self::attribute($class, Attr\SoftDeletable::class);
+        $auditable = self::attribute($class, Attr\Auditable::class);
+        if (null === $timestampable && null === $blameable && null === $softDeletable && null === $auditable) {
+            return null;
+        }
+
+        return new BehaviorMapping(
+            $timestampable?->createdAt,
+            $timestampable?->updatedAt,
+            $blameable?->createdBy,
+            $blameable?->updatedBy,
+            $softDeletable?->field,
+            null !== $auditable,
+            $auditable->exclude ?? [],
+            $auditable?->retention,
         );
     }
 

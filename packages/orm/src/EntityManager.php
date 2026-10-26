@@ -6,6 +6,11 @@ namespace Prism\Orm;
 
 use Prism\Dbal\Connection;
 use Prism\Dbal\LockMode;
+use Prism\Orm\Audit\AuditWriter;
+use Prism\Orm\Audit\RequestIdProvider;
+use Prism\Orm\Behavior\ActorProvider;
+use Prism\Orm\Behavior\SoftDeleteFilter;
+use Prism\Orm\Behavior\SystemClock;
 use Prism\Orm\Event\EntityListenerResolver;
 use Prism\Orm\Exception\MappingException;
 use Prism\Orm\Filter\FilterCollection;
@@ -19,6 +24,7 @@ use Prism\Orm\Tenancy\StackTenantContext;
 use Prism\Orm\Tenancy\TenantContext;
 use Prism\Orm\Tenancy\TenantFilter;
 use Prism\Orm\UnitOfWork\UnitOfWork;
+use Psr\Clock\ClockInterface;
 use Psr\EventDispatcher\EventDispatcherInterface;
 
 /**
@@ -53,13 +59,19 @@ final class EntityManager implements EntityManagerInterface
         int $batchSize = 100,
         ?TenantContext $tenantContext = null,
         ?FilterCollection $filters = null,
+        ?ClockInterface $clock = null,
+        ?ActorProvider $actorProvider = null,
+        ?RequestIdProvider $requestIdProvider = null,
     ) {
         $this->tenantContext = $tenantContext ?? new StackTenantContext();
         // les filtres de l'application d'abord ; celui du tenant, verrouillé, toujours présent
         $this->filters = $filters ?? new FilterCollection();
         $this->filters->add(TenantFilter::NAME, new TenantFilter($this->tenantContext), locked: true);
+        if (!$this->filters->has(SoftDeleteFilter::NAME)) {
+            $this->filters->add(SoftDeleteFilter::NAME, new SoftDeleteFilter());
+        }
         $this->metadata = $metadata ?? new MetadataFactory(new AttributeDriver(), types: $connection->getTypeRegistry());
-        $this->unitOfWork = new UnitOfWork($this->metadata, new DbalPersisterProvider($connection, $this->metadata, $this->filters), $connection->getConversionContext(), $connection->getTypeRegistry(), $events, $listeners, $batchSize, $this->tenantContext);
+        $this->unitOfWork = new UnitOfWork($this->metadata, new DbalPersisterProvider($connection, $this->metadata, $this->filters), $connection->getConversionContext(), $connection->getTypeRegistry(), $events, $listeners, $batchSize, $this->tenantContext, $clock, $actorProvider, new AuditWriter($connection, $clock ?? new SystemClock(), $actorProvider, $requestIdProvider));
     }
 
     public function persist(object $entity): void
@@ -67,9 +79,14 @@ final class EntityManager implements EntityManagerInterface
         $this->unitOfWork->persist($entity);
     }
 
-    public function remove(object $entity): void
+    public function remove(object $entity, bool $hardDelete = false): void
     {
-        $this->unitOfWork->remove($entity);
+        $this->unitOfWork->remove($entity, $hardDelete);
+    }
+
+    public function restore(object $entity): void
+    {
+        $this->unitOfWork->restore($entity);
     }
 
     public function flush(): void

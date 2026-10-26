@@ -1,0 +1,43 @@
+<?php
+
+declare(strict_types=1);
+
+// Généré par Prism (db:metamodel:generate) : ne pas modifier.
+
+namespace Prism\Orm\Tests\Unit\UnitOfWork\Fixtures\Behavior;
+
+use Prism\Orm\Query\Metamodel as M;
+
+/**
+ * @extends M\Metamodel<\Prism\Orm\Tests\Unit\UnitOfWork\Fixtures\Behavior\Page>
+ */
+final class Page_ extends M\Metamodel
+{
+    public readonly M\IntField $id;
+
+    public readonly M\DateTimeField $deletedAt;
+
+    public readonly M\StringField $slug;
+
+    /** @var M\CollectionRelation<\Prism\Orm\Tests\Unit\UnitOfWork\Fixtures\Behavior\Link_> */
+    public readonly M\CollectionRelation $links;
+
+    public function __construct(string $alias = 'page')
+    {
+        parent::__construct($alias);
+        $this->id = new M\IntField($this, 'id');
+        $this->deletedAt = new M\DateTimeField($this, 'deletedAt');
+        $this->slug = new M\StringField($this, 'slug');
+        $this->links = new M\CollectionRelation($this, 'links', \Prism\Orm\Tests\Unit\UnitOfWork\Fixtures\Behavior\Link_::class);
+    }
+
+    public static function as(string $alias): self
+    {
+        return new self($alias);
+    }
+
+    protected static function entityClass(): string
+    {
+        return \Prism\Orm\Tests\Unit\UnitOfWork\Fixtures\Behavior\Page::class;
+    }
+}

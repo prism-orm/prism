@@ -519,3 +519,26 @@ $ vendor/bin/prism db:cache:clear-metadata
  ! [NOTE] No metadata cache is configured: the attributes are read on each run, there is nothing to
  !        clear.
 ```
+
+### `db:audit:purge`
+
+Supprime les lignes du journal d'audit (`prism_audit_log`) plus anciennes que la rétention de leur entité, `#[Auditable(retention: 'P10Y')]`. C'est la seule voie de suppression d'une ligne d'audit (RGPD). Une entité sans rétention n'est purgée qu'avec `--older-than`. Sans `--force`, la commande montre ce qu'elle supprimerait.
+
+| Option | Raccourci | Rôle |
+| --- | --- | --- |
+| `--older-than` | | Rétention ISO 8601 des entités auditées qui n'en déclarent pas, par exemple `P1Y` |
+| `--force` | `-f` | Supprimer les lignes |
+
+```console
+$ vendor/bin/prism db:audit:purge --older-than=P1Y
+
+ ------------------ ----------- --------------------- ------
+  Entity             Retention   Rows before           Rows
+ ------------------ ----------- --------------------- ------
+  App\Entity\Order   P1Y         2025-10-26 09:00:00   1240
+ ------------------ ----------- --------------------- ------
+
+ ! [CAUTION] This would delete 1240 audit log row(s); nothing was done. Run with --force to delete them.
+
+$ vendor/bin/prism db:audit:purge --older-than=P1Y --force
+```

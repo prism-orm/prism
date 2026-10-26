@@ -113,7 +113,7 @@ final class PostgreSqlPlatform extends AbstractPlatform
 
     public function getListIndexesSql(): string
     {
-        return 'SELECT i.relname AS name, a.attname AS column_name, CASE WHEN ix.indisunique THEN 0 ELSE 1 END AS non_unique'
+        return 'SELECT i.relname AS name, a.attname AS column_name, CASE WHEN ix.indisunique THEN 0 ELSE 1 END AS non_unique, pg_get_expr(ix.indpred, ix.indrelid) AS predicate'
             . ' FROM pg_index ix'
             . ' JOIN pg_class t ON t.oid = ix.indrelid'
             . ' JOIN pg_class i ON i.oid = ix.indexrelid'

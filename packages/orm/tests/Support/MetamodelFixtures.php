@@ -10,6 +10,7 @@ use Prism\Orm\Query\Metamodel\MetamodelGenerator;
 use Prism\Orm\Tests\Unit\Query\Metamodel\Fixtures\AllTypes;
 use Prism\Orm\Tests\Unit\Tenancy\Fixtures as Tenancy;
 use Prism\Orm\Tests\Unit\UnitOfWork\Fixtures\Batch;
+use Prism\Orm\Tests\Unit\UnitOfWork\Fixtures\Behavior;
 
 /**
  * Metamodel des fixtures du QueryBuilder typé, versionné à côté des entités pour que PHPStan
@@ -39,6 +40,8 @@ final class MetamodelFixtures
             Batch\Group::class,
             Batch\Order::class,
             Batch\Seller::class,
+            Behavior\Link::class,
+            Behavior\Page::class,
             Tenancy\Client::class,
             Tenancy\Contract::class,
             Tenancy\Currency::class,

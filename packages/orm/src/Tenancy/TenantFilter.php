@@ -41,7 +41,7 @@ final class TenantFilter implements EntityFilter
         $column = $target->column($tenancy->column);
         $condition = $target->expr()->eq($column, $tenantId, $tenancy->type);
 
-        return $tenancy->global && FilterOperation::Read === $target->operation
+        return $tenancy->global && FilterOperation::Write !== $target->operation
             ? $target->expr()->or($condition, $target->expr()->isNull($column))
             : $condition;
     }
