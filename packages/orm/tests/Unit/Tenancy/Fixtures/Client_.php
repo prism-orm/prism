@@ -1,0 +1,40 @@
+<?php
+
+declare(strict_types=1);
+
+// Généré par Prism (db:metamodel:generate) : ne pas modifier.
+
+namespace Prism\Orm\Tests\Unit\Tenancy\Fixtures;
+
+use Prism\Orm\Query\Metamodel as M;
+
+/**
+ * @extends M\Metamodel<\Prism\Orm\Tests\Unit\Tenancy\Fixtures\Client>
+ */
+final class Client_ extends M\Metamodel
+{
+    public readonly M\IntField $id;
+
+    public readonly M\StringField $name;
+
+    /** @var M\CollectionRelation<\Prism\Orm\Tests\Unit\Tenancy\Fixtures\Invoice_> */
+    public readonly M\CollectionRelation $invoices;
+
+    public function __construct(string $alias = 'client')
+    {
+        parent::__construct($alias);
+        $this->id = new M\IntField($this, 'id');
+        $this->name = new M\StringField($this, 'name');
+        $this->invoices = new M\CollectionRelation($this, 'invoices', \Prism\Orm\Tests\Unit\Tenancy\Fixtures\Invoice_::class);
+    }
+
+    public static function as(string $alias): self
+    {
+        return new self($alias);
+    }
+
+    protected static function entityClass(): string
+    {
+        return \Prism\Orm\Tests\Unit\Tenancy\Fixtures\Client::class;
+    }
+}
