@@ -6,11 +6,14 @@ namespace Prism\Orm;
 
 use Prism\Dbal\Connection;
 use Prism\Dbal\LockMode;
+use Prism\Orm\Exception\CrossTenantRelationException;
 use Prism\Orm\Exception\EntityNotFoundException;
 use Prism\Orm\Exception\InvalidEntityStateException;
 use Prism\Orm\Exception\MappingException;
+use Prism\Orm\Exception\MissingTenantException;
 use Prism\Orm\Exception\OptimisticLockException;
 use Prism\Orm\Exception\ReentrantFlushException;
+use Prism\Orm\Exception\TenantMismatchException;
 use Prism\Orm\Exception\TransactionRequiredException;
 use Prism\Orm\Query\EntityQueryBuilder;
 use Prism\Orm\Query\Metamodel\Metamodel;
@@ -42,8 +45,11 @@ interface EntityManagerInterface
     /**
      * Écrit toutes les modifications en une transaction (RG-03.6).
      *
-     * @throws ReentrantFlushException appelé depuis un listener (RG-03.7)
-     * @throws OptimisticLockException version périmée (RG-03.9)
+     * @throws ReentrantFlushException      appelé depuis un listener (RG-03.7)
+     * @throws OptimisticLockException      version périmée (RG-03.9)
+     * @throws MissingTenantException       entité #[Tenanted] à écrire sans tenant (RG-08.4)
+     * @throws TenantMismatchException      tenant d'un autre, ou changé (RG-08.3)
+     * @throws CrossTenantRelationException relation entre deux tenants (RG-08.6)
      */
     public function flush(): void;
 

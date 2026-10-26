@@ -142,6 +142,16 @@ final class TenantIsolationTest extends MappingSchemaTestCase
     }
 
     /**
+     * Passe une ligne de A chez B sans quitter le tenant A, qui viderait l'identity map (RG-08.8) :
+     * la condition sur tenant_id satisfait la garde du SQL brut (RG-08.7).
+     */
+    private function moveToTenantB(string $table, int $id): void
+    {
+        $qb = $this->connection->createQueryBuilder();
+        $qb->update($table)->set('tenant_id', self::B)->where($qb->expr()->eq($qb->column('id'), $id))->andWhere($qb->expr()->eq($qb->column('tenant_id'), self::A))->executeStatement();
+    }
+
+    /**
      * Une colonne entière d'une ligne, lue en mode système.
      */
     private function raw(string $table, int $id, string $column): int
@@ -253,7 +263,7 @@ final class TenantIsolationTest extends MappingSchemaTestCase
     {
         $only = $this->em->find(Invoice::class, $this->ids['A.only']);
         self::assertNotNull($only);
-        $this->context->runAsSystem(fn () => $this->update('tenant_invoice', $this->ids['A.only'], 'tenant_id', self::B));
+        $this->moveToTenantB('tenant_invoice', $this->ids['A.only']);
 
         $this->expectException(EntityNotFoundException::class);
 
@@ -435,15 +445,16 @@ final class TenantIsolationTest extends MappingSchemaTestCase
     {
         $only = $this->em->find(Invoice::class, $this->ids['A.only']);
         self::assertNotNull($only);
-        $this->context->runAsSystem(fn () => $this->update('tenant_invoice', $this->ids['A.only'], 'tenant_id', self::B));
+        $this->moveToTenantB('tenant_invoice', $this->ids['A.only']);
 
         $only->amount = 999;
         $this->em->flush();
-        self::assertSame(5, $this->raw('tenant_invoice', $this->ids['A.only'], 'amount'));
-
         $this->em->remove($only);
         $this->em->flush();
-        self::assertSame(self::B, $this->raw('tenant_invoice', $this->ids['A.only'], 'tenant_id'), 'still there');
+
+        // lu en mode système, qui vide l'identity map (RG-08.8) : après les deux écritures
+        self::assertSame(5, $this->raw('tenant_invoice', $this->ids['A.only'], 'amount'), 'not updated');
+        self::assertSame(self::B, $this->raw('tenant_invoice', $this->ids['A.only'], 'tenant_id'), 'not deleted');
     }
 
     // scénario 26 : RG-08.6, refusé même en mode système ; rien n'est écrit
@@ -462,6 +473,8 @@ final class TenantIsolationTest extends MappingSchemaTestCase
                 self::assertInstanceOf(CrossTenantRelationException::class, $e);
                 self::assertSame(\sprintf('%s::$client (tenant 1) refers to a %s entity of tenant 2; relations between tenants are refused.', Invoice::class, Client::class), $e->getMessage());
             }
+            // RG-08.8 : la modification refusée est abandonnée avant de quitter le mode système
+            $this->em->clear();
         });
 
         self::assertSame($this->ids['A.client'], $this->raw('tenant_invoice', $this->ids['A.f2'], 'client_id'));

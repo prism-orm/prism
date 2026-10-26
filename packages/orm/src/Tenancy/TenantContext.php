@@ -44,4 +44,9 @@ interface TenantContext
      * @return R
      */
     public function runAsSystem(\Closure $callback): mixed;
+
+    /**
+     * Prévient $listener avant chaque changement effectif de tenant (ADR 0014).
+     */
+    public function addSwitchListener(TenantSwitchListener $listener): void;
 }

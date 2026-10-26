@@ -11,6 +11,7 @@ use Prism\Dbal\Type\TypeRegistry;
 use Prism\Orm\Exception\CrossTenantRelationException;
 use Prism\Orm\Exception\MissingTenantException;
 use Prism\Orm\Exception\TenantMismatchException;
+use Prism\Orm\Exception\TenantSwitchException;
 use Prism\Orm\Metadata\Driver\AttributeDriver;
 use Prism\Orm\Metadata\MetadataFactory;
 use Prism\Orm\Tenancy\StackTenantContext;
@@ -145,14 +146,27 @@ final class UnitOfWorkTenancyTest extends TestCase
     {
         $this->insert($contract = new Contract('C-1'));
         $contract->tenantId = 8;
+        $message = 'The tenant of the ' . Contract::class . ' entity cannot change ($tenantId from 7 to 8); move the row with SQL in runAsSystem() if needed.';
 
-        foreach ([fn () => $this->uow->commit(), fn () => $this->context->runAsSystem(fn () => $this->uow->commit())] as $flush) {
-            try {
-                $flush();
-                self::fail('no exception');
-            } catch (TenantMismatchException $e) {
-                self::assertSame('The tenant of the ' . Contract::class . ' entity cannot change ($tenantId from 7 to 8); move the row with SQL in runAsSystem() if needed.', $e->getMessage());
-            }
+        try {
+            $this->uow->commit();
+            self::fail('no exception');
+        } catch (TenantMismatchException $e) {
+            self::assertSame($message, $e->getMessage());
+        }
+
+        $this->uow->clear();
+        try {
+            $this->context->runAsSystem(function () use ($contract): void {
+                $loaded = $this->uow->find(Contract::class, $contract->id);
+                self::assertNotNull($loaded);
+                $loaded->tenantId = 8;
+                $this->uow->commit();
+            });
+            self::fail('no exception');
+        } catch (\RuntimeException $e) {
+            self::assertInstanceOf(TenantMismatchException::class, $e);
+            self::assertSame($message, $e->getMessage(), 'even in system mode');
         }
         self::assertSame(7, $this->storage->row('tenant_contract', (int) $contract->id)['tenant_id']);
     }
@@ -289,5 +303,69 @@ final class UnitOfWorkTenancyTest extends TestCase
         $this->insert($invoice = new Invoice('F-1', currency: $this->uow->find(Currency::class, 1)));
 
         self::assertSame(1, $this->storage->row('tenant_invoice', (int) $invoice->id)['currency_id']);
+    }
+
+    // ----- RG-08.8 : changement de tenant -----
+
+    // sans changement en attente, l'identity map est vidée à chaque changement effectif
+    public function testSwitchClearsTheIdentityMap(): void
+    {
+        $this->insert($client = new Client('Ada'));
+
+        $inside = $this->context->runAs(8, fn (): bool => $this->uow->contains($client));
+
+        self::assertFalse($inside);
+        self::assertFalse($this->uow->contains($client), 'cleared again on the way back');
+        self::assertNotSame($client, $this->uow->find(Client::class, $client->id));
+    }
+
+    public function testSameTenantKeepsTheIdentityMap(): void
+    {
+        $this->insert($client = new Client('Ada'));
+
+        self::assertTrue($this->context->runAs(7, fn (): bool => $this->uow->contains($client)));
+    }
+
+    // à l'entrée : refusé, rien n'est perdu
+    public function testSwitchWithPendingChangesIsRefused(): void
+    {
+        $this->insert($client = new Client('Ada'));
+        $client->name = 'Ada L.';
+
+        foreach ([fn () => $this->context->runAs(8, static fn (): null => null), fn () => $this->context->runAsSystem(static fn (): null => null), fn () => $this->context->setTenantId(8)] as $switch) {
+            try {
+                $switch();
+                self::fail('no exception');
+            } catch (TenantSwitchException $e) {
+                self::assertStringStartsWith('Cannot switch from tenant 7 to ', $e->getMessage());
+            }
+        }
+
+        self::assertSame(7, $this->context->getTenantId());
+        $this->uow->commit();
+        self::assertSame('Ada L.', $this->storage->row('tenant_client', (int) $client->id)['name']);
+    }
+
+    // à la sortie : abandonnés, jamais écrits sous le tenant retrouvé
+    public function testPendingChangesAreDiscardedOnLeave(): void
+    {
+        try {
+            $this->context->runAs(8, fn () => $this->uow->persist(new Client('Bob')));
+            self::fail('no exception');
+        } catch (TenantSwitchException $e) {
+            self::assertSame('Unflushed changes made in tenant 8 were discarded when switching back to tenant 7: flush() before leaving runAs() or runAsSystem().', $e->getMessage());
+        }
+
+        self::assertSame([], $this->uow->getScheduledInsertions());
+        $this->uow->commit();
+        self::assertSame([], $this->storage->tables['tenant_client'] ?? []);
+    }
+
+    public function testEmptyUnitOfWorkIgnoresSwitches(): void
+    {
+        $this->context->runAs(8, static fn (): null => null);
+        $this->context->setTenantId(9);
+
+        self::assertFalse($this->uow->hasPendingChanges());
     }
 }
