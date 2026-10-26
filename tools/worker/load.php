@@ -18,52 +18,69 @@ $concurrency = (int) ($argv[3] ?? 4);
 const WARMUP = 1_000;
 const MAX_GROWTH = 1_048_576;
 
-// les commandes sans facture : une écriture (facture) par commande, tant qu'il en reste
+// par société (pilier 3) : ses clients, ses commandes, et celles sans facture, à facturer une fois chacune
 $pdo = new PDO('mysql:host=mysql;port=3306;dbname=prism_demo', 'root', 'root');
-$uninvoiced = $pdo->query('SELECT o.id FROM `order` o LEFT JOIN invoice i ON i.order_id = o.id WHERE i.id IS NULL ORDER BY o.id')->fetchAll(PDO::FETCH_COLUMN);
-$customers = (int) $pdo->query('SELECT COUNT(*) FROM customer')->fetchColumn();
-$orders = (int) $pdo->query('SELECT MAX(id) FROM `order`')->fetchColumn();
-if (0 === $customers || 0 === $orders) {
+$companies = [];
+foreach ($pdo->query('SELECT id, slug FROM company ORDER BY id')->fetchAll(PDO::FETCH_KEY_PAIR) as $id => $slug) {
+    $ids = static function (string $sql) use ($pdo, $id): array {
+        $statement = $pdo->prepare($sql);
+        $statement->execute([$id]);
+
+        return array_map('intval', $statement->fetchAll(PDO::FETCH_COLUMN));
+    };
+    $companies[] = [
+        'host' => $slug . '.localhost',
+        'customers' => $ids('SELECT id FROM customer WHERE tenant_id = ? ORDER BY id'),
+        'orders' => $ids('SELECT id FROM `order` WHERE tenant_id = ? ORDER BY id'),
+        'uninvoiced' => $ids('SELECT o.id FROM `order` o LEFT JOIN invoice i ON i.order_id = o.id WHERE i.id IS NULL AND o.tenant_id = ? ORDER BY o.id'),
+    ];
+}
+if ([] === $companies || [] === $companies[0]['orders']) {
     fwrite(STDERR, "The demo database is empty: run make demo-install first.\n");
     exit(1);
 }
 
 /**
- * La requête n : une page de liste, une fiche, le rapport, ou une facture (1 sur 10).
+ * La requête n, pour une société tour à tour (le worker passe sans cesse de l'une à l'autre) :
+ * une page de liste, une fiche, le rapport, ou une facture (1 sur 10).
  *
- * @return array{string, string, array<string, string>|null} méthode, chemin, champs du POST
+ * @param list<array{host: string, customers: list<int>, orders: list<int>, uninvoiced: list<int>}> $companies
+ *
+ * @return array{string, string, string, array<string, string>|null} hôte, méthode, chemin, champs du POST
  */
-function plan(int $n, array &$uninvoiced, int $customers, int $orders): array
+function plan(int $n, array &$companies): array
 {
-    if (0 === $n % 10 && [] !== $uninvoiced) {
-        return ['POST', '/orders/' . array_shift($uninvoiced), ['form[number]' => sprintf('W-%06d', $n)]];
+    $c = &$companies[intdiv($n, 10) % count($companies)];
+    if (0 === $n % 10 && [] !== $c['uninvoiced']) {
+        return [$c['host'], 'POST', '/orders/' . array_shift($c['uninvoiced']), ['form[number]' => sprintf('W-%06d', $n)]];
     }
 
     return match ($n % 5) {
-        0 => ['GET', '/orders?page=' . (1 + $n % 25), null],
-        1 => ['GET', '/customers/' . (1 + $n % $customers), null],
-        2 => ['GET', '/orders/' . (1 + $n % $orders), null],
-        3 => ['GET', '/reports/revenue', null],
-        default => ['GET', '/customers?page=' . (1 + $n % 3), null],
+        0 => [$c['host'], 'GET', '/orders?page=' . (1 + $n % 25), null],
+        1 => [$c['host'], 'GET', '/customers/' . $c['customers'][$n % count($c['customers'])], null],
+        2 => [$c['host'], 'GET', '/orders/' . $c['orders'][$n % count($c['orders'])], null],
+        3 => [$c['host'], 'GET', '/reports/revenue', null],
+        default => [$c['host'], 'GET', '/customers?page=' . (1 + $n % 3), null],
     };
 }
 
 /**
  * @param array<string, string>|null $form
  */
-function handle(string $base, string $method, string $path, ?array $form): CurlHandle
+function handle(string $base, string $host, string $method, string $path, ?array $form): CurlHandle
 {
     $curl = curl_init();
-    $options = [CURLOPT_RETURNTRANSFER => true, CURLOPT_HEADER => true, CURLOPT_TIMEOUT => 30, CURLOPT_URL => $base . $path];
+    // la société par son sous-domaine, sur le serveur de la démo
+    $options = [CURLOPT_RETURNTRANSFER => true, CURLOPT_HEADER => true, CURLOPT_TIMEOUT => 30, CURLOPT_URL => $base . $path, CURLOPT_HTTPHEADER => ['Host: ' . $host]];
     if ('POST' === $method) {
         // le formulaire d'abord : son jeton CSRF s'il en a un (symfony/security-csrf installé)
         $page = curl_init($base . $path);
-        curl_setopt($page, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt_array($page, [CURLOPT_RETURNTRANSFER => true, CURLOPT_HTTPHEADER => ['Host: ' . $host]]);
         $html = (string) curl_exec($page);
         if (1 === preg_match('/name="form\[_token\]"[^>]*value="([^"]*)"/', $html, $token)) {
             $form['form[_token]'] = $token[1];
         }
-        $options = [CURLOPT_URL => $base . $path . '/invoice', CURLOPT_POST => true, CURLOPT_POSTFIELDS => http_build_query($form), CURLOPT_HTTPHEADER => ['Origin: ' . $base]] + $options;
+        $options = [CURLOPT_URL => $base . $path . '/invoice', CURLOPT_POST => true, CURLOPT_POSTFIELDS => http_build_query($form), CURLOPT_HTTPHEADER => ['Host: ' . $host, 'Origin: http://' . $host]] + $options;
     }
     curl_setopt_array($curl, $options);
 
@@ -77,10 +94,10 @@ $next = 1;
 $start = microtime(true);
 while ($next <= $total || [] !== $running) {
     while ($next <= $total && count($running) < $concurrency) {
-        [$method, $path, $form] = plan($next, $uninvoiced, $customers, $orders);
-        $curl = handle($base, $method, $path, $form);
+        [$host, $method, $path, $form] = plan($next, $companies);
+        $curl = handle($base, $host, $method, $path, $form);
         curl_multi_add_handle($multi, $curl);
-        $running[spl_object_id($curl)] = [$curl, $next, $method . ' ' . $path];
+        $running[spl_object_id($curl)] = [$curl, $next, $method . ' ' . $host . $path];
         ++$next;
     }
     curl_multi_exec($multi, $active);
