@@ -158,7 +158,7 @@ final class EntityManager implements EntityManagerInterface
      */
     public function query(Metamodel $root): EntityQueryBuilder
     {
-        return new EntityQueryBuilder($this, $this->metadata, $root);
+        return new EntityQueryBuilder($this, $this->metadata, $root, $this->filters);
     }
 
     public function getConnection(): Connection
