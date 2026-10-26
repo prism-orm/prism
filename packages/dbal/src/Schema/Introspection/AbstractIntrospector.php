@@ -61,6 +61,9 @@ abstract class AbstractIntrospector implements Introspector
         $columns = [];
         $primaryKey = [];
         foreach ($rows as $row) {
+            if ($this->hidden($row)) {
+                continue;
+            }
             $column = $this->column($name, $row);
             $columns[] = $column;
             $position = self::nullableInt($row['primary_position'] ?? null);
@@ -92,6 +95,16 @@ abstract class AbstractIntrospector implements Introspector
     abstract protected function column(string $table, array $row): Column;
 
     /**
+     * Une colonne propre au fonctionnement d'un index, jamais exposée (ADR 0015).
+     *
+     * @param array<string, mixed> $row
+     */
+    protected function hidden(array $row): bool
+    {
+        return false;
+    }
+
+    /**
      * Retouche finale (index implicites à retirer…).
      */
     protected function finish(Table $table): Table
@@ -109,9 +122,34 @@ abstract class AbstractIntrospector implements Introspector
             $name = self::string($row['name']);
             $grouped[$name]['columns'][] = self::string($row['column_name']);
             $grouped[$name]['unique'] = 0 === self::nullableInt($row['non_unique']);
+            $grouped[$name]['predicate'] = self::nullableString($row['predicate'] ?? null);
         }
 
-        return array_map(static fn (array $index, string $name): Index => new Index($name, $index['columns'], $index['unique']), $grouped, array_keys($grouped));
+        $indexes = [];
+        foreach ($grouped as $name => $index) {
+            $whereNull = null === $index['predicate'] ? null : self::whereNull($index['predicate']);
+            if (null !== $index['predicate'] && null === $whereNull) {
+                // une autre condition : l'index est lu comme complet, plus large que dans la base
+                $this->note($table, $name, \sprintf('The partial index %s (%s) is read as a full index: Prism only manages "column IS NULL" conditions.', $name, $index['predicate']));
+            }
+            $indexes[] = new Index($name, $index['columns'], $index['unique'], $whereNull);
+        }
+
+        return $indexes;
+    }
+
+    /**
+     * La colonne d'une condition « colonne IS NULL », seule ou en fin d'un CREATE INDEX (SQLite).
+     */
+    protected static function whereNull(string $predicate): ?string
+    {
+        if (1 !== preg_match('/(?:\bWHERE\s+)?\(*\s*["`]?([A-Za-z_][A-Za-z0-9_]*)["`]?\s+IS\s+NULL\s*\)*\s*$/i', $predicate, $m)) {
+            return null;
+        }
+        // la condition entière, pas la fin d'une autre (« a = 1 AND b IS NULL »)
+        $condition = (string) preg_replace('/^.*\bWHERE\s+/is', '', $predicate);
+
+        return 1 === preg_match('/^\(*\s*["`]?[A-Za-z_][A-Za-z0-9_]*["`]?\s+IS\s+NULL\s*\)*\s*$/i', $condition) ? $m[1] : null;
     }
 
     /**

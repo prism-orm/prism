@@ -8,6 +8,7 @@ use Prism\Dbal\Connection;
 use Prism\Dbal\LockMode;
 use Prism\Orm\Exception\CrossTenantRelationException;
 use Prism\Orm\Exception\EntityNotFoundException;
+use Prism\Orm\Exception\InvalidArgumentException;
 use Prism\Orm\Exception\InvalidEntityStateException;
 use Prism\Orm\Exception\MappingException;
 use Prism\Orm\Exception\MissingTenantException;
@@ -36,11 +37,20 @@ interface EntityManagerInterface
     public function persist(object $entity): void;
 
     /**
-     * MANAGED → REMOVED ; le DELETE a lieu au flush.
+     * MANAGED → REMOVED ; le DELETE a lieu au flush. Une entité #[SoftDeletable] reste MANAGED :
+     * son champ de suppression est écrit au flush, sauf avec $hardDelete (RG-08.14, ADR 0015).
      *
      * @throws InvalidEntityStateException entité NEW ou DETACHED
      */
-    public function remove(object $entity): void;
+    public function remove(object $entity, bool $hardDelete = false): void;
+
+    /**
+     * RG-08.14 : une entité #[SoftDeletable] supprimée redevient visible au flush.
+     *
+     * @throws InvalidArgumentException    entité sans #[SoftDeletable]
+     * @throws InvalidEntityStateException entité qui n'est pas MANAGED
+     */
+    public function restore(object $entity): void;
 
     /**
      * Écrit toutes les modifications en une transaction (RG-03.6).

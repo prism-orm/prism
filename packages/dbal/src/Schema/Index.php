@@ -18,14 +18,20 @@ final class Index
 
     /**
      * @param list<string> $columns
+     * @param string|null  $whereNull index partiel : seules les lignes où cette colonne est NULL
+     *                                (suppression logique, RG-08.15, ADR 0015)
      */
     public function __construct(
         public readonly string $name,
         array $columns,
         public readonly bool $unique = false,
+        public readonly ?string $whereNull = null,
     ) {
         if ('' === trim($name)) {
             throw InvalidSchemaException::emptyName('index');
+        }
+        if (null !== $whereNull && '' === trim($whereNull)) {
+            throw InvalidSchemaException::emptyName('partial index column');
         }
         $this->columns = Keys::columns('index', $name, $columns);
     }

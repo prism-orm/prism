@@ -7,6 +7,7 @@ namespace Prism\Orm;
 use Prism\Dbal\Connection;
 use Prism\Dbal\LockMode;
 use Prism\Orm\Behavior\ActorProvider;
+use Prism\Orm\Behavior\SoftDeleteFilter;
 use Prism\Orm\Event\EntityListenerResolver;
 use Prism\Orm\Exception\MappingException;
 use Prism\Orm\Filter\FilterCollection;
@@ -62,6 +63,9 @@ final class EntityManager implements EntityManagerInterface
         // les filtres de l'application d'abord ; celui du tenant, verrouillé, toujours présent
         $this->filters = $filters ?? new FilterCollection();
         $this->filters->add(TenantFilter::NAME, new TenantFilter($this->tenantContext), locked: true);
+        if (!$this->filters->has(SoftDeleteFilter::NAME)) {
+            $this->filters->add(SoftDeleteFilter::NAME, new SoftDeleteFilter());
+        }
         $this->metadata = $metadata ?? new MetadataFactory(new AttributeDriver(), types: $connection->getTypeRegistry());
         $this->unitOfWork = new UnitOfWork($this->metadata, new DbalPersisterProvider($connection, $this->metadata, $this->filters), $connection->getConversionContext(), $connection->getTypeRegistry(), $events, $listeners, $batchSize, $this->tenantContext, $clock, $actorProvider);
     }
@@ -71,9 +75,14 @@ final class EntityManager implements EntityManagerInterface
         $this->unitOfWork->persist($entity);
     }
 
-    public function remove(object $entity): void
+    public function remove(object $entity, bool $hardDelete = false): void
     {
-        $this->unitOfWork->remove($entity);
+        $this->unitOfWork->remove($entity, $hardDelete);
+    }
+
+    public function restore(object $entity): void
+    {
+        $this->unitOfWork->restore($entity);
     }
 
     public function flush(): void

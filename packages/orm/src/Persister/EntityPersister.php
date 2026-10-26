@@ -7,6 +7,7 @@ namespace Prism\Orm\Persister;
 use Prism\Dbal\LockMode;
 use Prism\Dbal\Query\Order;
 use Prism\Orm\Exception\MappingException;
+use Prism\Orm\Filter\FilterOperation;
 
 /**
  * Écrit et lit les lignes d'une entité. Les valeurs reçues et rendues sont celles de la base
@@ -42,7 +43,7 @@ interface EntityPersister
     /**
      * @return array<string, mixed>|null
      */
-    public function loadById(mixed $id): ?array;
+    public function loadById(mixed $id, FilterOperation $operation = FilterOperation::Read): ?array;
 
     /**
      * Lignes qui satisfont les critères (champ → valeur PHP ; null : IS NULL ; liste : IN).
@@ -54,7 +55,7 @@ interface EntityPersister
      *
      * @throws MappingException champ inconnu
      */
-    public function loadBy(array $criteria, array $orderBy = [], ?int $limit = null, int $offset = 0): array;
+    public function loadBy(array $criteria, array $orderBy = [], ?int $limit = null, int $offset = 0, FilterOperation $operation = FilterOperation::Read): array;
 
     /**
      * Pagination sur clé : au plus $limit lignes d'identifiant strictement supérieur à $afterId

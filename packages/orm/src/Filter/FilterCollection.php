@@ -62,14 +62,19 @@ final class FilterCollection
     }
 
     /**
-     * Conditions des filtres actifs pour cette table, réunies par AND ; null : aucune.
+     * Conditions des filtres actifs pour cette table, réunies par AND ; null : aucune. $except
+     * écarte des filtres non verrouillés pour une requête (->withDeleted()).
      *
      * @param ClassMetadata<object> $metadata
+     * @param list<string>          $except
      */
-    public function condition(ClassMetadata $metadata, FilterTarget $target): ?Expression
+    public function condition(ClassMetadata $metadata, FilterTarget $target, array $except = []): ?Expression
     {
         $conditions = [];
         foreach ($this->filters as $name => $filter) {
+            if (\in_array($name, $except, true) && !isset($this->locked[$name])) {
+                continue;
+            }
             if (!isset($this->disabled[$name]) && null !== $condition = $filter->condition($metadata, $target)) {
                 $conditions[] = $condition;
             }

@@ -42,6 +42,7 @@ use Prism\Orm\Exception\TenantMismatchException;
 use Prism\Orm\Exception\TenantSwitchException;
 use Prism\Orm\Exception\TransactionRequiredException;
 use Prism\Orm\Exception\UnpersistedRelationException;
+use Prism\Orm\Filter\FilterOperation;
 use Prism\Orm\Hydrator\ObjectHydrator;
 use Prism\Orm\Lazy\LazyFactory;
 use Prism\Orm\Mapping\Cascade;
@@ -175,6 +176,12 @@ final class UnitOfWork implements TenantSwitchListener
     /** @var array<int, mixed> tenant écrit à l'INSERT, que ne porte aucun champ, en attente du snapshot */
     private array $insertedTenants = [];
 
+    /** @var array<int, true> entités supprimées logiquement depuis le dernier flush (audit : soft-delete) */
+    private array $softDeleted = [];
+
+    /** @var array<int, true> entités restaurées depuis le dernier flush (audit : restore) */
+    private array $restored = [];
+
     public function __construct(
         private readonly MetadataFactory $metadata,
         private readonly PersisterProvider $persisters,
@@ -231,7 +238,7 @@ final class UnitOfWork implements TenantSwitchListener
      *
      * @throws InvalidEntityStateException entité NEW ou DETACHED
      */
-    public function remove(object $entity): void
+    public function remove(object $entity, bool $hardDelete = false): void
     {
         $oid = spl_object_id($entity);
 
@@ -252,11 +259,62 @@ final class UnitOfWork implements TenantSwitchListener
                 }
                 // la version et les listeners lisent l'entité : une référence est chargée d'abord
                 $this->lazy->initialize($entity);
-                $this->lifecycle->lifecycle($this->metadataOf($entity), LifecycleEvent::PreRemove, $entity, fn (): PreRemoveEvent => new PreRemoveEvent($entity, $this));
+                $metadata = $this->metadataOf($entity);
+                if (!$hardDelete && null !== $field = $metadata->behaviors->deletedAt) {
+                    $this->softRemove($metadata, $entity, $field);
+
+                    return;
+                }
+                $this->lifecycle->lifecycle($metadata, LifecycleEvent::PreRemove, $entity, fn (): PreRemoveEvent => new PreRemoveEvent($entity, $this));
                 $this->states[$oid] = EntityState::Removed;
                 $this->deletions[$oid] = $entity;
                 $this->cascadeRemove($entity);
         }
+    }
+
+    /**
+     * RG-08.14 : la suppression d'une entité #[SoftDeletable] est l'UPDATE de son champ de
+     * suppression au flush (PreRemove ici, PostUpdate après le flush) ; une entité déjà supprimée
+     * reste telle quelle. Les cascades s'appliquent comme à une suppression (ADR 0015).
+     *
+     * @param ClassMetadata<object> $metadata
+     */
+    private function softRemove(ClassMetadata $metadata, object $entity, string $field): void
+    {
+        if (null !== $this->read($entity, $metadata->className, $field)) {
+            return;
+        }
+        $oid = spl_object_id($entity);
+        $this->lifecycle->lifecycle($metadata, LifecycleEvent::PreRemove, $entity, fn (): PreRemoveEvent => new PreRemoveEvent($entity, $this));
+        $this->property($metadata->className, $field)->setValue($entity, $this->now());
+        $this->softDeleted[$oid] = true;
+        unset($this->restored[$oid]);
+        $this->cascadeRemove($entity);
+    }
+
+    /**
+     * RG-08.14 : une entité supprimée logiquement redevient visible, par l'UPDATE de son champ de
+     * suppression au flush ; sans effet sur une entité qui ne l'est pas (ADR 0015).
+     *
+     * @throws InvalidArgumentException    entité sans #[SoftDeletable]
+     * @throws InvalidEntityStateException entité qui n'est pas MANAGED
+     */
+    public function restore(object $entity): void
+    {
+        $metadata = $this->metadataOf($entity);
+        $field = $metadata->behaviors->deletedAt ?? throw InvalidArgumentException::notSoftDeletable($metadata->className);
+        $state = $this->getEntityState($entity);
+        if (EntityState::Managed !== $state) {
+            throw InvalidEntityStateException::transition($entity, $state, 'restore', 'only a managed entity can be restored; load it with withDeleted().');
+        }
+        $this->lazy->initialize($entity);
+        if (null === $this->read($entity, $metadata->className, $field)) {
+            return;
+        }
+        $oid = spl_object_id($entity);
+        $this->property($metadata->className, $field)->setValue($entity, null);
+        $this->restored[$oid] = true;
+        unset($this->softDeleted[$oid]);
     }
 
     /**
@@ -352,6 +410,8 @@ final class UnitOfWork implements TenantSwitchListener
         $this->entities = [];
         $this->snapshots = [];
         $this->insertedTenants = [];
+        $this->softDeleted = [];
+        $this->restored = [];
         $this->identityMap = [];
         $this->keys = [];
         $this->collectionSnapshots = [];
@@ -641,7 +701,8 @@ final class UnitOfWork implements TenantSwitchListener
         }
 
         $metadata = $this->metadataOf($entity);
-        $row = $this->persisters->getPersister($metadata)->loadById($this->idOf($metadata, $oid));
+        // une référence : la ligne supprimée logiquement se relit (ADR 0015)
+        $row = $this->persisters->getPersister($metadata)->loadById($this->idOf($metadata, $oid), FilterOperation::Load);
         if (null === $row) {
             throw EntityNotFoundException::forId($metadata->className, $this->property($metadata->className, $metadata->id->fieldName)->getValue($entity));
         }
@@ -1000,6 +1061,8 @@ final class UnitOfWork implements TenantSwitchListener
             $oid = spl_object_id($entity);
             $this->snapshots[$oid] = $changes + $this->snapshots[$oid];
         }
+        $this->softDeleted = [];
+        $this->restored = [];
         foreach ($deleted as $entity) {
             $this->forget($entity);
         }
@@ -1598,11 +1661,11 @@ final class UnitOfWork implements TenantSwitchListener
             ), 1);
             $cohort = new Cohort();
             if ([] === $batch) {
-                $row = $this->persisters->getPersister($metadata)->loadById($this->toDatabase($idField, $id));
+                $row = $this->persisters->getPersister($metadata)->loadById($this->toDatabase($idField, $id), FilterOperation::Load);
             } else {
                 $ids = [$id, ...array_map(fn (object $other): mixed => $this->property($metadata->className, $metadata->id->fieldName)->getValue($other), $batch)];
                 $this->lifecycle->dispatch(new BatchLoadedEvent($metadata->className, null, \count($ids), $this));
-                foreach ($this->persisters->getPersister($metadata)->loadBy([$idField->fieldName => $ids]) as $loaded) {
+                foreach ($this->persisters->getPersister($metadata)->loadBy([$idField->fieldName => $ids], operation: FilterOperation::Load) as $loaded) {
                     $this->prefetched[$metadata->className][self::key($this->toPhp($idField, $loaded[$idField->columnName] ?? null))] = [$loaded, $cohort];
                 }
                 [$row] = $this->prefetched[$metadata->className][$key] ?? [null];
@@ -2335,7 +2398,7 @@ final class UnitOfWork implements TenantSwitchListener
         }
         unset($this->collectionSnapshots[$oid], $this->collectionInstances[$oid], $this->inverseSnapshots[$oid], $this->fetchedInverse[$oid], $this->prefetched[$entity::class][$this->keys[$oid] ?? '']);
         $this->batch->forget($entity);
-        unset($this->keys[$oid], $this->states[$oid], $this->entities[$oid], $this->snapshots[$oid], $this->insertions[$oid], $this->deletions[$oid], $this->persisted[$oid]);
+        unset($this->keys[$oid], $this->states[$oid], $this->entities[$oid], $this->snapshots[$oid], $this->insertions[$oid], $this->deletions[$oid], $this->persisted[$oid], $this->softDeleted[$oid], $this->restored[$oid]);
 
         if ($detach) {
             $this->detached[$entity] = true;

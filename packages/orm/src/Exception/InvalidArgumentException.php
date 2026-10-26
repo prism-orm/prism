@@ -34,6 +34,14 @@ final class InvalidArgumentException extends \InvalidArgumentException implement
         return new self(\sprintf('The N+1 threshold must be at least 1, got %d.', $threshold));
     }
 
+    /**
+     * @param class-string $class
+     */
+    public static function notSoftDeletable(string $class): self
+    {
+        return new self(\sprintf('Cannot restore a %s entity: it is not #[SoftDeletable].', $class));
+    }
+
     public static function duplicateFilter(string $name): self
     {
         return new self(\sprintf('A filter named "%s" is already registered.', $name));

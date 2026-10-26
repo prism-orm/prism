@@ -194,13 +194,16 @@ final class Table
     }
 
     /**
-     * Index nommé automatiquement (RG-01.7) quand $name est null.
+     * Index nommé automatiquement (RG-01.7) quand $name est null ; partiel avec $whereNull.
      *
      * @param list<string> $columns
      */
-    public function withIndexOn(array $columns, bool $unique = false, ?string $name = null): self
+    public function withIndexOn(array $columns, bool $unique = false, ?string $name = null, ?string $whereNull = null): self
     {
-        return $this->withIndex(new Index($name ?? NameGenerator::generate($unique ? 'uniq' : 'idx', $this->name, $columns), $columns, $unique));
+        // un index partiel ne prend pas le nom de l'index complet sur les mêmes colonnes
+        $named = null === $whereNull ? $columns : [...$columns, 'where ' . $whereNull . ' is null'];
+
+        return $this->withIndex(new Index($name ?? NameGenerator::generate($unique ? 'uniq' : 'idx', $this->name, $named), $columns, $unique, $whereNull));
     }
 
     public function withoutIndex(string $name): self

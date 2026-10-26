@@ -280,7 +280,7 @@ abstract class AbstractPlatform
         // 2. index
         foreach ($diff->alteredTables as $table) {
             foreach ($table->droppedIndexes as $index) {
-                $sql[] = $this->getDropIndexSql($table->name, $index->name);
+                $sql[] = $this->getDropIndexDefinitionSql($table->name, $index);
             }
         }
 
@@ -428,15 +428,28 @@ abstract class AbstractPlatform
         return false;
     }
 
+    /**
+     * Un index partiel (whereNull) porte « WHERE colonne IS NULL » (PostgreSQL, SQLite).
+     */
     public function getCreateIndexSql(string $table, Index $index): string
     {
         return \sprintf(
-            'CREATE %sINDEX %s ON %s (%s)',
+            'CREATE %sINDEX %s ON %s (%s)%s',
             $index->unique ? 'UNIQUE ' : '',
             $this->quoteIdentifier($index->name),
             $this->quoteIdentifier($table),
             $this->quoteIdentifiers($index->columns),
+            null === $index->whereNull ? '' : ' WHERE ' . $this->quoteIdentifier($index->whereNull) . ' IS NULL',
         );
+    }
+
+    /**
+     * Suppression d'un index connu par sa définition : celle d'un index partiel peut aller au-delà
+     * de l'index (colonne virtuelle de MySQL et MariaDB).
+     */
+    public function getDropIndexDefinitionSql(string $table, Index $index): string
+    {
+        return $this->getDropIndexSql($table, $index->name);
     }
 
     public function getDropIndexSql(string $table, string $index): string

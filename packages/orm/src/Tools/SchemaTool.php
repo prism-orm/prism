@@ -30,6 +30,8 @@ use Prism\Orm\Metadata\MetadataValidator;
  * - Un ManyToMany propriétaire produit sa table pivot.
  * - Une entité #[Tenanted] a sa colonne du tenant, indexée et en tête de ses index et de ses
  *   contraintes d'unicité (RG-08.1).
+ * - Les contraintes d'unicité d'une entité #[SoftDeletable] ne couvrent que les lignes non
+ *   supprimées (index partiel, RG-08.15).
  * - Les noms générés sont déterministes (RG-01.7) : le diff reste stable.
  *
  * @api
@@ -114,10 +116,12 @@ final class SchemaTool
 
         $table = new Table($class->tableName, $columns, [$class->getIdField()->columnName]);
 
+        // RG-08.15 : une ligne supprimée logiquement ne compte plus pour l'unicité
+        $live = null === $class->behaviors->deletedAt ? null : $class->getField($class->behaviors->deletedAt)->columnName;
         foreach ($class->getFields() as $field) {
             if ($field->unique) {
                 // unique par tenant : un numéro de facture se répète d'un tenant à l'autre
-                $table = $table->withIndexOn(self::tenantFirst($class, [$field->columnName]), unique: true);
+                $table = $table->withIndexOn(self::tenantFirst($class, [$field->columnName]), unique: true, whereNull: $live);
             }
         }
         foreach ($class->indexes as $index) {
@@ -125,7 +129,7 @@ final class SchemaTool
                 throw MappingException::invalidMetadata($class->className, \sprintf('the unique constraint on "%s" has a "where" condition; partial indexes arrive with phase 8 (RG-08.15). Enforcing it without its condition would reject valid rows.', implode(', ', $index->fields)));
             }
             // un index non unique sans sa condition est plus large, jamais faux
-            $table = $table->withIndexOn(self::tenantFirst($class, array_map(fn (string $field): string => $this->columnOf($class, $field), $index->fields)), $index->unique, $index->name);
+            $table = $table->withIndexOn(self::tenantFirst($class, array_map(fn (string $field): string => $this->columnOf($class, $field), $index->fields)), $index->unique, $index->name, $index->unique ? $live : null);
         }
         if (null !== $tenancy && !self::isCovered($table, $tenancy->column)) {
             $table = $table->withIndexOn([$tenancy->column]);
