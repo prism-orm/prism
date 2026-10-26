@@ -34,6 +34,8 @@ use Prism\Orm\Tests\Unit\Mapping\Fixtures\Tag;
 use Prism\Orm\Tests\Unit\Metadata\Fixtures\Inferred;
 use Prism\Orm\Tests\Unit\Metadata\Fixtures\Person;
 use Prism\Orm\Tests\Unit\Tools\Fixtures\Currency;
+use Prism\Orm\Tests\Unit\Tools\Fixtures\Ledger;
+use Prism\Orm\Tests\Unit\Tools\Fixtures\Note;
 use Prism\Orm\Tests\Unit\Tools\Fixtures\Wallet;
 use Prism\Orm\Tools\SchemaTool;
 
@@ -173,11 +175,44 @@ final class SchemaToolTest extends TestCase
 
         $indexes = array_values(self::indexes($invoice));
         // l'index partiel non unique devient complet (plus large, jamais faux) ; décision A
-        self::assertContains([['status', 'issued_at'], false], $indexes);
-        self::assertContains([['issued_at'], false], $indexes);
-        self::assertContains([['number'], true], $indexes);
+        // entité #[Tenanted] : tenant_id en tête des index déclarés (RG-08.1)
+        self::assertContains([['tenant_id', 'status', 'issued_at'], false], $indexes);
+        self::assertContains([['tenant_id', 'issued_at'], false], $indexes);
+        self::assertContains([['tenant_id', 'number'], true], $indexes);
         self::assertContains([['client_id'], false], $indexes);
         self::assertContains([['credit_note_id'], true], $indexes);
+    }
+
+    // RG-08.1 : colonne du tenant indexée, unicité par tenant
+    public function testTenantedEntityGetsAnIndexedTenantColumn(): void
+    {
+        $note = self::schema(new MySqlPlatform('8.4'), [Note::class])->getTable('note');
+
+        self::assertSame(['tenant_id', 'integer', false, null, null, false], self::columns($note)[2]);
+        // l'index unique par tenant couvre déjà la colonne du tenant
+        self::assertSame([[['tenant_id', 'code'], true]], array_values(self::indexes($note)));
+    }
+
+    // ADR 0014 : type de l'EntityManager, index propre, colonne nullable des référentiels partagés
+    public function testTenantColumnTypeAndGlobalRows(): void
+    {
+        $driver = new AttributeDriver(tenantType: 'uuid');
+        $schema = new SchemaTool(new PostgreSqlPlatform('16'), StubVectorType::registry())->fromMetadata(array_map($driver->loadMetadata(...), [Invoice::class, Client::class, InvoiceLine::class, Tag::class]));
+
+        $client = $schema->getTable('client');
+        self::assertSame('uuid', $client->getColumn('tenant_id')->type);
+        self::assertFalse($client->getColumn('tenant_id')->nullable);
+        self::assertSame([[['tenant_id'], false]], array_values(self::indexes($client)), 'no declared index covers it');
+        self::assertTrue($schema->getTable('tag')->getColumn('tenant_id')->nullable, 'global: true');
+    }
+
+    // une propriété portant la colonne du tenant : pas de seconde colonne ; un index qui la nomme reste tel quel
+    public function testTenantColumnCarriedByAProperty(): void
+    {
+        $ledger = self::schema(new SqlitePlatform('3.46'), [Ledger::class])->getTable('ledger');
+
+        self::assertSame(['id', 'company_id', 'code', 'label'], array_column(self::columns($ledger), 0));
+        self::assertEqualsCanonicalizing([['code', 'company_id'], ['company_id', 'label']], array_column(array_values(self::indexes($ledger)), 0));
     }
 
     public function testUniqueConstraintWithConditionIsRefusedUntilPhase8(): void

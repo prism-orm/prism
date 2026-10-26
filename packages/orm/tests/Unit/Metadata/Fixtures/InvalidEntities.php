@@ -153,3 +153,11 @@ final class BadDefault
 final class NotAnEntity
 {
 }
+
+#[Prism\Entity]
+#[Prism\Tenanted(strictForeignKeys: true)]
+final class StrictTenantForeignKeys
+{
+    #[Prism\Id]
+    public int $id = 0;
+}

@@ -19,7 +19,7 @@ use Prism\Orm\Vector\Distance;
 #[Prism\Index(fields: ['issuedAt'])]
 #[Prism\Index(fields: ['status', 'issuedAt'], where: "status <> 'draft'")]
 #[Prism\UniqueConstraint(fields: ['number'])]
-#[Prism\Tenanted(strictForeignKeys: true)]
+#[Prism\Tenanted]
 #[Prism\Auditable(exclude: ['updatedAt'], retention: 'P10Y')]
 #[Prism\Timestampable]
 #[Prism\Blameable]
