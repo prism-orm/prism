@@ -2,7 +2,7 @@
 
 Toutes les évolutions notables de Prism, par version. Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) ; versions [SemVer](https://semver.org/lang/fr/), en `0.x` jusqu'à la 1.0 (RT-16). Les règles citées (RG-xx, RT-xx) sont décrites dans `docs/ROADMAP.md`, les décisions (ADR) dans `docs/adr/`.
 
-## [Non publié] — 0.8.0
+## [0.8.0] — 2026-10-27
 
 Phase 8 : pilier 3, multi-tenancy et audit. Isoler les données de chaque client B2B sans oubli possible, et tracer chaque modification ; guide : [Multi-tenancy](website/guide/multi-tenancy.md) et [Audit and behaviors](website/guide/audit.md).
 
