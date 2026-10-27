@@ -4,7 +4,7 @@ Toutes les évolutions notables de Prism, par version. Format inspiré de [Keep 
 
 ## [Non publié] — 0.8.0
 
-Phase 8 : pilier 3, multi-tenancy et audit. Isoler les données de chaque client B2B sans oubli possible, et tracer chaque modification ; guide : [Multi-tenancy](packages/bundle/docs/symfony.md#multi-tenancy) et [Audit et comportements](packages/bundle/docs/symfony.md#audit-et-comportements).
+Phase 8 : pilier 3, multi-tenancy et audit. Isoler les données de chaque client B2B sans oubli possible, et tracer chaque modification ; guide : [Multi-tenancy](website/guide/multi-tenancy.md) et [Audit and behaviors](website/guide/audit.md).
 
 ### Ajouté
 
@@ -31,6 +31,16 @@ Phase 8 : pilier 3, multi-tenancy et audit. Isoler les données de chaque client
 - `EntityManager` accepte en fin de constructeur un `TenantContext`, une `FilterCollection`, une horloge, un `ActorProvider` et un `RequestIdProvider`.
 - Dépendances : `psr/log` et `psr/clock` déclarés par `prism-orm/orm`.
 - Mesures : couverture `orm` 96,2 %, `dbal` 88,9 %, `bundle` 95,1 % ; MSI couvert `UnitOfWork` 85 %, `Comparator` 94 %, `CommitOrderCalculator` 97 %, `BatchLoader` 94 %, `TenantFilter` 100 %, analyse de la garde 86 %.
+
+### Documentation
+
+Phase 10a, avancée avant la phase 9 (ADR 0016) : un site de documentation complet, en anglais, dont chaque exemple est exécuté.
+
+- Site VitePress (`website/`, `make docs-dev`, `make docs-build`, job CI `website`) : démarrer, guides du cœur et des piliers 1 à 3, Symfony, recettes ERP (factures, stocks, multi-sociétés), migrer depuis Doctrine, référence. Les pages d'un paquet restent dans `packages/<paquet>/docs`, publiées aussi par le split.
+- Exemples exécutés en CI sur les 4 bases (RG-10.3), dans un processus chacun, sur les données de la démo, sous la garde du SQL brut ; une page peut s'exécuter en séquence (`examples: sequence`) ; les blocs `no-run` sont listés par la CI.
+- Référence vérifiée contre le code dans les deux sens : attributs et paramètres, options de `prism.yaml`, commandes, événements, exceptions, erreurs PHPStan ; liens internes et ancres vérifiés.
+- `symfony.md` et `commands.md` traduits en anglais ; exemple `selectInto(CustomerRevenue::class)` corrigé (paramètre `lastInvoice`).
+- Écarts trouvés en écrivant, reportés au backlog (phase 10b) : deux enums `Order`, docblock de `#[Index(where:)]`, `contains()` en `Fetch::ExtraLazy`, commentaire en français de `db:import`.
 
 ## [0.7.0] — 2026-10-22
 
