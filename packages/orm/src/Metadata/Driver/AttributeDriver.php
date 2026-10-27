@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Prism\Orm\Metadata\Driver;
 
+use Prism\Dbal\Schema\IndexKind;
 use Prism\Orm\Exception\MappingException;
 use Prism\Orm\Mapping as Attr;
 use Prism\Orm\Mapping\LifecycleCallbackAttribute;
@@ -376,6 +377,17 @@ final class AttributeDriver implements MetadataDriver
         foreach ($class->getAttributes(Attr\UniqueConstraint::class) as $attribute) {
             $unique = $attribute->newInstance();
             $indexes[] = new IndexMapping($unique->fields, true, $unique->name, $unique->where);
+        }
+        foreach ($class->getAttributes(Attr\FullTextIndex::class) as $attribute) {
+            $fullText = $attribute->newInstance();
+            $indexes[] = new IndexMapping($fullText->fields, name: $fullText->name, kind: IndexKind::FullText, language: $fullText->language);
+        }
+        // #[VectorIndex] se pose sur le champ vecteur lui-même
+        foreach ($class->getProperties() as $property) {
+            foreach ($property->getAttributes(Attr\VectorIndex::class) as $attribute) {
+                $vector = $attribute->newInstance();
+                $indexes[] = new IndexMapping([$property->getName()], kind: IndexKind::Vector, distance: $vector->distance, m: $vector->m, efConstruction: $vector->efConstruction);
+            }
         }
 
         return $indexes;

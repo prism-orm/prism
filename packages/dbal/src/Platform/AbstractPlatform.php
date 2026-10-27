@@ -13,6 +13,7 @@ use Prism\Dbal\Schema\Column;
 use Prism\Dbal\Schema\ColumnDiff;
 use Prism\Dbal\Schema\ForeignKey;
 use Prism\Dbal\Schema\Index;
+use Prism\Dbal\Schema\IndexKind;
 use Prism\Dbal\Schema\Schema;
 use Prism\Dbal\Schema\SchemaDiff;
 use Prism\Dbal\Schema\Sequence;
@@ -264,7 +265,7 @@ abstract class AbstractPlatform
             $sql[] = $this->getCreateTableSql($table);
         }
         foreach ($schema->getTables() as $table) {
-            foreach ($table->getIndexes() as $index) {
+            foreach ($this->getCanonicalTable($table)->getIndexes() as $index) {
                 $sql[] = $this->getCreateIndexSql($table->name, $index);
             }
         }
@@ -461,10 +462,17 @@ abstract class AbstractPlatform
     }
 
     /**
-     * Un index partiel (whereNull) porte « WHERE colonne IS NULL » (PostgreSQL, SQLite).
+     * Un index partiel (whereNull) porte « WHERE colonne IS NULL » (PostgreSQL, SQLite). Un index
+     * vectoriel ou plein texte n'a pas de forme commune : chaque plateforme le déclare.
+     *
+     * @throws InvalidSchemaException index vectoriel ou plein texte sur une plateforme qui n'en a pas
      */
     public function getCreateIndexSql(string $table, Index $index): string
     {
+        if (IndexKind::Regular !== $index->kind) {
+            throw InvalidSchemaException::unsupportedFeature($this->getName(), IndexKind::Vector === $index->kind ? 'vector indexes' : 'full-text indexes');
+        }
+
         return \sprintf(
             'CREATE %sINDEX %s ON %s (%s)%s',
             $index->unique ? 'UNIQUE ' : '',
@@ -539,10 +547,23 @@ abstract class AbstractPlatform
         return 'string' === $column->type && null === $column->length ? $column->withType('string', 255) : $column;
     }
 
+    /**
+     * Forme d'un index telle que la plateforme la conserve ; null : la plateforme ne le crée pas
+     * (index vectoriel ou plein texte sous SQLite, ADR 0017).
+     */
+    public function getCanonicalIndex(Index $index): ?Index
+    {
+        return $index;
+    }
+
     public function getCanonicalTable(Table $table): Table
     {
         foreach ($table->getColumns() as $column) {
             $table = $table->withColumn($this->getCanonicalColumn($column));
+        }
+        foreach ($table->getIndexes() as $index) {
+            $canonical = $this->getCanonicalIndex($index);
+            $table = null === $canonical ? $table->withoutIndex($index->name) : $table->withIndex($canonical);
         }
 
         return $table;

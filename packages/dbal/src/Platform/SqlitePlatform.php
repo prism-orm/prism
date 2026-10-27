@@ -9,6 +9,8 @@ use Prism\Dbal\LockMode;
 use Prism\Dbal\Schema\Column;
 use Prism\Dbal\Schema\ColumnDiff;
 use Prism\Dbal\Schema\ForeignKey;
+use Prism\Dbal\Schema\Index;
+use Prism\Dbal\Schema\IndexKind;
 use Prism\Dbal\Schema\Table;
 use Prism\Dbal\Schema\TableDiff;
 use Prism\Dbal\Schema\VectorDistance;
@@ -47,6 +49,12 @@ final class SqlitePlatform extends AbstractPlatform
     public function getLockSql(LockMode $mode): string
     {
         return '';
+    }
+
+    // ni index vectoriel ni plein texte : la recherche lit toute la table (tests et développement)
+    public function getCanonicalIndex(Index $index): ?Index
+    {
+        return IndexKind::Regular === $index->kind ? $index : null;
     }
 
     // ni type ni index : le texte est stocké tel quel, les distances calculées en PHP (lecture complète)

@@ -7,6 +7,7 @@ namespace Prism\Dbal\Platform;
 use Prism\Dbal\Exception\InvalidSchemaException;
 use Prism\Dbal\LockMode;
 use Prism\Dbal\Schema\Column;
+use Prism\Dbal\Schema\Index;
 use Prism\Dbal\Schema\VectorDistance;
 
 /**
@@ -93,6 +94,36 @@ final class MariaDbPlatform extends AbstractMySqlPlatform
             VectorDistance::Euclidean => \sprintf('VEC_DISTANCE_EUCLIDEAN(%s, %s)', $column, $vector),
             VectorDistance::InnerProduct => throw InvalidSchemaException::unsupportedFeature($this->getName(), 'the inner product distance (cosine and euclidean only)'),
         };
+    }
+
+    // un seul index vectoriel par table, sur une colonne NOT NULL (vérifié par le validateur du mapping)
+    protected function getCreateVectorIndexSql(string $table, Index $index): string
+    {
+        $distance = match ($index->distance) {
+            VectorDistance::Cosine => 'cosine',
+            VectorDistance::Euclidean => 'euclidean',
+            VectorDistance::InnerProduct, null => throw InvalidSchemaException::unsupportedFeature($this->getName(), 'the inner product distance (cosine and euclidean only)'),
+        };
+
+        return \sprintf(
+            'CREATE VECTOR INDEX %s ON %s (%s)%s DISTANCE=%s',
+            $this->quoteIdentifier($index->name),
+            $this->quoteIdentifier($table),
+            $this->quoteIdentifiers($index->columns),
+            null === $index->m ? '' : ' M=' . $index->m,
+            $distance,
+        );
+    }
+
+    /**
+     * Le CREATE TABLE tel que MariaDB le rend : M et DISTANCE d'un index vectoriel n'existent
+     * qu'ici.
+     *
+     * @internal
+     */
+    public function getShowCreateTableSql(string $table): string
+    {
+        return 'SHOW CREATE TABLE ' . $this->quoteIdentifier($table);
     }
 
     protected function getVectorDeclarationSql(Column $column): string

@@ -10,8 +10,10 @@ use Prism\Dbal\Platform\AbstractMySqlPlatform;
 use Prism\Dbal\Platform\MariaDbPlatform;
 use Prism\Dbal\Schema\Column;
 use Prism\Dbal\Schema\Index;
+use Prism\Dbal\Schema\IndexKind;
 use Prism\Dbal\Schema\Sequence;
 use Prism\Dbal\Schema\Table;
+use Prism\Dbal\Schema\VectorDistance;
 
 /**
  * MySQL et MariaDB (information_schema).
@@ -50,6 +52,7 @@ final class MySqlIntrospector extends AbstractIntrospector
     {
         $this->jsonColumns = [];
         $this->liveColumns = [];
+        $this->vectorIndexes = null;
         if (!$this->platform instanceof MariaDbPlatform) {
             return;
         }
@@ -117,6 +120,32 @@ final class MySqlIntrospector extends AbstractIntrospector
             str_contains(strtolower(self::string($row['extra'])), 'auto_increment'),
             $fixed && 'uuid' !== $type,
         );
+    }
+
+    /** @var array<string, array{?int, VectorDistance}>|null M et distance des index vectoriels, par nom en minuscules */
+    private ?array $vectorIndexes = null;
+
+    // FULLTEXT ; VECTOR (MariaDB) : M et DISTANCE ne se lisent que dans SHOW CREATE TABLE
+    protected function refineIndex(string $table, Index $index, ?string $type): Index
+    {
+        if ('FULLTEXT' === strtoupper($type ?? '')) {
+            return new Index($index->name, $index->columns, kind: IndexKind::FullText);
+        }
+        if ('VECTOR' !== strtoupper($type ?? '') || !$this->platform instanceof MariaDbPlatform) {
+            return $index;
+        }
+        if (null === $this->vectorIndexes) {
+            $this->vectorIndexes = [];
+            $create = self::string($this->connection->executeQuery($this->platform->getShowCreateTableSql($table))->fetchAssociative()['Create Table'] ?? '');
+            preg_match_all('/^\s*VECTOR KEY `((?:[^`]|``)+)` \([^)]*\)(?: `M`=(\d+))?(?: `DISTANCE`=(\w+))?/mi', $create, $matches, \PREG_SET_ORDER | \PREG_UNMATCHED_AS_NULL);
+            foreach ($matches as $m) {
+                // sans DISTANCE, celle par défaut de MariaDB (mhnsw_default_distance)
+                $this->vectorIndexes[strtolower(str_replace('``', '`', $m[1]))] = [null === $m[2] ? null : (int) $m[2], 'cosine' === strtolower($m[3] ?? '') ? VectorDistance::Cosine : VectorDistance::Euclidean];
+            }
+        }
+        [$m, $distance] = $this->vectorIndexes[strtolower($index->name)] ?? [null, VectorDistance::Euclidean];
+
+        return new Index($index->name, $index->columns, kind: IndexKind::Vector, distance: $distance, m: $m);
     }
 
     // un index qui finit par la colonne virtuelle d'un index partiel redevient partiel

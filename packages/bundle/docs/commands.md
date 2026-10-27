@@ -369,6 +369,7 @@ Analyzes the pending migrations before they run: their operations, applied one b
 | L17 | warning | Several DDL statements without a transaction, under MySQL and MariaDB |
 | L18 | warning | Table created without a primary key |
 | L19 | warning | Irreversible migration |
+| L20 | warning | Vector index created on a table with rows: the HNSW graph is built over them |
 
 ```console
 $ vendor/bin/prism db:migrations:lint

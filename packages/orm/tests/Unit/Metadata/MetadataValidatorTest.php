@@ -6,6 +6,12 @@ namespace Prism\Orm\Tests\Unit\Metadata;
 
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
+use Prism\Dbal\Platform\AbstractPlatform;
+use Prism\Dbal\Platform\MariaDbPlatform;
+use Prism\Dbal\Platform\MySqlPlatform;
+use Prism\Dbal\Platform\PostgreSqlPlatform;
+use Prism\Dbal\Platform\SqlitePlatform;
+use Prism\Dbal\Schema\IndexKind;
 use Prism\Dbal\Type\TypeRegistry;
 use Prism\Orm\Exception\MappingException;
 use Prism\Orm\Mapping\Cascade;
@@ -37,6 +43,7 @@ use Prism\Orm\Tests\Unit\Metadata\Fixtures\Callbacks\CheckedListener;
 use Prism\Orm\Tests\Unit\Metadata\Fixtures\Callbacks\EmptyListener;
 use Prism\Orm\Tests\Unit\Metadata\Fixtures\Callbacks\ListenedEntity;
 use Prism\Orm\Tests\Unit\Metadata\Fixtures\Callbacks\UntypedCollections;
+use Prism\Orm\Vector\Distance;
 
 /**
  * Cas du validateur, chacun avec son message exact. Avec les 20 erreurs du driver, ils forment
@@ -367,6 +374,63 @@ final class MetadataValidatorTest extends TestCase
         // l'avertissement RG-04.6 reste, il ne bloque pas
         new MetadataValidator()->assertValid($metadata);
         self::assertCount(1, self::errors($metadata));
+    }
+
+    /**
+     * RG-09.1, RG-09.3 (ADR 0017) : la dimension partout, puis ce que la plateforme visée refuse.
+     *
+     * @return iterable<string, array{list<FieldMapping>, list<IndexMapping>, AbstractPlatform|null, list<string>}>
+     */
+    public static function vectorCases(): iterable
+    {
+        $vector = new FieldMapping('embedding', 'embedding', 'vector', length: 3);
+        $index = new IndexMapping(['embedding'], kind: IndexKind::Vector, distance: Distance::Cosine);
+        $mariaDb = new MariaDbPlatform('11.8');
+
+        yield 'valid without a platform' => [[$vector], [$index], null, []];
+        yield 'valid on MariaDB' => [[$vector], [$index], $mariaDb, []];
+        yield 'valid on SQLite' => [[$vector], [$index], new SqlitePlatform('3.46'), []];
+        yield 'no dimensions' => [[new FieldMapping('embedding', 'embedding', 'vector')], [], null, [
+            Client::class . "::\$embedding: a vector field needs its dimensions: #[Column(type: 'vector', dimensions: …)] (RG-09.1).",
+        ]];
+        yield 'MySQL' => [[$vector], [], new MySqlPlatform('8.4'), [
+            Client::class . '::$embedding: MySQL does not support the vector type: it has neither a vector distance nor a vector index. Use MariaDB 11.8+ or PostgreSQL with pgvector 0.8+.',
+        ]];
+        yield 'inner product on MariaDB' => [[$vector], [new IndexMapping(['embedding'], kind: IndexKind::Vector, distance: Distance::InnerProduct)], $mariaDb, [
+            Client::class . '::$embedding: MariaDB has no inner product distance; use Distance::Cosine or Distance::Euclidean (RG-09.3).',
+        ]];
+        yield 'inner product on PostgreSQL' => [[$vector], [new IndexMapping(['embedding'], kind: IndexKind::Vector, distance: Distance::InnerProduct)], new PostgreSqlPlatform('16'), []];
+        yield 'nullable indexed vector on MariaDB' => [[new FieldMapping('embedding', 'embedding', 'vector', nullable: true, length: 3)], [$index], $mariaDb, [
+            Client::class . '::$embedding: MariaDB only indexes NOT NULL vector columns; make the field non-nullable.',
+        ]];
+        yield 'two vector indexes on MariaDB' => [[$vector, new FieldMapping('other', 'other', 'vector', length: 3)], [$index, new IndexMapping(['other'], kind: IndexKind::Vector, distance: Distance::Cosine)], $mariaDb, [
+            Client::class . ': MariaDB allows one vector index per table, 2 are declared on embedding, other.',
+        ]];
+        yield 'too many dimensions for HNSW on PostgreSQL' => [[new FieldMapping('embedding', 'embedding', 'vector', length: 3072)], [$index], new PostgreSqlPlatform('16'), [
+            Client::class . '::$embedding: pgvector indexes vectors of up to 2000 dimensions with HNSW, the field has 3072.',
+        ]];
+        yield 'vector index on a string' => [[new FieldMapping('embedding', 'embedding', 'string')], [$index], null, [
+            Client::class . '::$embedding: #[VectorIndex] needs a field of type "vector".',
+        ]];
+        yield 'full-text index on a number' => [[new FieldMapping('total', 'total', 'integer'), new FieldMapping('title', 'title', 'string')], [new IndexMapping(['title', 'total'], kind: IndexKind::FullText)], null, [
+            Client::class . ': #[FullTextIndex] on "title, total": "total" is not a string or text field.',
+        ]];
+        yield 'full-text index on an unknown field' => [[], [new IndexMapping(['title'], kind: IndexKind::FullText)], null, [
+            Client::class . ': #[FullTextIndex] on "title": "title" is not a mapped field or an owning to-one relation.',
+        ]];
+    }
+
+    /**
+     * @param list<FieldMapping> $fields
+     * @param list<IndexMapping> $indexes
+     * @param list<string>       $expected
+     */
+    #[DataProvider('vectorCases')]
+    public function testVectorRulesPerPlatform(array $fields, array $indexes, ?AbstractPlatform $platform, array $expected): void
+    {
+        $errors = new MetadataValidator(platform: $platform)->validate([self::meta(Client::class, 'client', $fields, indexes: $indexes)]);
+
+        self::assertSame($expected, array_map(static fn (MappingError $e): string => (string) $e, $errors));
     }
 
     public function testAllErrorsAreReportedAtOnce(): void

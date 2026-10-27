@@ -154,7 +154,12 @@ final class Comparator
     {
         return $a->unique === $b->unique
             && self::normalizedList($a->columns) === self::normalizedList($b->columns)
-            && strtolower($a->whereNull ?? '') === strtolower($b->whereNull ?? '');
+            && strtolower($a->whereNull ?? '') === strtolower($b->whereNull ?? '')
+            && $a->kind === $b->kind
+            && $a->distance === $b->distance
+            && $a->m === $b->m
+            && $a->efConstruction === $b->efConstruction
+            && $a->language === $b->language;
     }
 
     private static function sameForeignKey(ForeignKey $a, ForeignKey $b): bool

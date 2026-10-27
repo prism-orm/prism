@@ -10,6 +10,7 @@ use Prism\Dbal\DriverManager;
 use Prism\Dbal\Schema\Column;
 use Prism\Dbal\Schema\Schema;
 use Prism\Dbal\Schema\Table;
+use Prism\Dbal\Schema\VectorDistance;
 use Prism\Migrations\AbstractMigration;
 use Prism\Migrations\DataMigration;
 use Prism\Migrations\Lint\Finding;
@@ -120,6 +121,22 @@ final class MigrationLinterTest extends TestCase
         yield 'L09 index without CONCURRENTLY' => [static fn (MigrationBuilder $m) => $m->createIndex('invoice', ['ref']), ['L09'], $rows, 'postgresql'];
         yield 'L09 concurrently' => [static fn (MigrationBuilder $m) => $m->createIndex('invoice', ['ref'], concurrently: true), [], $rows, 'postgresql'];
         yield 'L09 not on MySQL' => [static fn (MigrationBuilder $m) => $m->createIndex('invoice', ['ref']), [], $rows, 'mysql'];
+        yield 'L20 vector index over rows, L09 without CONCURRENTLY' => [static function (MigrationBuilder $m): void {
+            $m->addColumn('invoice', new Column('embedding', 'vector', nullable: true, length: 3));
+            $m->createVectorIndex('invoice', 'embedding', VectorDistance::Cosine);
+        }, ['L09', 'L20'], $rows, 'postgresql'];
+        yield 'L20 concurrently, still built over rows' => [static function (MigrationBuilder $m): void {
+            $m->addColumn('invoice', new Column('embedding', 'vector', nullable: true, length: 3));
+            $m->createVectorIndex('invoice', 'embedding', VectorDistance::Cosine, concurrently: true);
+        }, ['L20'], $rows, 'postgresql'];
+        yield 'L20 empty table' => [static function (MigrationBuilder $m): void {
+            $m->addColumn('invoice', new Column('embedding', 'vector', nullable: true, length: 3));
+            $m->createVectorIndex('invoice', 'embedding', VectorDistance::Cosine, concurrently: true);
+        }, [], $empty, 'postgresql'];
+        yield 'L20 not on SQLite, which builds no vector index' => [static function (MigrationBuilder $m): void {
+            $m->addColumn('invoice', new Column('embedding', 'vector', nullable: true, length: 3));
+            $m->createVectorIndex('invoice', 'embedding', VectorDistance::Cosine);
+        }, [], $rows, 'sqlite'];
         yield 'L10 large table, once' => [static function (MigrationBuilder $m): void {
             $m->addColumn('invoice', new Column('a', 'integer', nullable: true));
             $m->addColumn('invoice', new Column('b', 'integer', nullable: true));

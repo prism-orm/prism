@@ -11,6 +11,7 @@ use Prism\Dbal\Schema\Column;
 use Prism\Dbal\Schema\ColumnDiff;
 use Prism\Dbal\Schema\ForeignKey;
 use Prism\Dbal\Schema\Index;
+use Prism\Dbal\Schema\IndexKind;
 use Prism\Dbal\Schema\Table;
 use Prism\Dbal\Schema\TableDiff;
 
@@ -91,6 +92,12 @@ abstract class AbstractMySqlPlatform extends AbstractPlatform
      */
     public function getCreateIndexSql(string $table, Index $index): string
     {
+        if (IndexKind::FullText === $index->kind) {
+            return \sprintf('CREATE FULLTEXT INDEX %s ON %s (%s)', $this->quoteIdentifier($index->name), $this->quoteIdentifier($table), $this->quoteIdentifiers($index->columns));
+        }
+        if (IndexKind::Vector === $index->kind) {
+            return $this->getCreateVectorIndexSql($table, $index);
+        }
         if (null === $index->whereNull) {
             return parent::getCreateIndexSql($table, $index);
         }
@@ -141,7 +148,7 @@ abstract class AbstractMySqlPlatform extends AbstractPlatform
 
     public function getListIndexesSql(): string
     {
-        return 'SELECT INDEX_NAME AS name, COLUMN_NAME AS column_name, NON_UNIQUE AS non_unique, NULL AS predicate FROM information_schema.STATISTICS'
+        return 'SELECT INDEX_NAME AS name, COLUMN_NAME AS column_name, NON_UNIQUE AS non_unique, NULL AS predicate, INDEX_TYPE AS index_type FROM information_schema.STATISTICS'
             . " WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND INDEX_NAME <> 'PRIMARY' ORDER BY INDEX_NAME, SEQ_IN_INDEX";
     }
 
@@ -181,6 +188,24 @@ abstract class AbstractMySqlPlatform extends AbstractPlatform
             'vector' => $this->getVectorDeclarationSql($column),
             default => $this->unsupportedType($table, $column),
         };
+    }
+
+    // FULLTEXT n'a pas de configuration de langue ; MariaDB ne garde pas efConstruction
+    public function getCanonicalIndex(Index $index): ?Index
+    {
+        return match ($index->kind) {
+            IndexKind::FullText => $index->withLanguage(null),
+            IndexKind::Vector => $index->withVectorOptions($index->m, null),
+            IndexKind::Regular => $index,
+        };
+    }
+
+    /**
+     * @throws InvalidSchemaException MySQL : ni distance ni index vectoriel en Community (ADR 0017)
+     */
+    protected function getCreateVectorIndexSql(string $table, Index $index): string
+    {
+        throw InvalidSchemaException::unsupportedVector($this->getName());
     }
 
     /**

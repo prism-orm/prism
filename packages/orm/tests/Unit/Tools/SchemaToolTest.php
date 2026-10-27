@@ -14,8 +14,10 @@ use Prism\Dbal\Schema\Column;
 use Prism\Dbal\Schema\ForeignKey;
 use Prism\Dbal\Schema\ForeignKeyAction;
 use Prism\Dbal\Schema\Index;
+use Prism\Dbal\Schema\IndexKind;
 use Prism\Dbal\Schema\Schema;
 use Prism\Dbal\Schema\Table;
+use Prism\Dbal\Schema\VectorDistance;
 use Prism\Orm\Exception\MappingException;
 use Prism\Orm\Mapping\GenerationStrategy;
 use Prism\Orm\Metadata\ClassMetadata;
@@ -158,9 +160,10 @@ final class SchemaToolTest extends TestCase
     public function testSequenceIsRefusedWhereThePlatformHasNone(): void
     {
         $this->expectException(MappingException::class);
-        $this->expectExceptionMessage(Tag::class . '::$id: GenerationStrategy::Sequence is not supported by MySQL; use Auto or Identity.');
+        $this->expectExceptionMessage(Tag::class . '::$id: GenerationStrategy::Sequence is not supported by SQLite; use Auto or Identity.');
 
-        self::schema(new MySqlPlatform('8.4'), [Invoice::class, Client::class, InvoiceLine::class, Tag::class]);
+        // SQLite plutôt que MySQL : la fixture Invoice a un vecteur, que MySQL refuse avant
+        self::schema(new SqlitePlatform('3.46'), [Invoice::class, Client::class, InvoiceLine::class, Tag::class]);
     }
 
     // la fixture aux 33 attributs : embeddable, index partiel non unique, OneToOne, ManyToMany
@@ -181,6 +184,12 @@ final class SchemaToolTest extends TestCase
         self::assertContains([['tenant_id', 'number'], true], $indexes);
         self::assertContains([['client_id'], false], $indexes);
         self::assertContains([['credit_note_id'], true], $indexes);
+
+        // ADR 0017 : #[VectorIndex] et #[FullTextIndex], sans le tenant en tête (ni l'un ni l'autre
+        // ne couvre une colonne entière ; le filtre tenant s'applique avant le classement)
+        $search = array_values(array_filter($invoice->getIndexes(), static fn (Index $i): bool => IndexKind::Regular !== $i->kind));
+        self::assertSame([['number', 'notes'], IndexKind::FullText, 'french'], [$search[0]->columns, $search[0]->kind, $search[0]->language]);
+        self::assertSame([['embedding'], IndexKind::Vector, VectorDistance::Cosine, 16, 64], [$search[1]->columns, $search[1]->kind, $search[1]->distance, $search[1]->m, $search[1]->efConstruction]);
     }
 
     // RG-08.1 : colonne du tenant indexée, unicité par tenant

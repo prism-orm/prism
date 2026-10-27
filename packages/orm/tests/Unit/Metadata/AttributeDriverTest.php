@@ -32,6 +32,7 @@ use Prism\Orm\Tests\Unit\Metadata\Fixtures\Inferred;
 use Prism\Orm\Tests\Unit\Metadata\Fixtures\Person;
 use Prism\Orm\Tests\Unit\Metadata\Fixtures\Priority;
 use Prism\Orm\Tests\Unit\Tools\Fixtures\Ledger;
+use Prism\Orm\Vector\Distance;
 
 final class AttributeDriverTest extends TestCase
 {
@@ -181,8 +182,17 @@ final class AttributeDriverTest extends TestCase
         self::assertTrue($metadata->getField('billingAddress.city')->nullable);
         self::assertSame(['vector', true], [$metadata->getField('embedding')->type, $metadata->getField('embedding')->lazy]);
 
-        $indexes = array_map(static fn ($i): array => [$i->fields, $i->unique, $i->where], $metadata->indexes);
-        self::assertSame([[['issuedAt'], false, null], [['status', 'issuedAt'], false, "status <> 'draft'"], [['number'], true, null]], $indexes);
+        $indexes = array_map(static fn ($i): array => [$i->fields, $i->unique, $i->where, $i->kind->name], $metadata->indexes);
+        self::assertSame([
+            [['issuedAt'], false, null, 'Regular'],
+            [['status', 'issuedAt'], false, "status <> 'draft'", 'Regular'],
+            [['number'], true, null, 'Regular'],
+            [['number', 'notes'], false, null, 'FullText'],
+            [['embedding'], false, null, 'Vector'],
+        ], $indexes);
+        // ADR 0017 : les options des deux sortes du pilier 4
+        self::assertSame('french', $metadata->indexes[3]->language);
+        self::assertSame([Distance::Cosine, 16, 64], [$metadata->indexes[4]->distance, $metadata->indexes[4]->m, $metadata->indexes[4]->efConstruction]);
 
         $client = $metadata->getAssociation('client');
         self::assertSame([AssociationType::ManyToOne, Client::class, 'client_id', false, 'invoices', [Cascade::Persist], 200], [$client->type, $client->targetEntity, $client->joinColumn, $client->nullable, $client->inversedBy, $client->cascade, $client->batchSize]);

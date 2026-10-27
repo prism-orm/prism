@@ -7,6 +7,7 @@ namespace Prism\Dbal\Platform;
 use Prism\Dbal\Schema\Column;
 use Prism\Dbal\Schema\ColumnDiff;
 use Prism\Dbal\Schema\Index;
+use Prism\Dbal\Schema\IndexKind;
 use Prism\Dbal\Schema\Schema;
 use Prism\Dbal\Schema\SchemaDiff;
 use Prism\Dbal\Schema\Table;
@@ -17,6 +18,11 @@ use Prism\Dbal\Schema\VectorDistance;
  */
 final class PostgreSqlPlatform extends AbstractPlatform
 {
+    /** Opclass HNSW de pgvector, par distance. */
+    public const array OPERATOR_CLASSES = ['Cosine' => 'vector_cosine_ops', 'Euclidean' => 'vector_l2_ops', 'InnerProduct' => 'vector_ip_ops'];
+
+    public const string DEFAULT_LANGUAGE = 'simple';
+
     public function getName(): string
     {
         return 'PostgreSQL';
@@ -125,6 +131,60 @@ final class PostgreSqlPlatform extends AbstractPlatform
     }
 
     // RG-06.5 : sans verrou des écritures ; interdit dans une transaction
+    /**
+     * HNSW avec l'opclass de la distance ; plein texte : index GIN sur l'expression du document,
+     * que la recherche reprend à l'identique pour qu'il serve (getFullTextDocumentSql()).
+     */
+    public function getCreateIndexSql(string $table, Index $index): string
+    {
+        $index = $this->getCanonicalIndex($index);
+
+        return match ($index->kind) {
+            IndexKind::Regular => parent::getCreateIndexSql($table, $index),
+            IndexKind::Vector => \sprintf(
+                'CREATE INDEX %s ON %s USING hnsw (%s %s) WITH (m = %d, ef_construction = %d)',
+                $this->quoteIdentifier($index->name),
+                $this->quoteIdentifier($table),
+                $this->quoteIdentifier($index->columns[0]),
+                self::OPERATOR_CLASSES[($index->distance ?? VectorDistance::Cosine)->name],
+                $index->m,
+                $index->efConstruction,
+            ),
+            IndexKind::FullText => \sprintf(
+                'CREATE INDEX %s ON %s USING gin (%s)',
+                $this->quoteIdentifier($index->name),
+                $this->quoteIdentifier($table),
+                $this->getFullTextDocumentSql(array_map($this->quoteIdentifier(...), $index->columns), $index->language),
+            ),
+        };
+    }
+
+    /**
+     * Le document plein texte de colonnes (expressions SQL déjà citées) : celui de l'index GIN.
+     *
+     * @param list<string> $columns
+     */
+    public function getFullTextDocumentSql(array $columns, ?string $language): string
+    {
+        return \sprintf(
+            'to_tsvector(%s, %s)',
+            $this->quoteStringLiteral($language ?? self::DEFAULT_LANGUAGE),
+            implode(" || ' ' || ", array_map(static fn (string $column): string => \sprintf("coalesce(%s, '')", $column), $columns)),
+        );
+    }
+
+    // défauts de pgvector (m = 16, ef_construction = 64, au moins 2 × m) et configuration « simple »
+    public function getCanonicalIndex(Index $index): Index
+    {
+        $m = $index->m ?? 16;
+
+        return match ($index->kind) {
+            IndexKind::Regular => $index,
+            IndexKind::Vector => $index->withVectorOptions($m, $index->efConstruction ?? max(64, 2 * $m)),
+            IndexKind::FullText => $index->withLanguage($index->language ?? self::DEFAULT_LANGUAGE),
+        };
+    }
+
     public function getCreateIndexConcurrentlySql(string $table, Index $index): string
     {
         return (string) preg_replace('/^CREATE (UNIQUE )?INDEX /', 'CREATE $1INDEX CONCURRENTLY ', $this->getCreateIndexSql($table, $index));
@@ -189,15 +249,22 @@ final class PostgreSqlPlatform extends AbstractPlatform
             . ' WHERE c.table_schema = current_schema() AND c.table_name = ? ORDER BY c.ordinal_position';
     }
 
+    /**
+     * Une ligne par colonne de l'index ; column_name est NULL pour une expression (le document
+     * d'un index plein texte), relue dans definition.
+     */
     public function getListIndexesSql(): string
     {
-        return 'SELECT i.relname AS name, a.attname AS column_name, CASE WHEN ix.indisunique THEN 0 ELSE 1 END AS non_unique, pg_get_expr(ix.indpred, ix.indrelid) AS predicate'
+        return 'SELECT i.relname AS name, a.attname AS column_name, CASE WHEN ix.indisunique THEN 0 ELSE 1 END AS non_unique, pg_get_expr(ix.indpred, ix.indrelid) AS predicate,'
+            . " am.amname AS method, oc.opcname AS operator_class, array_to_string(i.reloptions, ',') AS options, pg_get_indexdef(ix.indexrelid) AS definition"
             . ' FROM pg_index ix'
             . ' JOIN pg_class t ON t.oid = ix.indrelid'
             . ' JOIN pg_class i ON i.oid = ix.indexrelid'
+            . ' JOIN pg_am am ON am.oid = i.relam'
             . ' JOIN pg_namespace n ON n.oid = t.relnamespace'
-            . ' CROSS JOIN LATERAL unnest(ix.indkey::int2[]) WITH ORDINALITY AS k(attnum, position)'
-            . ' JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = k.attnum'
+            . ' CROSS JOIN LATERAL unnest(ix.indkey::int2[], ix.indclass::oid[]) WITH ORDINALITY AS k(attnum, opclass, position)'
+            . ' LEFT JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = k.attnum AND k.attnum > 0'
+            . ' LEFT JOIN pg_opclass oc ON oc.oid = k.opclass'
             . ' WHERE n.nspname = current_schema() AND t.relname = ? AND NOT ix.indisprimary'
             . ' ORDER BY i.relname, k.position';
     }

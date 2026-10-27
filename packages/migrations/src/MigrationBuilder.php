@@ -7,8 +7,10 @@ namespace Prism\Migrations;
 use Prism\Dbal\Platform\AbstractPlatform;
 use Prism\Dbal\Schema\Column;
 use Prism\Dbal\Schema\ForeignKeyAction;
+use Prism\Dbal\Schema\IndexKind;
 use Prism\Dbal\Schema\Sequence;
 use Prism\Dbal\Schema\Table;
+use Prism\Dbal\Schema\VectorDistance;
 
 /**
  * Les opérations d'une migration (ADR 0012), dans l'ordre où elle les écrit. Aucune n'est
@@ -95,6 +97,25 @@ final class MigrationBuilder
     public function createIndex(string $table, array $columns, bool $unique = false, ?string $name = null, bool $concurrently = false, ?string $whereNull = null): void
     {
         $this->operations[] = new Operation\CreateIndex($table, $columns, $unique, $name, $concurrently, $whereNull);
+    }
+
+    /**
+     * Index vectoriel HNSW (ADR 0017), nommé de façon déterministe quand $name est null ; m et
+     * efConstruction null : défauts de la plateforme. MariaDB et PostgreSQL seulement.
+     */
+    public function createVectorIndex(string $table, string $column, VectorDistance $distance, ?int $m = null, ?int $efConstruction = null, ?string $name = null, bool $concurrently = false): void
+    {
+        $this->operations[] = new Operation\CreateIndex($table, [$column], name: $name, concurrently: $concurrently, kind: IndexKind::Vector, distance: $distance, m: $m, efConstruction: $efConstruction);
+    }
+
+    /**
+     * Index plein texte (ADR 0017) ; $language : configuration de PostgreSQL (null : simple).
+     *
+     * @param list<string> $columns
+     */
+    public function createFullTextIndex(string $table, array $columns, ?string $language = null, ?string $name = null, bool $concurrently = false): void
+    {
+        $this->operations[] = new Operation\CreateIndex($table, $columns, name: $name, concurrently: $concurrently, kind: IndexKind::FullText, language: $language);
     }
 
     /**

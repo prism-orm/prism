@@ -8,6 +8,7 @@ use Prism\Dbal\Connection;
 use Prism\Dbal\Exception\InvalidSchemaException;
 use Prism\Dbal\Platform\AbstractMySqlPlatform;
 use Prism\Dbal\Schema\Column;
+use Prism\Dbal\Schema\IndexKind;
 use Prism\Dbal\Schema\Schema;
 use Prism\Dbal\Schema\SchemaManager;
 use Prism\Migrations\AbstractMigration;
@@ -47,6 +48,7 @@ use Prism\Orm\Tools\SchemaTool;
  * | L17 | avertissement | plusieurs DDL sans transaction, sous MySQL et MariaDB (RG-06.6) |
  * | L18 | avertissement | table créée sans clé primaire |
  * | L19 | avertissement | migration irréversible (RG-06.7) |
+ * | L20 | avertissement | index vectoriel créé sur une table non vide (ADR 0017) |
  *
  * @api
  */
@@ -226,6 +228,10 @@ final class MigrationLinter
             }
             if ($platform->supportsConcurrentIndexCreation() && !$o->concurrently && $rows($o->table)) {
                 $this->find($version, 'L09', Severity::Warning, \sprintf('The index on %s (%s) blocks writes while it is built on %s: pass concurrently: true (RG-06.5).', $o->table, implode(', ', $o->columns), $platform->getName()));
+            }
+            // SQLite ne crée pas d'index vectoriel : rien à construire
+            if (IndexKind::Vector === $o->kind && null !== $platform->getCanonicalIndex($o->index()) && $rows($o->table)) {
+                $this->find($version, 'L20', Severity::Warning, \sprintf('The vector index on %s.%s is built over the existing rows on %s: an HNSW graph takes memory and time to build. Plan it, and size the build memory (maintenance_work_mem under PostgreSQL, mhnsw_max_cache_size under MariaDB).', $o->table, $o->columns[0], $platform->getName()));
             }
         }
         if ($o instanceof Operation\AddForeignKey) {

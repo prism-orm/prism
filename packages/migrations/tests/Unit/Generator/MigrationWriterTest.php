@@ -9,8 +9,10 @@ use Prism\Dbal\Schema\Column;
 use Prism\Dbal\Schema\ForeignKey;
 use Prism\Dbal\Schema\ForeignKeyAction;
 use Prism\Dbal\Schema\Index;
+use Prism\Dbal\Schema\IndexKind;
 use Prism\Dbal\Schema\Sequence;
 use Prism\Dbal\Schema\Table;
+use Prism\Dbal\Schema\VectorDistance;
 use Prism\Migrations\Generator\GeneratedMigration;
 use Prism\Migrations\Generator\MigrationWriter;
 use Prism\Migrations\Operation;
@@ -64,6 +66,43 @@ final class MigrationWriterTest extends TestCase
 
         self::assertStringContainsString("\$m->addColumn('client', new Column('code', 'string', length: 3, fixed: true));", $code);
         self::assertStringContainsString("\$m->addColumn('client', new Column('ref', 'string', length: 3));", $code);
+    }
+
+    // ADR 0017 : la sorte d'index et ses options sont écrites, et relues à l'identique
+    public function testVectorAndFullTextIndexesAreWrittenWithTheirOptions(): void
+    {
+        $table = new Table('doc', [new Column('id', 'integer'), new Column('title', 'string', length: 200), new Column('embedding', 'vector', length: 3)], ['id'], [
+            new Index('vec_doc', ['embedding'], kind: IndexKind::Vector, distance: VectorDistance::Cosine, m: 16, efConstruction: 64),
+            new Index('ftx_doc', ['title'], kind: IndexKind::FullText, language: 'english'),
+        ]);
+        $up = [
+            new Operation\CreateTable($table),
+            Operation\CreateIndex::of('note', new Index('vec_note', ['embedding'], kind: IndexKind::Vector, distance: VectorDistance::InnerProduct, m: 8)),
+            Operation\CreateIndex::of('note', new Index('ftx_note', ['title', 'body'], kind: IndexKind::FullText)),
+        ];
+
+        $code = new MigrationWriter()->write(new GeneratedMigration($up, [], ['example'], []), 'App\\Migrations', 'Version20261027120000');
+
+        self::assertStringContainsString("new Index('vec_doc', ['embedding'], kind: IndexKind::Vector, distance: VectorDistance::Cosine, m: 16, efConstruction: 64)", $code);
+        self::assertStringContainsString("new Index('ftx_doc', ['title'], kind: IndexKind::FullText, language: 'english')", $code);
+        self::assertStringContainsString("\$m->createVectorIndex('note', 'embedding', VectorDistance::InnerProduct, m: 8, name: 'vec_note');", $code);
+        self::assertStringContainsString("\$m->createFullTextIndex('note', ['title', 'body'], name: 'ftx_note');", $code);
+        self::assertStringContainsString("use Prism\\Dbal\\Schema\\IndexKind;\nuse Prism\\Dbal\\Schema\\Table;\nuse Prism\\Dbal\\Schema\\VectorDistance;", $code);
+
+        // relu par le builder : les mêmes opérations
+        $builder = new \Prism\Migrations\MigrationBuilder(new \Prism\Dbal\Platform\PostgreSqlPlatform('16'));
+        $builder->createVectorIndex('note', 'embedding', VectorDistance::InnerProduct, m: 8, name: 'vec_note');
+        $builder->createFullTextIndex('note', ['title', 'body'], name: 'ftx_note');
+        self::assertSame(array_map(static fn (Operation\Operation $o): array => $o->describe(), \array_slice($up, 1)), array_map(static fn (Operation\Operation $o): array => $o->describe(), $builder->operations()));
+    }
+
+    // les checksums des migrations déjà exécutées ne changent pas (RG-06.4)
+    public function testRegularIndexDescriptionIsUnchanged(): void
+    {
+        self::assertSame(
+            ['operation' => 'createIndex', 'table' => 'client', 'columns' => ['email'], 'unique' => true, 'name' => 'uniq_email'],
+            new Operation\CreateIndex('client', ['email'], unique: true, name: 'uniq_email')->describe(),
+        );
     }
 
     public function testIrreversibleMigrationThrowsInItsDown(): void
