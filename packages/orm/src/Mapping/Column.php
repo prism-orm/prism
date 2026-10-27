@@ -15,7 +15,8 @@ use Prism\Orm\Exception\MappingException;
  * - precision/scale : obligatoires pour decimal (vérifié par le MetadataValidator) ;
  * - dimensions : obligatoire pour vector ;
  * - sensitive : valeur masquée dans l'audit ;
- * - lazy : champ exclu de l'hydratation par défaut (vector, gros text) ;
+ * - lazy : champ exclu de l'hydratation, chargé au premier accès ; null : vrai pour un champ
+ *   typé Prism\Orm\Vector\Vector (RG-09.6), faux sinon ; seul un Vector peut être paresseux ;
  * - updatable: false : colonne générée ou calculée en base ;
  * - fixed : longueur fixe (CHAR, BINARY), pour string et binary avec une length.
  *
@@ -54,7 +55,7 @@ final class Column implements MappingAttribute
         ?string $enumType = null,
         public readonly mixed $default = null,
         public readonly bool $sensitive = false,
-        public readonly bool $lazy = false,
+        public readonly ?bool $lazy = null,
         public readonly bool $insertable = true,
         public readonly bool $updatable = true,
         public readonly bool $fixed = false,

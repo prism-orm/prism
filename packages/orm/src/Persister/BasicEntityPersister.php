@@ -9,6 +9,7 @@ use Prism\Dbal\LockMode;
 use Prism\Dbal\ParameterType;
 use Prism\Dbal\Query\Order;
 use Prism\Dbal\Query\QueryBuilder;
+use Prism\Dbal\Type\Type;
 use Prism\Orm\Exception\MappingException;
 use Prism\Orm\Filter\FilterCollection;
 use Prism\Orm\Filter\FilterOperation;
@@ -49,6 +50,12 @@ final class BasicEntityPersister implements EntityPersister
     /** @var array<string, FieldMapping> colonne de jointure de chaque relation possédée, typée comme l'identifiant visé */
     private readonly array $joins;
 
+    /** @var array<string, true> colonnes des champs paresseux : seule leur nullité est lue (RG-09.6) */
+    private readonly array $lazy;
+
+    /** @var array<string, Type> colonnes dont le paramètre est enveloppé par la plateforme (vector, ADR 0017) */
+    private readonly array $wrapped;
+
     /**
      * @param ClassMetadata<object>                $metadata
      * @param array<string, array{string, string}> $joinColumns relation ToOne possédée → colonne et type
@@ -71,6 +78,19 @@ final class BasicEntityPersister implements EntityPersister
         }
         $this->joins = $joins;
         $this->bindings = $bindings;
+        $lazy = [];
+        foreach ($metadata->getLazyFields() as $field) {
+            $lazy[$field->columnName] = true;
+        }
+        $this->lazy = $lazy;
+        $wrapped = [];
+        foreach ($metadata->getColumnTypes() as $column => $type) {
+            $converter = $connection->getTypeRegistry()->get($type);
+            if (':p' !== $converter->getParameterSql(':p', $connection->getPlatform())) {
+                $wrapped[$column] = $converter;
+            }
+        }
+        $this->wrapped = $wrapped;
         // colonne du tenant que ne porte aucun champ : écrite à l'INSERT, lue pour l'UoW (RG-08.6)
         $tenancy = $metadata->tenancy;
         $this->tenantBinding = null === $tenancy || null !== $tenancy->field ? [] : [$tenancy->column => $connection->getTypeRegistry()->get($tenancy->type)->getBindingType()];
@@ -90,7 +110,7 @@ final class BasicEntityPersister implements EntityPersister
         } else {
             $qb = $this->connection->createQueryBuilder()->insert($this->metadata->tableName);
             foreach ($row as $column => $value) {
-                $qb = $qb->set($column, $value, $this->binding($column, $value));
+                $qb = $this->setValue($qb, $column, $value);
             }
             $qb->executeStatement();
         }
@@ -106,7 +126,7 @@ final class BasicEntityPersister implements EntityPersister
 
         $qb = $this->connection->createQueryBuilder()->update($this->metadata->tableName);
         foreach ($changes as $column => $value) {
-            $qb = $qb->set($column, $value, $this->binding($column, $value));
+            $qb = $this->setValue($qb, $column, $value);
         }
 
         return $this->filtered($this->whereKey($qb, $id, $version), FilterOperation::Write)->executeStatement();
@@ -168,6 +188,18 @@ final class BasicEntityPersister implements EntityPersister
         return $qb->orderBy($id)->limit($limit)->executeQuery()->fetchAllAssociative();
     }
 
+    public function loadColumn(string $column, array $ids): array
+    {
+        $qb = $this->connection->createQueryBuilder();
+        $qb = $qb->select($qb->column($this->idColumn), $qb->column($column))->from($this->metadata->tableName);
+        $qb = $this->filtered($qb->where($qb->expr()->in($qb->column($this->idColumn), $ids, $this->bindings[$this->idColumn])), FilterOperation::Load);
+
+        return array_map(
+            fn (array $row): array => [$row[$this->idColumn], $row[$column]],
+            $qb->executeQuery()->fetchAllAssociative(),
+        );
+    }
+
     public function lock(mixed $id, LockMode $mode): bool
     {
         $qb = $this->connection->createQueryBuilder();
@@ -181,7 +213,7 @@ final class BasicEntityPersister implements EntityPersister
         $qb = $this->connection->createQueryBuilder();
         $owner = $this->connection->getPlatform()->quoteIdentifier(self::OWNER_ALIAS);
         $t = self::TARGET_ALIAS;
-        $qb = $qb->select($qb->column($ownerColumn, 'p') . ' AS ' . $owner, ...array_map(static fn (string $column): string => $qb->column($column, $t), $this->columns()))
+        $qb = $qb->select($qb->column($ownerColumn, 'p') . ' AS ' . $owner, ...$this->selection($qb, $t))
             ->from($this->metadata->tableName, $t)
             ->join($table, 'p', $qb->column($targetColumn, 'p') . ' = ' . $qb->column($this->idColumn, $t));
         $qb = $this->filtered($qb->where($qb->expr()->in($qb->column($ownerColumn, 'p'), $ownerIds, $this->bindingOf($ownerType))), alias: $t);
@@ -251,7 +283,41 @@ final class BasicEntityPersister implements EntityPersister
     {
         $qb = $this->connection->createQueryBuilder();
 
-        return $qb->select(...array_map($qb->column(...), $this->columns()))->from($this->metadata->tableName);
+        return $qb->select(...$this->selection($qb, null))->from($this->metadata->tableName);
+    }
+
+    /**
+     * Les colonnes lues ; d'une colonne paresseuse, seulement si elle est NULL (1) ou non (0),
+     * sous son propre nom : l'UnitOfWork y place null ou un ghost (RG-09.6).
+     *
+     * @return list<string>
+     */
+    private function selection(QueryBuilder $qb, ?string $alias): array
+    {
+        $platform = $this->connection->getPlatform();
+
+        return array_map(
+            fn (string $column): string => isset($this->lazy[$column])
+                ? \sprintf('CASE WHEN %s IS NULL THEN 1 ELSE 0 END AS %s', $qb->column($column, $alias), $platform->quoteIdentifier($column))
+                : $qb->column($column, $alias),
+            $this->columns(),
+        );
+    }
+
+    /**
+     * Une valeur d'INSERT ou d'UPDATE ; un vecteur passe par le SQL de paramètre de sa
+     * plateforme (VEC_FromText(), CAST), lié sous un nom propre à sa colonne.
+     */
+    private function setValue(QueryBuilder $qb, string $column, mixed $value): QueryBuilder
+    {
+        if (null === $value || !isset($this->wrapped[$column])) {
+            return $qb->set($column, $value, $this->binding($column, $value));
+        }
+        // un nom par colonne : une même requête n'écrit une colonne qu'une fois
+        $name = 'vector_' . substr(hash('xxh3', $column), 0, 12);
+
+        return $qb->setExpression($column, $this->wrapped[$column]->getParameterSql(':' . $name, $this->connection->getPlatform()))
+            ->setParameter($name, $value, $this->binding($column, $value));
     }
 
     /**

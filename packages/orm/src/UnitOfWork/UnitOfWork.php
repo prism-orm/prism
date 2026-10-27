@@ -45,6 +45,7 @@ use Prism\Orm\Exception\TenantMismatchException;
 use Prism\Orm\Exception\TenantSwitchException;
 use Prism\Orm\Exception\TransactionRequiredException;
 use Prism\Orm\Exception\UnpersistedRelationException;
+use Prism\Orm\Exception\VectorDimensionMismatchException;
 use Prism\Orm\Filter\FilterOperation;
 use Prism\Orm\Hydrator\ObjectHydrator;
 use Prism\Orm\Lazy\LazyFactory;
@@ -63,6 +64,7 @@ use Prism\Orm\Tenancy\StackTenantContext;
 use Prism\Orm\Tenancy\TenantContext;
 use Prism\Orm\Tenancy\TenantScope;
 use Prism\Orm\Tenancy\TenantSwitchListener;
+use Prism\Orm\Vector\Vector;
 use Psr\Clock\ClockInterface;
 use Psr\EventDispatcher\EventDispatcherInterface;
 
@@ -168,6 +170,12 @@ final class UnitOfWork implements TenantSwitchListener
 
     /** @var array<class-string, array<string, array{array<string, mixed>, Cohort}>> lignes chargées par lot, en attente de leur ghost */
     private array $prefetched = [];
+
+    /** @var array<string, array<int, array{object, Vector}>> vecteurs paresseux à charger, par « classe::champ » puis entité (RG-09.6) */
+    private array $lazyPending = [];
+
+    /** @var array<string, array<int, array{bool, mixed}>> vecteurs chargés par lot, en attente de leur ghost : [trouvé, valeur PHP] */
+    private array $lazyLoaded = [];
 
     private readonly TenantContext $tenants;
 
@@ -426,6 +434,8 @@ final class UnitOfWork implements TenantSwitchListener
         $this->inverseSnapshots = [];
         $this->fetchedInverse = [];
         $this->prefetched = [];
+        $this->lazyPending = [];
+        $this->lazyLoaded = [];
         $this->batch->clear();
         $this->insertions = [];
         $this->deletions = [];
@@ -523,14 +533,14 @@ final class UnitOfWork implements TenantSwitchListener
      *
      * @internal le QueryBuilder typé y passe ses lignes
      */
-    public function hydrate(ClassMetadata $metadata, array $rows, bool $batch = true, array $fetched = []): array
+    public function hydrate(ClassMetadata $metadata, array $rows, bool $batch = true, array $fetched = [], bool $vectors = false): array
     {
         $cohort = $batch ? new Cohort() : null;
         $fresh = [];
         $entities = [];
         foreach ($rows as $row) {
             $known = isset($this->identityMap[$metadata->className][self::key($this->toPhp($metadata->getIdField(), $row[$metadata->getIdField()->columnName] ?? null))]);
-            $entities[] = $entity = $this->register($metadata, $row, $cohort);
+            $entities[] = $entity = $this->register($metadata, $row, $cohort, $vectors);
             if (!$known) {
                 $fresh[] = $entity;
                 foreach ($fetched as $field) {
@@ -713,7 +723,9 @@ final class UnitOfWork implements TenantSwitchListener
         if (null === $row) {
             throw EntityNotFoundException::forId($metadata->className, $this->property($metadata->className, $metadata->id->fieldName)->getValue($entity));
         }
+        $nulls = $this->takeLazy($metadata, $row);
         $this->hydrator->refresh($entity, $metadata, $row);
+        $this->placeLazy($metadata, $entity, $nulls);
         $this->hydrateRelations($metadata, $entity, $row, refresh: true);
         $this->hydrateCollections($metadata, $entity, refresh: true);
         $this->completeCohort($metadata, [$entity], refresh: true);
@@ -764,14 +776,15 @@ final class UnitOfWork implements TenantSwitchListener
      * UPDATE des seules colonnes modifiées, DELETE en ordre inverse. En cas d'échec, rollback et
      * l'état d'avant le flush est rétabli, identifiants générés et versions compris.
      *
-     * @throws ReentrantFlushException      appelé depuis un listener (RG-03.7)
-     * @throws OptimisticLockException      version périmée (RG-03.9)
-     * @throws UnpersistedRelationException entité NEW atteinte sans cascade: persist (RG-04.2)
-     * @throws CyclicDependencyException    cycle de FK obligatoires (RG-04.4)
-     * @throws OrphanReattachedException    orphelin rattaché à un autre parent (RG-04.5)
-     * @throws MissingTenantException       entité #[Tenanted] à écrire sans tenant (RG-08.4)
-     * @throws TenantMismatchException      tenant d'un autre, ou changé (RG-08.3)
-     * @throws CrossTenantRelationException relation entre deux tenants (RG-08.6)
+     * @throws ReentrantFlushException          appelé depuis un listener (RG-03.7)
+     * @throws OptimisticLockException          version périmée (RG-03.9)
+     * @throws UnpersistedRelationException     entité NEW atteinte sans cascade: persist (RG-04.2)
+     * @throws CyclicDependencyException        cycle de FK obligatoires (RG-04.4)
+     * @throws OrphanReattachedException        orphelin rattaché à un autre parent (RG-04.5)
+     * @throws MissingTenantException           entité #[Tenanted] à écrire sans tenant (RG-08.4)
+     * @throws TenantMismatchException          tenant d'un autre, ou changé (RG-08.3)
+     * @throws CrossTenantRelationException     relation entre deux tenants (RG-08.6)
+     * @throws VectorDimensionMismatchException vecteur d'une autre dimension que sa colonne (RG-09.1)
      */
     public function commit(): void
     {
@@ -1216,7 +1229,12 @@ final class UnitOfWork implements TenantSwitchListener
     {
         $row = [];
         foreach ($metadata->extractRow($entity) as $column => $value) {
-            $row[$column] = $this->toDatabase($this->field($metadata, $column), $value);
+            $field = $this->field($metadata, $column);
+            // RG-09.1 : avant l'envoi, avec la classe et le champ
+            if ('vector' === $field->type && \is_array($value) && null !== $field->length && \count($value) !== $field->length) {
+                throw VectorDimensionMismatchException::forField($metadata->className, $metadata->getFieldPathByColumn($column) ?? $field->fieldName, $field->length, \count($value));
+            }
+            $row[$column] = $this->toDatabase($field, $value);
         }
 
         return $this->hasRelations($metadata) ? $row + $this->foreignKeys($metadata, $entity) : $row;
@@ -1653,24 +1671,27 @@ final class UnitOfWork implements TenantSwitchListener
      *
      * @return T
      */
-    private function register(ClassMetadata $metadata, array $row, ?Cohort $cohort = null): object
+    private function register(ClassMetadata $metadata, array $row, ?Cohort $cohort = null, bool $vectors = false): object
     {
         $idField = $metadata->getIdField();
         $key = self::key($this->toPhp($idField, $row[$idField->columnName] ?? null));
         if (isset($this->identityMap[$metadata->className][$key])) {
             /** @var T $known */
             $known = $this->identityMap[$metadata->className][$key];
-            // une référence encore à charger : la ligne lue la charge, sans nouvelle requête
+            // une référence encore à charger : la ligne lue la charge, sans nouvelle requête ;
+            // ses vecteurs restent paresseux, comme toute ligne en attente (RG-09.6)
             if ($this->lazy->isUninitialized($known)) {
-                $this->prefetched[$metadata->className][$key] = [$row, $cohort ?? new Cohort()];
+                $this->prefetched[$metadata->className][$key] = [$vectors ? self::lazyFlags($metadata, $row) : $row, $cohort ?? new Cohort()];
                 $this->lazy->initialize($known);
             }
 
             return $known;
         }
 
+        $nulls = $vectors ? [] : $this->takeLazy($metadata, $row);
         $values = $this->hydrator->toPhpRow($metadata, $row);
         $entity = $this->hydrator->fromPhpRow($metadata, $values);
+        $this->placeLazy($metadata, $entity, $nulls);
         $oid = spl_object_id($entity);
         $this->track($entity, EntityState::Managed);
         $this->identityMap[$metadata->className][$key] = $entity;
@@ -1712,6 +1733,140 @@ final class UnitOfWork implements TenantSwitchListener
         }
 
         return $snapshot;
+    }
+
+    /**
+     * Retire d'une ligne lue les colonnes paresseuses, qui n'y portent que leur nullité (1 : NULL,
+     * 0 : une valeur) : champ → NULL ou non (RG-09.6).
+     *
+     * @param ClassMetadata<object> $metadata
+     * @param array<string, mixed>  $row
+     *
+     * @return array<string, bool>
+     */
+    private function takeLazy(ClassMetadata $metadata, array &$row): array
+    {
+        $nulls = [];
+        foreach ($metadata->getLazyFields() as $field) {
+            if (\array_key_exists($field->columnName, $row)) {
+                $flag = $row[$field->columnName];
+                $nulls[$field->fieldName] = true === $flag || 1 === $flag || '1' === $flag;
+                unset($row[$field->columnName]);
+            }
+        }
+
+        return $nulls;
+    }
+
+    /**
+     * Une ligne lue avec ses vecteurs, ramenée à la forme d'une ligne ordinaire (nullité seule).
+     *
+     * @param ClassMetadata<object> $metadata
+     * @param array<string, mixed>  $row
+     *
+     * @return array<string, mixed>
+     */
+    private static function lazyFlags(ClassMetadata $metadata, array $row): array
+    {
+        foreach ($metadata->getLazyFields() as $field) {
+            if (\array_key_exists($field->columnName, $row)) {
+                $row[$field->columnName] = null === $row[$field->columnName] ? 1 : 0;
+            }
+        }
+
+        return $row;
+    }
+
+    /**
+     * Chaque champ paresseux reçoit null ou un ghost de Vector, chargé au premier accès avec
+     * ceux des autres entités en attente (RG-09.6). Une propriété readonly déjà écrite ne change
+     * pas (RG-02.6).
+     *
+     * @param ClassMetadata<object> $metadata
+     * @param array<string, bool>   $nulls    champ → NULL ou non
+     */
+    private function placeLazy(ClassMetadata $metadata, object $entity, array $nulls): void
+    {
+        foreach ($nulls as $fieldName => $isNull) {
+            $property = $this->property($metadata->className, $fieldName);
+            if ($property->isReadOnly() && $property->isInitialized($entity)) {
+                continue;
+            }
+            $lazyKey = $metadata->className . '::' . $fieldName;
+            $oid = spl_object_id($entity);
+            unset($this->lazyPending[$lazyKey][$oid], $this->lazyLoaded[$lazyKey][$oid]);
+            if ($isNull) {
+                $property->setValue($entity, null);
+                continue;
+            }
+            $ghost = new \ReflectionClass(Vector::class)->newLazyGhost(function (Vector $ghost) use ($metadata, $entity, $fieldName): void {
+                $this->loadLazy($metadata, $entity, $fieldName, $ghost);
+            });
+            $property->setValue($entity, $ghost);
+            $this->lazyPending[$lazyKey][$oid] = [$entity, $ghost];
+        }
+    }
+
+    /**
+     * Charge un vecteur paresseux, avec ceux des autres entités de la même classe encore en
+     * attente, par lots de la taille du batch fetching (RG-04.11) : une requête IN. Le snapshot
+     * reçoit la valeur lue, pour qu'un vecteur seulement lu ne soit pas vu comme changé.
+     *
+     * @param ClassMetadata<object> $metadata
+     *
+     * @throws EntityNotFoundException     la ligne n'existe plus
+     * @throws InvalidEntityStateException la colonne est devenue NULL depuis la lecture
+     */
+    private function loadLazy(ClassMetadata $metadata, object $entity, string $fieldName, Vector $ghost): void
+    {
+        $lazyKey = $metadata->className . '::' . $fieldName;
+        $field = $metadata->getField($fieldName);
+        $idField = $metadata->getIdField();
+        $oid = spl_object_id($entity);
+        $id = $this->property($metadata->className, $idField->fieldName)->getValue($entity);
+
+        if (!isset($this->lazyLoaded[$lazyKey][$oid])) {
+            $batch = [$oid => $entity];
+            foreach ($this->lazyPending[$lazyKey] ?? [] as $other => [$member, $pending]) {
+                if (\count($batch) >= $this->batch->batchSize) {
+                    break;
+                }
+                // une entité dont le vecteur a été remplacé n'est plus en attente
+                if ($other !== $oid && $this->read($member, $metadata->className, $fieldName) === $pending && new \ReflectionClass($pending)->isUninitializedLazyObject($pending)) {
+                    $batch[$other] = $member;
+                }
+            }
+            $ids = [];
+            foreach ($batch as $member) {
+                $ids[] = $this->toDatabase($idField, $this->property($metadata->className, $idField->fieldName)->getValue($member));
+            }
+            if (\count($ids) > 1) {
+                $this->lifecycle->dispatch(new BatchLoadedEvent($metadata->className, $fieldName, \count($ids), $this));
+            }
+            $values = [];
+            foreach ($this->persisters->getPersister($metadata)->loadColumn($field->columnName, $ids) as [$rowId, $value]) {
+                $values[self::key($this->toPhp($idField, $rowId))] = $this->toPhp($field, $value);
+            }
+            foreach ($batch as $other => $member) {
+                $memberKey = self::key($this->property($metadata->className, $idField->fieldName)->getValue($member));
+                $this->lazyLoaded[$lazyKey][$other] = [\array_key_exists($memberKey, $values), $values[$memberKey] ?? null];
+                unset($this->lazyPending[$lazyKey][$other]);
+            }
+        }
+
+        [$found, $value] = $this->lazyLoaded[$lazyKey][$oid];
+        unset($this->lazyLoaded[$lazyKey][$oid], $this->lazyPending[$lazyKey][$oid]);
+        if (!$found) {
+            throw EntityNotFoundException::forId($metadata->className, $id);
+        }
+        if (!\is_array($value)) {
+            throw InvalidEntityStateException::lazyValueGone($metadata->className, $fieldName, $id);
+        }
+        // le constructeur sur le ghost : la forme d'initialisation des objets paresseux de PHP
+        new \ReflectionMethod(Vector::class, '__construct')->invoke($ghost, $value);
+        if (($this->entities[$oid] ?? null) === $entity && isset($this->snapshots[$oid])) {
+            $this->snapshots[$oid][$field->columnName] = $this->toDatabase($field, $value);
+        }
     }
 
     /**
@@ -1778,7 +1933,9 @@ final class UnitOfWork implements TenantSwitchListener
             throw EntityNotFoundException::forId($metadata->className, $id);
         }
 
+        $nulls = $this->takeLazy($metadata, $row);
         $this->hydrator->refresh($ghost, $metadata, $row);
+        $this->placeLazy($metadata, $ghost, $nulls);
         // une référence détachée se charge encore, mais n'est plus suivie
         $oid = spl_object_id($ghost);
         $tracked = ($this->entities[$oid] ?? null) === $ghost;
@@ -2500,6 +2657,9 @@ final class UnitOfWork implements TenantSwitchListener
         }
         unset($this->collectionSnapshots[$oid], $this->collectionInstances[$oid], $this->inverseSnapshots[$oid], $this->fetchedInverse[$oid], $this->prefetched[$entity::class][$this->keys[$oid] ?? '']);
         $this->batch->forget($entity);
+        foreach (array_keys($this->lazyPending) as $lazyKey) {
+            unset($this->lazyPending[$lazyKey][$oid], $this->lazyLoaded[$lazyKey][$oid]);
+        }
         unset($this->keys[$oid], $this->states[$oid], $this->entities[$oid], $this->snapshots[$oid], $this->insertions[$oid], $this->deletions[$oid], $this->persisted[$oid], $this->softDeleted[$oid], $this->restored[$oid]);
 
         if ($detach) {

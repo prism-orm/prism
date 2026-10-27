@@ -81,6 +81,16 @@ interface EntityPersister
      *
      * @return bool faux si la ligne n'existe pas
      */
+    /**
+     * Une colonne de plusieurs lignes, par identifiant (valeurs de la base) : le chargement par
+     * lot d'un champ paresseux (RG-09.6). Une ligne absente n'est pas rendue.
+     *
+     * @param list<mixed> $ids
+     *
+     * @return list<array{mixed, mixed}> [identifiant, valeur]
+     */
+    public function loadColumn(string $column, array $ids): array;
+
     public function lock(mixed $id, LockMode $mode): bool;
 
     /**

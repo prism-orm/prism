@@ -7,6 +7,7 @@ namespace Prism\Orm\Metadata;
 use Prism\Orm\Exception\MappingException;
 use Prism\Orm\Mapping\LifecycleEvent;
 use Prism\Orm\Mapping\TrackingPolicy;
+use Prism\Orm\Vector\Vector;
 
 /**
  * Description complète d'une entité, déduite de ses attributs. Immuable une fois construite.
@@ -259,7 +260,12 @@ final class ClassMetadata
     {
         $row = [];
         foreach ($this->fields as $field) {
-            $row[$field->columnName] = self::toColumn($field, $this->read($this->className, $field->fieldName, $entity));
+            $value = $this->read($this->className, $field->fieldName, $entity);
+            // un vecteur paresseux pas encore chargé : sa colonne n'est ni lue ni comparée (RG-09.6)
+            if ($value instanceof Vector && new \ReflectionClass($value)->isUninitializedLazyObject($value)) {
+                continue;
+            }
+            $row[$field->columnName] = self::toColumn($field, $value);
         }
         foreach ($this->embedded as $embedded) {
             $value = $this->read($this->className, $embedded->fieldName, $entity);
@@ -309,7 +315,22 @@ final class ClassMetadata
 
     private static function toColumn(FieldMapping $field, mixed $value): mixed
     {
-        return null !== $field->enumType && $value instanceof \BackedEnum ? $value->value : $value;
+        return match (true) {
+            null !== $field->enumType && $value instanceof \BackedEnum => $value->value,
+            $value instanceof Vector => $value->toArray(),
+            default => $value,
+        };
+    }
+
+    /**
+     * Champs paresseux (RG-09.6) : leur colonne n'est pas lue avec l'entité, seulement si elle est
+     * NULL ; la valeur est chargée au premier accès.
+     *
+     * @return list<FieldMapping>
+     */
+    public function getLazyFields(): array
+    {
+        return array_values(array_filter($this->fields, static fn (FieldMapping $f): bool => $f->lazy));
     }
 
     /**
@@ -322,6 +343,10 @@ final class ClassMetadata
      */
     public function toFieldValue(FieldMapping $field, mixed $value): mixed
     {
+        if ($field->vectorObject && \is_array($value)) {
+            /** @var list<float> $value */
+            return new Vector($value);
+        }
         if (null === $field->enumType || null === $value || $value instanceof \BackedEnum) {
             return $value;
         }

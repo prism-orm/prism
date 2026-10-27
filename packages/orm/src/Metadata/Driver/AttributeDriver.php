@@ -21,6 +21,7 @@ use Prism\Orm\Metadata\JoinTableMapping;
 use Prism\Orm\Metadata\Naming\NamingStrategy;
 use Prism\Orm\Metadata\Naming\UnderscoreNamingStrategy;
 use Prism\Orm\Metadata\TenancyMapping;
+use Prism\Orm\Vector\Vector;
 
 /**
  * Construit les ClassMetadata à partir des attributs PHP (ADR 0002).
@@ -196,6 +197,16 @@ final class AttributeDriver implements MetadataDriver
         [$type, $enumType] = $this->columnType($class, $property, $column);
 
         $phpNullable = $property->getType()?->allowsNull() ?? true;
+        // RG-09.6 : un Vector est paresseux par défaut ; un ghost ne peut être qu'un objet Vector
+        $phpType = $property->getType();
+        $vectorObject = $phpType instanceof \ReflectionNamedType && Vector::class === $phpType->getName();
+        $lazy = $column->lazy ?? $vectorObject;
+        if ($lazy && !$vectorObject) {
+            throw MappingException::invalidField($class, $name, \sprintf('lazy: true needs a property typed %s; a "%s" property is always loaded.', Vector::class, $phpType ?? 'mixed'));
+        }
+        if ($vectorObject && 'vector' !== $type) {
+            throw MappingException::invalidField($class, $name, \sprintf('a %s property maps a "vector" column, not "%s".', Vector::class, $type));
+        }
         if ($isId && true === $column->nullable) {
             throw MappingException::invalidField($class, $name, 'the identifier cannot be nullable.');
         }
@@ -223,8 +234,9 @@ final class AttributeDriver implements MetadataDriver
             $column->insertable,
             $column->updatable,
             $column->sensitive,
-            $column->lazy,
+            $lazy,
             $column->fixed,
+            $vectorObject,
         );
     }
 
@@ -251,6 +263,7 @@ final class AttributeDriver implements MetadataDriver
 
         return match (true) {
             isset(self::SCALAR_TYPES[$typeName]) => [self::SCALAR_TYPES[$typeName], $column->enumType],
+            Vector::class === $typeName => ['vector', null],
             is_a($typeName, \DateTimeImmutable::class, true) => ['datetime_immutable', $column->enumType],
             enum_exists($typeName) && is_a($typeName, \BackedEnum::class, true) => [
                 'int' === (string) new \ReflectionEnum($typeName)->getBackingType() ? 'integer' : 'string',

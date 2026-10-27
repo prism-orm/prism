@@ -86,6 +86,12 @@ The metamodel cannot be written in its directory.
 
 **Fix:** make the directory writable, or choose another one (`metamodel.dir`, `--dir`).
 
+### `VectorDimensionMismatchException`
+
+At flush, a vector has more or fewer components than the `dimensions` of its column. The message gives the entity, the field and both dimensions. Nothing was written.
+
+**Fix:** store the output of the embedding model the column was created for. A different model needs a new column size, or a migration.
+
 ### `MissingTenantException`
 
 An operation on a `#[Tenanted]` entity without a current tenant. Prism has no implicit "all tenants" mode.

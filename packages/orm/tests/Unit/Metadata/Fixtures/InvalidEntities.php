@@ -161,3 +161,23 @@ final class StrictTenantForeignKeys
     #[Prism\Id]
     public int $id = 0;
 }
+
+// RG-09.6 : seul un Vector peut être paresseux
+#[Prism\Entity]
+final class LazyArrayVector
+{
+    #[Prism\Id]
+    public int $id = 0;
+    /** @var list<float> */
+    #[Prism\Column(type: 'vector', dimensions: 3, lazy: true)]
+    public array $embedding = [];
+}
+
+#[Prism\Entity]
+final class VectorAsText
+{
+    #[Prism\Id]
+    public int $id = 0;
+    #[Prism\Column(type: 'text')]
+    public ?\Prism\Orm\Vector\Vector $embedding = null;
+}

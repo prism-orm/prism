@@ -7,6 +7,7 @@ namespace Prism\Orm\Tests\Support;
 use Prism\Orm\Metadata\ClassMetadata;
 use Prism\Orm\Metadata\Driver\AttributeDriver;
 use Prism\Orm\Query\Metamodel\MetamodelGenerator;
+use Prism\Orm\Tests\Functional\VectorFixtures\Doc;
 use Prism\Orm\Tests\Unit\Query\Metamodel\Fixtures\AllTypes;
 use Prism\Orm\Tests\Unit\Tenancy\Fixtures as Tenancy;
 use Prism\Orm\Tests\Unit\UnitOfWork\Fixtures\Batch;
@@ -49,6 +50,7 @@ final class MetamodelFixtures
             Tenancy\Line::class,
             Tenancy\Rate::class,
             Tenancy\Tag::class,
+            Doc::class,
         ]);
     }
 
