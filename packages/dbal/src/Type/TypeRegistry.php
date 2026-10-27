@@ -39,6 +39,7 @@ final class TypeRegistry
             new JsonType(),
             new UuidType(),
             new BinaryType(),
+            new VectorType(),
         );
     }
 

@@ -32,6 +32,7 @@ final class PostgreSqlIntrospector extends AbstractIntrospector
         'jsonb' => 'json',
         'uuid' => 'uuid',
         'bytea' => 'binary',
+        'vector' => 'vector',
     ];
 
     public function listSequences(): array
@@ -56,7 +57,11 @@ final class PostgreSqlIntrospector extends AbstractIntrospector
             $type,
             'YES' === self::string($row['nullable']),
             $identity ? null : self::typedDefault($type, self::defaultValue(self::nullableString($row['default_value']))),
-            'string' === $type ? self::nullableInt($row['length']) : null,
+            match ($type) {
+                'string' => self::nullableInt($row['length']),
+                'vector' => self::nullableInt($row['type_modifier']),
+                default => null,
+            },
             'decimal' === $type ? self::nullableInt($row['precision']) : null,
             'decimal' === $type ? self::nullableInt($row['scale']) : null,
             $identity,

@@ -211,7 +211,8 @@ final class AttributeDriver implements MetadataDriver
             $columnPrefix . ($column->name ?? $this->naming->propertyToColumnName($name)),
             $type,
             $forceNullable || (!$isId && ($column->nullable ?? $phpNullable)),
-            $column->length,
+            // la dimension d'un vecteur est la longueur de sa colonne (ADR 0017)
+            'vector' === $type ? $column->dimensions : $column->length,
             $column->precision,
             $column->scale,
             $column->unique,

@@ -6,8 +6,6 @@ namespace Prism\Orm\Tests\Unit\Metadata;
 
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
-use Prism\Dbal\Type\ConversionContext;
-use Prism\Dbal\Type\Type;
 use Prism\Dbal\Type\TypeRegistry;
 use Prism\Orm\Exception\MappingException;
 use Prism\Orm\Mapping\Cascade;
@@ -133,8 +131,8 @@ final class MetadataValidatorTest extends TestCase
 
         // types
         yield '7 unknown type' => [
-            static fn (): array => [self::meta(Client::class, 'client', [new FieldMapping('embedding', 'embedding', 'vector')])],
-            [Client::class . '::$embedding: unknown type "vector"; registered types: string, text, integer, smallint, bigint, boolean, decimal, float, datetime_immutable, date_immutable, time_immutable, json, uuid, binary. Register custom types with TypeRegistry::register().'],
+            static fn (): array => [self::meta(Client::class, 'client', [new FieldMapping('balance', 'balance', 'money')])],
+            [Client::class . '::$balance: unknown type "money"; registered types: string, text, integer, smallint, bigint, boolean, decimal, float, datetime_immutable, date_immutable, time_immutable, json, uuid, binary, vector. Register custom types with TypeRegistry::register().'],
         ];
         yield '8 enum backing type' => [
             static fn (): array => [self::meta(Client::class, 'client', [new FieldMapping('status', 'status', 'integer', enumType: FixtureStatus::class)])],
@@ -353,8 +351,8 @@ final class MetadataValidatorTest extends TestCase
         new MetadataValidator()->assertValid($metadata);
     }
 
-    // les fixtures complètes : seule erreur, le type vector qui arrive en phase 9
-    public function testFixturesAreValidOnceTheVectorTypeExists(): void
+    // les fixtures complètes, type vector compris (phase 9) : valides, un seul avertissement
+    public function testFixturesAreValid(): void
     {
         $driver = new AttributeDriver();
         $metadata = array_map($driver->loadMetadata(...), [Invoice::class, Client::class, InvoiceLine::class, Tag::class]);
@@ -362,35 +360,18 @@ final class MetadataValidatorTest extends TestCase
         $found = new MetadataValidator()->validate($metadata);
         $errors = array_values(array_filter($found, static fn (MappingError $e): bool => MappingSeverity::Error === $e->severity));
         $warnings = array_values(array_filter($found, static fn (MappingError $e): bool => MappingSeverity::Warning === $e->severity));
-        self::assertCount(1, $errors);
-        self::assertStringStartsWith(Invoice::class . '::$embedding: unknown type "vector"', (string) $errors[0]);
+        self::assertSame([], $errors);
         // RG-04.6 : Invoice::$lines (cascade remove, orphanRemoval) et InvoiceLine::$invoice (onDelete CASCADE)
         self::assertSame([Invoice::class . '::$lines: cascade: remove repeats onDelete: CASCADE of ' . InvoiceLine::class . '::$invoice: the database already deletes these rows, without events. Keep one of them (RG-04.6).'], array_map(static fn (MappingError $e): string => (string) $e, $warnings));
 
-        $vector = new class extends Type {
-            public function getName(): string
-            {
-                return 'vector';
-            }
-
-            public function toDatabase(mixed $value, ConversionContext $context): ?string
-            {
-                return \is_string($value) ? $value : null;
-            }
-
-            public function toPhp(mixed $value, ConversionContext $context): mixed
-            {
-                return $value;
-            }
-        };
         // l'avertissement RG-04.6 reste, il ne bloque pas
-        new MetadataValidator(TypeRegistry::withDefaults()->register($vector))->assertValid($metadata);
-        self::assertCount(1, self::errors($metadata, TypeRegistry::withDefaults()->register($vector)));
+        new MetadataValidator()->assertValid($metadata);
+        self::assertCount(1, self::errors($metadata));
     }
 
     public function testAllErrorsAreReportedAtOnce(): void
     {
-        $metadata = [self::meta(Client::class, 'client', [new FieldMapping('total', 'total', 'decimal'), new FieldMapping('qty', 'qty', 'integer', length: 4), new FieldMapping('x', 'x', 'vector')])];
+        $metadata = [self::meta(Client::class, 'client', [new FieldMapping('total', 'total', 'decimal'), new FieldMapping('qty', 'qty', 'integer', length: 4), new FieldMapping('x', 'x', 'money')])];
 
         self::assertCount(3, self::errors($metadata));
 

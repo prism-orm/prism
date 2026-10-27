@@ -12,6 +12,7 @@ use Prism\Dbal\Exception\InvalidSchemaException;
  * Le type est un nom du TypeRegistry ('decimal', 'datetime_immutable'…) ; sa déclaration SQL
  * est produite par la plateforme. Un default null signifie « pas de valeur par défaut ».
  * fixed : longueur fixe (CHAR, BINARY) pour un string ou un binary de longueur donnée.
+ * Pour un vector, la longueur est la dimension, obligatoire (ADR 0017).
  *
  * @api
  */
@@ -20,12 +21,12 @@ final class Column
     private const array INTEGER_TYPES = ['integer', 'smallint', 'bigint'];
 
     // ces colonnes ne peuvent pas porter de valeur par défaut littérale sous MySQL : règle portable
-    private const array NO_DEFAULT_TYPES = ['text', 'json', 'binary'];
+    private const array NO_DEFAULT_TYPES = ['text', 'json', 'binary', 'vector'];
 
     private const array FIXED_TYPES = ['string', 'binary'];
 
     /**
-     * Faux pour les types sans défaut géré par Prism (texte, JSON, binaire) : non portables.
+     * Faux pour les types sans défaut géré par Prism (texte, JSON, binaire, vecteur) : non portables.
      */
     public static function acceptsDefault(string $type): bool
     {
@@ -51,6 +52,9 @@ final class Column
         }
         if (null !== $length && $length < 1) {
             throw InvalidSchemaException::invalidColumn($name, \sprintf('the length must be positive, got %d.', $length));
+        }
+        if ('vector' === $type && null === $length) {
+            throw InvalidSchemaException::invalidColumn($name, 'a vector column needs its dimensions as length.');
         }
         if ('decimal' === $type && (null === $precision || null === $scale)) {
             throw InvalidSchemaException::invalidColumn($name, 'a decimal column needs a precision and a scale.');

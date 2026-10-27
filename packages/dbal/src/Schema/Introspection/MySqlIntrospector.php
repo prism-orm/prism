@@ -90,6 +90,8 @@ final class MySqlIntrospector extends AbstractIntrospector
             // la contrainte des valeurs est perdue, la colonne reste telle quelle tant qu'aucun ALTER ne la touche
             'enum' === $dataType => ['string', $length, null, null],
             \in_array($dataType, ['tinyblob', 'blob', 'mediumblob', 'longblob'], true) => ['binary', null, null, null],
+            // MariaDB : la longueur lue est en octets (4 par composante), la dimension est dans « vector(n) »
+            'vector' === $dataType => ['vector', self::vectorDimensions(self::string($row['column_type'])), null, null],
             default => throw InvalidSchemaException::unsupportedDatabaseType($this->platform->getName(), $table, $name, self::string($row['column_type'])),
         };
 
@@ -160,6 +162,11 @@ final class MySqlIntrospector extends AbstractIntrospector
     }
 
     // MySQL : valeur brute ; MariaDB : littéral SQL ('draft', NULL), backslashes échappés
+    private static function vectorDimensions(string $columnType): ?int
+    {
+        return 1 === preg_match('/^vector\((\d+)\)$/i', $columnType, $m) ? (int) $m[1] : null;
+    }
+
     private function defaultValue(?string $raw): ?string
     {
         if (null === $raw || !$this->mariaDb) {

@@ -26,11 +26,11 @@ use Prism\Orm\Metadata\IndexMapping;
 use Prism\Orm\Tests\Functional\Fixtures\Author;
 use Prism\Orm\Tests\Functional\Fixtures\Book;
 use Prism\Orm\Tests\Functional\Fixtures\Label;
-use Prism\Orm\Tests\Support\StubVectorType;
 use Prism\Orm\Tests\Unit\Mapping\Fixtures\Client;
 use Prism\Orm\Tests\Unit\Mapping\Fixtures\Invoice;
 use Prism\Orm\Tests\Unit\Mapping\Fixtures\InvoiceLine;
 use Prism\Orm\Tests\Unit\Mapping\Fixtures\Tag;
+use Prism\Orm\Tests\Unit\Mapping\InvalidFixtures\UnknownTypeEntity;
 use Prism\Orm\Tests\Unit\Metadata\Fixtures\Inferred;
 use Prism\Orm\Tests\Unit\Metadata\Fixtures\Person;
 use Prism\Orm\Tests\Unit\Tools\Fixtures\Currency;
@@ -48,7 +48,7 @@ final class SchemaToolTest extends TestCase
     {
         $driver = new AttributeDriver();
 
-        return new SchemaTool($platform, StubVectorType::registry())->fromMetadata(array_map($driver->loadMetadata(...), $classes));
+        return new SchemaTool($platform)->fromMetadata(array_map($driver->loadMetadata(...), $classes));
     }
 
     /**
@@ -171,7 +171,7 @@ final class SchemaToolTest extends TestCase
         self::assertTrue($invoice->getColumn('billing_city')->nullable, 'RG-02.5');
         self::assertSame(80, $invoice->getColumn('billing_city')->length);
         self::assertSame('string', $invoice->getColumn('status')->type, 'a string-backed enum');
-        self::assertSame('vector', $invoice->getColumn('embedding')->type);
+        self::assertSame(['vector', 1024], [$invoice->getColumn('embedding')->type, $invoice->getColumn('embedding')->length]);
 
         $indexes = array_values(self::indexes($invoice));
         // l'index partiel non unique devient complet (plus large, jamais faux) ; décision A
@@ -197,7 +197,7 @@ final class SchemaToolTest extends TestCase
     public function testTenantColumnTypeAndGlobalRows(): void
     {
         $driver = new AttributeDriver(tenantType: 'uuid');
-        $schema = new SchemaTool(new PostgreSqlPlatform('16'), StubVectorType::registry())->fromMetadata(array_map($driver->loadMetadata(...), [Invoice::class, Client::class, InvoiceLine::class, Tag::class]));
+        $schema = new SchemaTool(new PostgreSqlPlatform('16'))->fromMetadata(array_map($driver->loadMetadata(...), [Invoice::class, Client::class, InvoiceLine::class, Tag::class]));
 
         $client = $schema->getTable('client');
         self::assertSame('uuid', $client->getColumn('tenant_id')->type);
@@ -228,9 +228,9 @@ final class SchemaToolTest extends TestCase
     public function testInvalidMappingIsRefusedBeforeBuildingTheSchema(): void
     {
         $this->expectException(MappingException::class);
-        $this->expectExceptionMessage('unknown type "vector"');
+        $this->expectExceptionMessage('unknown type "money"');
 
-        new SchemaTool(new PostgreSqlPlatform('16'))->fromMetadata([new AttributeDriver()->loadMetadata(Invoice::class)]);
+        new SchemaTool(new PostgreSqlPlatform('16'))->fromMetadata([new AttributeDriver()->loadMetadata(UnknownTypeEntity::class)]);
     }
 
     public function testEmbeddableAndScalarColumns(): void

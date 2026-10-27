@@ -428,7 +428,7 @@ final class QueryBuilder
      */
     private function compile(): array
     {
-        $compiler = new QueryCompiler($this->connection->getPlatform());
+        $compiler = new QueryCompiler($this->connection->getPlatform(), $this->connection->getTypeRegistry());
 
         $sql = match ($this->type) {
             QueryType::Select => $this->compileSelect($compiler),

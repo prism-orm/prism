@@ -11,6 +11,7 @@ use Prism\Dbal\Schema\ColumnDiff;
 use Prism\Dbal\Schema\ForeignKey;
 use Prism\Dbal\Schema\Table;
 use Prism\Dbal\Schema\TableDiff;
+use Prism\Dbal\Schema\VectorDistance;
 
 /**
  * Tests et dev uniquement (périmètre 1.0).
@@ -46,6 +47,29 @@ final class SqlitePlatform extends AbstractPlatform
     public function getLockSql(LockMode $mode): string
     {
         return '';
+    }
+
+    // ni type ni index : le texte est stocké tel quel, les distances calculées en PHP (lecture complète)
+    public function supportsVectors(): bool
+    {
+        return true;
+    }
+
+    public function getVectorParameterSql(string $placeholder): string
+    {
+        return $placeholder;
+    }
+
+    /**
+     * Fonctions de SqliteVectorFunctions, enregistrées par la Connection.
+     */
+    public function getVectorDistanceSql(VectorDistance $distance, string $column, string $vector): string
+    {
+        return \sprintf(match ($distance) {
+            VectorDistance::Cosine => 'prism_vec_cosine(%s, %s)',
+            VectorDistance::Euclidean => 'prism_vec_euclidean(%s, %s)',
+            VectorDistance::InnerProduct => 'prism_vec_inner(%s, %s)',
+        }, $column, $vector);
     }
 
     // SQLite : LIMIT -1 signifie « sans limite »
@@ -122,6 +146,8 @@ final class SqlitePlatform extends AbstractPlatform
             'json' => 'JSON_TEXT',
             'uuid' => 'CHAR(36)',
             'binary' => 'BLOB',
+            // le texte « [0.5,-1.25,3] » (affinité TEXT) ; la dimension n'est pas vérifiée par SQLite
+            'vector' => \sprintf('VECTOR_TEXT(%d)', $column->length),
             default => $this->unsupportedType($table, $column),
         };
     }

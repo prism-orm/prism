@@ -18,6 +18,7 @@ use Prism\Dbal\Schema\SchemaDiff;
 use Prism\Dbal\Schema\Sequence;
 use Prism\Dbal\Schema\Table;
 use Prism\Dbal\Schema\TableDiff;
+use Prism\Dbal\Schema\VectorDistance;
 
 /**
  * Seul endroit où vit le SQL propre à un SGBD.
@@ -106,6 +107,37 @@ abstract class AbstractPlatform
      * @throws InvalidParameterException chemin vide, clé ou index invalide
      */
     abstract public function getJsonExtractTextSql(string $expression, array $path): string;
+
+    /**
+     * Vrai si la plateforme stocke, indexe et compare des vecteurs (ADR 0017).
+     */
+    public function supportsVectors(): bool
+    {
+        return false;
+    }
+
+    /**
+     * Le SQL d'un paramètre vecteur lié en texte (« [0.5,-1.25,3] ») : MariaDB et PostgreSQL ne
+     * le lisent qu'à travers une conversion.
+     *
+     * @throws InvalidSchemaException plateforme sans vecteurs (MySQL)
+     */
+    public function getVectorParameterSql(string $placeholder): string
+    {
+        throw InvalidSchemaException::unsupportedVector($this->getName());
+    }
+
+    /**
+     * Distance entre une colonne vecteur et une expression vecteur (le SQL d'un paramètre).
+     * Toujours une distance, plus petite = plus proche ; laissée nue, pour que l'index serve à
+     * « ORDER BY distance LIMIT n » (MariaDB n'utilise son index que sous cette forme).
+     *
+     * @throws InvalidSchemaException plateforme sans vecteurs, ou distance qu'elle ne calcule pas
+     */
+    public function getVectorDistanceSql(VectorDistance $distance, string $column, string $vector): string
+    {
+        throw InvalidSchemaException::unsupportedVector($this->getName());
+    }
 
     /**
      * Conversion SQL d'une expression texte en entier ou en décimal.

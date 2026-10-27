@@ -4,7 +4,10 @@ declare(strict_types=1);
 
 namespace Prism\Dbal\Platform;
 
+use Prism\Dbal\Exception\InvalidSchemaException;
 use Prism\Dbal\LockMode;
+use Prism\Dbal\Schema\Column;
+use Prism\Dbal\Schema\VectorDistance;
 
 /**
  * @api
@@ -70,6 +73,31 @@ final class MariaDbPlatform extends AbstractMySqlPlatform
     protected function getUuidDeclarationSql(): string
     {
         return 'UUID';
+    }
+
+    public function supportsVectors(): bool
+    {
+        return true;
+    }
+
+    // un paramètre lié en texte n'est pas converti implicitement en VECTOR, binaire compris
+    public function getVectorParameterSql(string $placeholder): string
+    {
+        return 'VEC_FromText(' . $placeholder . ')';
+    }
+
+    public function getVectorDistanceSql(VectorDistance $distance, string $column, string $vector): string
+    {
+        return match ($distance) {
+            VectorDistance::Cosine => \sprintf('VEC_DISTANCE_COSINE(%s, %s)', $column, $vector),
+            VectorDistance::Euclidean => \sprintf('VEC_DISTANCE_EUCLIDEAN(%s, %s)', $column, $vector),
+            VectorDistance::InnerProduct => throw InvalidSchemaException::unsupportedFeature($this->getName(), 'the inner product distance (cosine and euclidean only)'),
+        };
+    }
+
+    protected function getVectorDeclarationSql(Column $column): string
+    {
+        return \sprintf('VECTOR(%d)', $column->length);
     }
 
     // ADR 0003 : première LTS avec le type VECTOR

@@ -263,7 +263,8 @@ final class MetadataValidator
         if ('decimal' === $field->type && (null === $field->precision || null === $field->scale)) {
             $this->error($class, $path, 'a decimal column needs a precision and a scale, for example #[Column(type: \'decimal\', precision: 12, scale: 2)].');
         }
-        if (null !== $field->length && !\in_array($field->type, self::LENGTH_TYPES, true)) {
+        // la longueur d'un vecteur est sa dimension (ADR 0017)
+        if (null !== $field->length && !\in_array($field->type, [...self::LENGTH_TYPES, 'vector'], true)) {
             $this->error($class, $path, \sprintf('length is not supported by the "%s" type.', $field->type));
         }
         if ($field->fixed && (!\in_array($field->type, self::LENGTH_TYPES, true) || null === $field->length)) {

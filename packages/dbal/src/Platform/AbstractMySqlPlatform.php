@@ -6,6 +6,7 @@ namespace Prism\Dbal\Platform;
 
 use Prism\Dbal\Exception\InvalidIdentifierException;
 use Prism\Dbal\Exception\InvalidParameterException;
+use Prism\Dbal\Exception\InvalidSchemaException;
 use Prism\Dbal\Schema\Column;
 use Prism\Dbal\Schema\ColumnDiff;
 use Prism\Dbal\Schema\ForeignKey;
@@ -177,8 +178,17 @@ abstract class AbstractMySqlPlatform extends AbstractPlatform
             'json' => 'JSON',
             'uuid' => $this->getUuidDeclarationSql(),
             'binary' => null === $column->length ? 'LONGBLOB' : \sprintf($column->fixed ? 'BINARY(%d)' : 'VARBINARY(%d)', $column->length),
+            'vector' => $this->getVectorDeclarationSql($column),
             default => $this->unsupportedType($table, $column),
         };
+    }
+
+    /**
+     * @throws InvalidSchemaException MySQL : ni distance ni index vectoriel en Community (ADR 0017)
+     */
+    protected function getVectorDeclarationSql(Column $column): string
+    {
+        throw InvalidSchemaException::unsupportedVector($this->getName());
     }
 
     // MODIFY redéclare la colonne entière : type, NULL, DEFAULT et AUTO_INCREMENT d'un coup

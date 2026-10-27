@@ -7,7 +7,10 @@ namespace Prism\Dbal\Platform;
 use Prism\Dbal\Schema\Column;
 use Prism\Dbal\Schema\ColumnDiff;
 use Prism\Dbal\Schema\Index;
+use Prism\Dbal\Schema\Schema;
+use Prism\Dbal\Schema\SchemaDiff;
 use Prism\Dbal\Schema\Table;
+use Prism\Dbal\Schema\VectorDistance;
 
 /**
  * @api
@@ -36,6 +39,63 @@ final class PostgreSqlPlatform extends AbstractPlatform
     public function getCastSql(string $expression, string $type): string
     {
         return \sprintf('CAST(%s AS %s)', $expression, 'integer' === $type ? 'BIGINT' : 'NUMERIC');
+    }
+
+    public function supportsVectors(): bool
+    {
+        return true;
+    }
+
+    // un paramètre lié en texte reste de type inconnu dans une expression : converti explicitement
+    public function getVectorParameterSql(string $placeholder): string
+    {
+        return 'CAST(' . $placeholder . ' AS vector)';
+    }
+
+    // <#> rend l'opposé du produit scalaire : une distance, comme les deux autres
+    public function getVectorDistanceSql(VectorDistance $distance, string $column, string $vector): string
+    {
+        return \sprintf(match ($distance) {
+            VectorDistance::Cosine => '(%s <=> %s)',
+            VectorDistance::Euclidean => '(%s <-> %s)',
+            VectorDistance::InnerProduct => '(%s <#> %s)',
+        }, $column, $vector);
+    }
+
+    /**
+     * L'extension pgvector, créée si besoin, puis sa version vérifiée (0.8 : parcours itératif
+     * des index HNSW sous filtre, ADR 0017). Sans le droit de la créer, l'erreur de la base remonte.
+     *
+     * @return list<string>
+     */
+    public function getVectorExtensionSql(): array
+    {
+        $version = "(SELECT extversion FROM pg_extension WHERE extname = 'vector')";
+
+        return [
+            'CREATE EXTENSION IF NOT EXISTS vector',
+            'DO $$ BEGIN IF string_to_array(' . $version . ", '.')::int[] < ARRAY[0, 8] THEN"
+                . " RAISE EXCEPTION 'Prism needs pgvector 0.8 or later, found %', " . $version . '; END IF; END $$',
+        ];
+    }
+
+    public function getCreateSchemaSql(Schema $schema): array
+    {
+        $sql = parent::getCreateSchemaSql($schema);
+
+        return self::hasVector($schema->getTables()) ? [...$this->getVectorExtensionSql(), ...$sql] : $sql;
+    }
+
+    public function getMigrationSql(SchemaDiff $diff): array
+    {
+        $sql = parent::getMigrationSql($diff);
+        $columns = [];
+        foreach ($diff->alteredTables as $table) {
+            array_push($columns, ...$table->addedColumns, ...array_map(static fn (ColumnDiff $c): Column => $c->to, $table->changedColumns));
+        }
+        $needed = self::hasVector($diff->createdTables) || [] !== array_filter($columns, static fn (Column $c): bool => 'vector' === $c->type);
+
+        return $needed ? [...$this->getVectorExtensionSql(), ...$sql] : $sql;
     }
 
     public function getListDatabasesSql(): string
@@ -87,6 +147,22 @@ final class PostgreSqlPlatform extends AbstractPlatform
         return 'SELECT nextval(' . $this->quoteStringLiteral($this->quoteIdentifier($sequence)) . ')';
     }
 
+    /**
+     * @param array<array-key, Table> $tables
+     */
+    private static function hasVector(array $tables): bool
+    {
+        foreach ($tables as $table) {
+            foreach ($table->getColumns() as $column) {
+                if ('vector' === $column->type) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
     // BYTEA n'a pas de longueur, fixe ou non
     public function getCanonicalColumn(Column $column): Column
     {
@@ -104,8 +180,10 @@ final class PostgreSqlPlatform extends AbstractPlatform
     {
         return 'SELECT c.column_name AS name, c.udt_name AS data_type, c.is_nullable AS nullable, c.column_default AS default_value,'
             . ' c.character_maximum_length AS length, c.numeric_precision AS precision, c.numeric_scale AS scale, c.is_identity AS is_identity,'
-            . ' k.ordinal_position AS primary_position'
+            . ' k.ordinal_position AS primary_position, a.atttypmod AS type_modifier'
             . ' FROM information_schema.columns c'
+            // la dimension d'un vector(n) n'est que dans le modificateur de type
+            . ' JOIN pg_attribute a ON a.attrelid = (quote_ident(c.table_schema) || \'.\' || quote_ident(c.table_name))::regclass AND a.attname = c.column_name'
             . " LEFT JOIN information_schema.table_constraints t ON t.table_schema = c.table_schema AND t.table_name = c.table_name AND t.constraint_type = 'PRIMARY KEY'"
             . ' LEFT JOIN information_schema.key_column_usage k ON k.constraint_schema = t.constraint_schema AND k.constraint_name = t.constraint_name AND k.column_name = c.column_name'
             . ' WHERE c.table_schema = current_schema() AND c.table_name = ? ORDER BY c.ordinal_position';
@@ -171,6 +249,8 @@ final class PostgreSqlPlatform extends AbstractPlatform
             'json' => 'JSONB',
             'uuid' => 'UUID',
             'binary' => 'BYTEA',
+            // extension pgvector, créée par le DDL qui en a besoin (getVectorExtensionSql())
+            'vector' => \sprintf('vector(%d)', $column->length),
             default => $this->unsupportedType($table, $column),
         };
     }
