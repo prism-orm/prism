@@ -36,6 +36,17 @@ final class VectorTypeTest extends TypeTestCase
         self::assertSame([0.5, -1.25, 3.0], $read);
     }
 
+    // RT-14 : trouvé par make bench-vector ; un binaire qui commence par l'octet 0x5B (« [ ») n'est pas du texte
+    public function testReadsABinaryThatStartsWithABracket(): void
+    {
+        $binary = "\x5B\x00\x80\x3F" . pack('g', -2.5);
+        $first = unpack('g', "\x5B\x00\x80\x3F");
+        self::assertIsArray($first);
+
+        self::assertSame([$first[1], -2.5], new VectorType()->toPhp($binary, self::context()));
+        self::assertEqualsWithDelta(1.0, $first[1], 1e-4);
+    }
+
     public function testReadsAStream(): void
     {
         $stream = fopen('php://memory', 'r+');

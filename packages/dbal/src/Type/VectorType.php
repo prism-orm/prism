@@ -21,6 +21,9 @@ use Prism\Dbal\Platform\AbstractPlatform;
  */
 final class VectorType extends Type
 {
+    // « [0.5,-1.25,3e-5] », et les espaces de PostgreSQL
+    private const string TEXT_CHARACTERS = "[]0123456789.eE+-, \n";
+
     public function getName(): string
     {
         return 'vector';
@@ -51,7 +54,8 @@ final class VectorType extends Type
             throw ConversionException::invalidDatabaseValue($this->getName(), $value, 'a vector');
         }
 
-        if ('[' === $value[0]) {
+        // le texte n'a que ces caractères : un binaire peut commencer par « [ » (0x5B)
+        if ('[' === $value[0] && \strlen($value) === strspn($value, self::TEXT_CHARACTERS)) {
             try {
                 $decoded = json_decode($value, true, 2, \JSON_THROW_ON_ERROR);
             } catch (\JsonException $e) {

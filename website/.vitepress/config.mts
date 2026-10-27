@@ -67,6 +67,7 @@ export default defineConfig({
                     { text: 'Avoiding N+1 queries', link: '/guide/n-plus-one' },
                     { text: 'Multi-tenancy', link: '/guide/multi-tenancy' },
                     { text: 'Audit and behaviors', link: '/guide/audit' },
+                    { text: 'Vector search', link: '/guide/vector-search' },
                 ],
             },
             {

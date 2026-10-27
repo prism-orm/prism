@@ -12,7 +12,7 @@ URL_sqlite  := sqlite:///:memory:
 DATABASES := mysql mariadb pgsql sqlite
 
 .DEFAULT_GOAL := help
-.PHONY: help up down build install shell test test-unit test-db test-all-db stan cs cs-check infection bench bench-tenancy bench-baseline bench-compare coverage compat test-symfony demo-install demo-test embeddings-snapshot worker-test docs-install docs-dev docs-build ci
+.PHONY: help up down build install shell test test-unit test-db test-all-db stan cs cs-check infection bench bench-tenancy bench-vector bench-baseline bench-compare coverage compat test-symfony demo-install demo-test embeddings-snapshot worker-test docs-install docs-dev docs-build ci
 
 help: ## Affiche cette aide
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
@@ -63,6 +63,12 @@ bench: ## Benchmarks et critères de la phase 3, sur MySQL par défaut : make be
 
 bench-tenancy: ## Critère de la phase 8 : surcoût du filtre tenant < 5 % sur la lecture, sur MySQL par défaut : make bench-tenancy [DB=mariadb|pgsql]
 	$(RUN) env DATABASE_URL='$(URL_$(DB))' php -d opcache.enable_cli=1 tools/bench/tenancy-overhead.php
+
+bench-vector: ## Critère de la phase 9 : nearest() < 50 ms (p95) sur 100 000 vecteurs de 768 dimensions, sous MariaDB et PostgreSQL : make bench-vector [DB=mariadb|pgsql] [ROWS=100000] [KEEP=1]
+	@for db in $(if $(filter mariadb pgsql,$(DB)),$(DB),mariadb pgsql); do \
+		url=$$( [ $$db = pgsql ] && echo '$(URL_pgsql)' || echo '$(URL_mariadb)' ); \
+		$(RUN) env DATABASE_URL="$$url" ROWS=$(or $(ROWS),100000) KEEP=$(KEEP) php -d memory_limit=1G -d opcache.enable_cli=1 tools/bench/vector-nearest.php || exit 1; \
+	done
 
 bench-baseline: ## Enregistre la référence de bench-compare (avant une modification de l'UoW ou de l'hydratation)
 	$(RUN) env DATABASE_URL='$(URL_$(DB))' vendor/bin/phpbench run --report=aggregate --tag=baseline $(if $(FILTER),--filter=$(FILTER))

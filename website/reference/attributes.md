@@ -61,6 +61,8 @@ Stores a property in a column. Every `null` parameter is deduced from the PHP ty
 | `insertable` | `true` | `false`: the column is left out of `INSERT` statements |
 | `updatable` | `true` | `false`: the column is left out of `UPDATE` statements, for a column computed by the database |
 | `fixed` | `false` | Fixed length: `CHAR` or `BINARY` instead of `VARCHAR` or `VARBINARY`; needs a `length` |
+| `dimensions` | `null` | The dimension of a `vector` column, from 1 to 16,000; required for a `vector`. A vector of another size is refused before it is written. See [Vector search](/guide/vector-search#a-vector-field) |
+| `lazy` | `null` | `true`: the field is not read with the entity, only on first access, for the whole batch. `null`: `true` for a `Prism\Orm\Vector\Vector` property, `false` otherwise; only a `Vector` can be lazy |
 
 ### `#[Version]`
 
@@ -102,6 +104,39 @@ A unique constraint on one or more fields. Class attribute, repeatable. On a `#[
 | `fields` | | The fields of the constraint: PHP properties or owning `ManyToOne` / `OneToOne` relations |
 | `name` | `null` | The constraint name. `null`: generated, stable |
 | `where` | `null` | Not supported yet: a unique constraint with a `where` is refused when the schema is built, since enforcing it without its condition would reject valid rows |
+
+## Vector search
+
+See [Vector search](/guide/vector-search). Not on MySQL, which has no vector type: these attributes are refused when the mapping is validated for it.
+
+### `#[VectorIndex]`
+
+An HNSW index on a `vector` field, used by `nearest()`, `hybridSearch()` and `distanceTo()`. Property attribute, next to `#[Column(dimensions: …)]`. On MariaDB, the column must be `NOT NULL`, and a table has one vector index at most.
+
+| Parameter | Default | Description |
+| --- | --- | --- |
+| `distance` | `Distance::Cosine` | `Distance::Cosine`, `Distance::Euclidean`, or `Distance::InnerProduct` (PostgreSQL and SQLite only). Also the distance of `nearest()` on this field |
+| `m` | `16` | Connections per node of the graph, from 2 to 100 |
+| `efConstruction` | `64` | Search width while building the graph, from 4 to 1,000, at least `2 × m` |
+
+### `#[FullTextIndex]`
+
+A full-text index on text fields, searched by `hybridSearch()`. Class attribute, repeatable. `FULLTEXT` on MySQL and MariaDB, a GIN index on `to_tsvector()` on PostgreSQL, scored in PHP on SQLite.
+
+| Parameter | Default | Description |
+| --- | --- | --- |
+| `fields` | | The `string` or `text` fields indexed |
+| `language` | `'simple'` | The text search configuration of PostgreSQL: `english`, `french`, `simple` (no stemming)… Ignored by the other databases |
+| `name` | `null` | The index name, and `HybridOptions::$fullTextIndex` when the entity has several. `null`: generated, stable |
+
+### `#[EmbeddedVector]`
+
+Keeps a `vector` field computed from text fields. Property attribute, next to `#[Column(dimensions: …)]`. Adds two columns without properties, `<column>_stale` and `<column>_model`. A change of a source field makes the vector stale at flush; after the commit, the stale rows go to the embedding scheduler. A stale vector is left out of `nearest()`. See [Keeping embeddings up to date](/guide/vector-search#keeping-embeddings-up-to-date).
+
+| Parameter | Default | Description |
+| --- | --- | --- |
+| `source` | | The `string` or `text` field, or the list of fields, whose text is embedded, joined by a blank line |
+| `model` | `'default'` | The name of the embedding provider, in the `EmbeddingProviderRegistry` (`prism.embeddings.providers` in Symfony); its dimension must be the one of the column |
 
 ## Relations
 
@@ -312,7 +347,7 @@ Writes each change of the entity into `prism_audit_log`, in the transaction of t
 
 ### `#[AsEmbeddingProvider]`
 
-`Prism\Bundle\Attribute\AsEmbeddingProvider`: registers an `EmbeddingProvider` service under a name, the one an embedded vector field gives as its `model`. Without it, an autoconfigured provider is registered under its service id. See [Embeddings](/bundle/symfony#embeddings).
+`Prism\Bundle\Attribute\AsEmbeddingProvider`: registers an `EmbeddingProvider` service under a name, the one `#[EmbeddedVector(model:)]` gives. Without it, an autoconfigured provider is registered under its service id. See [Embeddings](/bundle/symfony#embeddings).
 
 | Parameter | Default | Description |
 | --- | --- | --- |
