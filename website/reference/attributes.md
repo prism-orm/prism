@@ -89,7 +89,7 @@ An index on one or more fields. Class attribute, repeatable. On a `#[Tenanted]` 
 
 | Parameter | Default | Description |
 | --- | --- | --- |
-| `fields` | | The PHP properties indexed, in order; `address.city` for a field of an embeddable |
+| `fields` | | The fields indexed, in order: PHP properties, owning `ManyToOne` or `OneToOne` relations (their foreign key column), or `address.city` for a field of an embeddable |
 | `name` | `null` | The index name. `null`: generated from a hash of the columns, stable from one diff to the next |
 | `where` | `null` | Accepted, but not applied yet: the index covers every row, which makes it wider, never wrong. Partial indexes with a free condition are planned after 1.0 |
 
@@ -99,7 +99,7 @@ A unique constraint on one or more fields. Class attribute, repeatable. On a `#[
 
 | Parameter | Default | Description |
 | --- | --- | --- |
-| `fields` | | The PHP properties of the constraint |
+| `fields` | | The fields of the constraint: PHP properties or owning `ManyToOne` / `OneToOne` relations |
 | `name` | `null` | The constraint name. `null`: generated, stable |
 | `where` | `null` | Not supported yet: a unique constraint with a `where` is refused when the schema is built, since enforcing it without its condition would reject valid rows |
 

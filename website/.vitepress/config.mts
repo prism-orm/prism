@@ -47,6 +47,7 @@ export default defineConfig({
                     { text: 'What is Prism?', link: '/guide/introduction' },
                     { text: 'Installation', link: '/guide/installation' },
                     { text: 'Your first entity', link: '/guide/getting-started' },
+                    { text: 'Coming from Doctrine', link: '/guide/from-doctrine' },
                 ],
             },
             {
@@ -71,6 +72,14 @@ export default defineConfig({
             {
                 text: 'Symfony',
                 items: [{ text: 'Prism in Symfony', link: '/bundle/symfony' }],
+            },
+            {
+                text: 'ERP recipes',
+                items: [
+                    { text: 'Invoices', link: '/recipes/invoices' },
+                    { text: 'Stock', link: '/recipes/stock' },
+                    { text: 'Multi-company ERP', link: '/recipes/multi-company' },
+                ],
             },
             {
                 text: 'Reference',
