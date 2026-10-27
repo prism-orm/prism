@@ -54,12 +54,12 @@ final class InMemoryPersister implements EntityPersister
         return null === $row ? null : $this->flagged($row);
     }
 
-    public function loadNearest(string $column, array $vector, VectorDistance $distance, int $limit, array $criteria = []): array
+    public function loadNearest(string $column, array $vector, VectorDistance $distance, int $limit, array $criteria = [], ?string $staleColumn = null): array
     {
         throw new \LogicException('nearest() needs a database: see the functional tests.');
     }
 
-    public function loadNearestIds(string $column, array $vector, VectorDistance $distance, int $limit, array $criteria = []): array
+    public function loadNearestIds(string $column, array $vector, VectorDistance $distance, int $limit, array $criteria = [], ?string $staleColumn = null): array
     {
         throw new \LogicException('hybridSearch() needs a database: see the functional tests.');
     }
@@ -67,6 +67,26 @@ final class InMemoryPersister implements EntityPersister
     public function loadFullTextIds(array $columns, ?string $language, string $query, int $limit, array $criteria = []): array
     {
         throw new \LogicException('hybridSearch() needs a database: see the functional tests.');
+    }
+
+    public function loadColumns(array $columns, array $ids, bool $lock = false): array
+    {
+        throw new \LogicException('The EmbeddingUpdater needs a database: see the functional tests.');
+    }
+
+    public function loadIdsAfter(?string $flag, mixed $afterId, int $limit): array
+    {
+        throw new \LogicException('The EmbeddingUpdater needs a database: see the functional tests.');
+    }
+
+    public function updateAll(array $changes): int
+    {
+        throw new \LogicException('The EmbeddingUpdater needs a database: see the functional tests.');
+    }
+
+    public function countGroupedBy(array $columns): array
+    {
+        throw new \LogicException('The EmbeddingUpdater needs a database: see the functional tests.');
     }
 
     public function loadColumn(string $column, array $ids): array

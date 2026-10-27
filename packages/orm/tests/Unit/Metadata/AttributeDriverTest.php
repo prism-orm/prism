@@ -193,6 +193,11 @@ final class AttributeDriverTest extends TestCase
         // ADR 0017 : les options des deux sortes du pilier 4
         self::assertSame('french', $metadata->indexes[3]->language);
         self::assertSame([Distance::Cosine, 16, 64], [$metadata->indexes[4]->distance, $metadata->indexes[4]->m, $metadata->indexes[4]->efConstruction]);
+        // ADR 0018 : deux colonnes d'état nommées d'après celle du vecteur, le fournisseur par défaut
+        $embedding = $metadata->getEmbedding('embedding');
+        self::assertNotNull($embedding);
+        self::assertSame([['number', 'notes'], 'default', 'embedding_stale', 'embedding_model'], [$embedding->source, $embedding->provider, $embedding->staleColumn, $embedding->modelColumn]);
+        self::assertNull($metadata->getEmbedding('number'));
 
         $client = $metadata->getAssociation('client');
         self::assertSame([AssociationType::ManyToOne, Client::class, 'client_id', false, 'invoices', [Cascade::Persist], 200], [$client->type, $client->targetEntity, $client->joinColumn, $client->nullable, $client->inversedBy, $client->cascade, $client->batchSize]);

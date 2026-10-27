@@ -82,7 +82,7 @@ final class CommandsDocumentationTest extends TestCase
         sort($commands);
         sort($sections);
 
-        self::assertCount(19, $commands);
+        self::assertCount(21, $commands);
         self::assertSame($commands, $sections, 'one section per command, and no section for a command that does not exist');
     }
 

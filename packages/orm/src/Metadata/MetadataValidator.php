@@ -17,6 +17,7 @@ use Prism\Orm\Mapping\GenerationStrategy;
 use Prism\Orm\Mapping\LifecycleEvent;
 use Prism\Orm\Mapping\OnDelete;
 use Prism\Orm\Vector\Distance;
+use Prism\Orm\Vector\EmbeddingProviderRegistry;
 
 /**
  * Vérifications qui portent sur l'ensemble des entités et sur le registre des types :
@@ -46,11 +47,13 @@ final class MetadataValidator
     private readonly TypeRegistry $types;
 
     /**
-     * @param TypeRegistry|null     $types    types connus ; les types natifs du DBAL par défaut
-     * @param AbstractPlatform|null $platform la base visée : ce qu'elle ne sait pas faire est
-     *                                        refusé ici, pas à l'exécution (RG-09.3, ADR 0017)
+     * @param TypeRegistry|null              $types      types connus ; les types natifs du DBAL par défaut
+     * @param AbstractPlatform|null          $platform   la base visée : ce qu'elle ne sait pas faire est
+     *                                                   refusé ici, pas à l'exécution (RG-09.3, ADR 0017)
+     * @param EmbeddingProviderRegistry|null $embeddings les fournisseurs : nom connu et dimension égale à
+     *                                                   celle du champ, vérifiés au démarrage (ADR 0018)
      */
-    public function __construct(?TypeRegistry $types = null, private readonly ?AbstractPlatform $platform = null)
+    public function __construct(?TypeRegistry $types = null, private readonly ?AbstractPlatform $platform = null, private readonly ?EmbeddingProviderRegistry $embeddings = null)
     {
         $this->types = $types ?? TypeRegistry::withDefaults();
     }
@@ -76,6 +79,7 @@ final class MetadataValidator
             $this->validateAssociations($class, $byClass);
             $this->validateIndexes($class);
             $this->validateVectors($class);
+            $this->validateEmbeddings($class);
             $this->validateCallbacks($class);
             $this->validateTenancy($class);
             $this->validateBehaviors($class);
@@ -162,6 +166,45 @@ final class MetadataValidator
             $this->assertLength($class->className, null, 'column', $tenancy->column);
             if (isset($owners[strtolower($tenancy->column)])) {
                 $this->error($class->className, null, \sprintf('the #[Tenanted] column "%s" is already used by $%s; rename one of them (#[Tenanted(column: ...)]).', $tenancy->column, $owners[strtolower($tenancy->column)]));
+            }
+        }
+        // colonnes d'état d'un #[EmbeddedVector] (ADR 0018)
+        foreach ($class->getEmbeddings() as $embedding) {
+            $register($embedding->staleColumn, $embedding->field);
+            $register($embedding->modelColumn, $embedding->field);
+        }
+    }
+
+    /**
+     * ADR 0018 : #[EmbeddedVector] sur un vecteur, des sources texte, un fournisseur connu de la
+     * même dimension.
+     *
+     * @param ClassMetadata<object> $class
+     */
+    private function validateEmbeddings(ClassMetadata $class): void
+    {
+        foreach ($class->getEmbeddings() as $embedding) {
+            $field = $class->getField($embedding->field);
+            if ('vector' !== $field->type) {
+                $this->error($class->className, $field->fieldName, \sprintf('#[EmbeddedVector] needs a "vector" field, not "%s".', $field->type));
+
+                continue;
+            }
+            foreach ($embedding->source as $source) {
+                if (!$class->hasField($source)) {
+                    $this->error($class->className, $field->fieldName, \sprintf('#[EmbeddedVector] reads "%s", which is not a mapped field.', $source));
+                } elseif (!\in_array($class->getField($source)->type, ['string', 'text'], true)) {
+                    $this->error($class->className, $field->fieldName, \sprintf('#[EmbeddedVector] reads "%s", a "%s" field; a source must be a "string" or "text" field.', $source, $class->getField($source)->type));
+                }
+            }
+            if (null === $this->embeddings) {
+                continue;
+            }
+            if (!$this->embeddings->has($embedding->provider)) {
+                $known = $this->embeddings->names();
+                $this->error($class->className, $field->fieldName, \sprintf('#[EmbeddedVector] uses the embedding provider "%s", which is not registered; registered providers: %s.', $embedding->provider, [] === $known ? 'none' : implode(', ', $known)));
+            } elseif (null !== $field->length && ($dimensions = $this->embeddings->get($embedding->provider)->dimensions()) !== $field->length) {
+                $this->error($class->className, $field->fieldName, \sprintf('the embedding provider "%s" produces %d dimensions, but the column has %d; change #[Column(dimensions:)] and migrate, or use another provider.', $embedding->provider, $dimensions, $field->length));
             }
         }
     }

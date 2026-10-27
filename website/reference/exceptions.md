@@ -92,6 +92,12 @@ At flush, a vector has more or fewer components than the `dimensions` of its col
 
 **Fix:** store the output of the embedding model the column was created for. A different model needs a new column size, or a migration.
 
+### `EmbeddingException`
+
+An `#[EmbeddedVector]` could not be computed: its provider name is not registered, the provider failed (network, quota), or it returned the wrong number of vectors or the wrong dimension. The rows stay stale, left out of `nearest()`. A `ComputeEmbedding` message is retried.
+
+**Fix:** register the provider under the name the attribute gives (`model: 'default'`), and check that its dimension is the one of the column. Then run `db:embeddings:compute`.
+
 ### `MissingTenantException`
 
 An operation on a `#[Tenanted]` entity without a current tenant. Prism has no implicit "all tenants" mode.

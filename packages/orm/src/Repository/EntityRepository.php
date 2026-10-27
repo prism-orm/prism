@@ -91,9 +91,26 @@ class EntityRepository
     }
 
     /**
+     * Marque périmés tous les vecteurs du champ #[EmbeddedVector] $field, pour changer de modèle
+     * d'embedding (RG-09.10) ; db:embeddings:compute, ou les messages ComputeEmbedding, les
+     * recalculent ensuite. À appeler depuis une migration de données :
+     *
+     *     $em->getRepository(Document::class)->markEmbeddingsStale('embedding');
+     *
+     * @return int lignes marquées
+     *
+     * @throws MappingException champ sans #[EmbeddedVector]
+     */
+    public function markEmbeddingsStale(string $field): int
+    {
+        return $this->entityManager->getUnitOfWork()->markEmbeddingsStale($this->metadata->className, $field);
+    }
+
+    /**
      * Les entités dont le vecteur $field est le plus proche de $vector, de la plus proche à la
      * plus lointaine, chacune avec sa distance et son score (RG-09.4). Les critères, le tenant et
-     * la suppression logique filtrent avant le classement.
+     * la suppression logique filtrent avant le classement ; un vecteur #[EmbeddedVector] périmé
+     * est exclu, sauf $includeStale (RG-09.8).
      *
      *     foreach ($docs->nearest('embedding', $question, limit: 5, criteria: ['published' => true]) as $hit) {
      *         echo $hit->entity->title, ' ', $hit->score;
@@ -107,9 +124,9 @@ class EntityRepository
      * @throws MappingException                 champ inconnu, ou qui n'est pas un vecteur
      * @throws VectorDimensionMismatchException vecteur d'une autre dimension que le champ (RG-09.1)
      */
-    public function nearest(string $field, array|Vector $vector, int $limit = 10, array $criteria = []): array
+    public function nearest(string $field, array|Vector $vector, int $limit = 10, array $criteria = [], bool $includeStale = false): array
     {
-        return $this->entityManager->getUnitOfWork()->nearest($this->metadata->className, $field, $vector, $limit, $criteria);
+        return $this->entityManager->getUnitOfWork()->nearest($this->metadata->className, $field, $vector, $limit, $criteria, $includeStale);
     }
 
     /**

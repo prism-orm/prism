@@ -14,6 +14,7 @@ use Prism\Orm\Metadata\AssociationType;
 use Prism\Orm\Metadata\BehaviorMapping;
 use Prism\Orm\Metadata\ClassMetadata;
 use Prism\Orm\Metadata\EmbeddedMapping;
+use Prism\Orm\Metadata\EmbeddingMapping;
 use Prism\Orm\Metadata\FieldMapping;
 use Prism\Orm\Metadata\IdMapping;
 use Prism\Orm\Metadata\IndexMapping;
@@ -81,6 +82,7 @@ final class AttributeDriver implements MetadataDriver
         $associations = [];
         $id = null;
         $version = null;
+        $embeddings = [];
 
         foreach ($reflection->getProperties() as $property) {
             if ($property->isStatic() || $property->getDeclaringClass()->getName() !== $class) {
@@ -105,6 +107,11 @@ final class AttributeDriver implements MetadataDriver
                 if (null !== self::attribute($property, Attr\Version::class)) {
                     $version = $name;
                 }
+                // ADR 0018 : deux colonnes sans propriété, nommées d'après celle du vecteur
+                if (null !== $source = self::attribute($property, Attr\EmbeddedVector::class)) {
+                    $column = $fields[array_key_last($fields)]->columnName;
+                    $embeddings[] = new EmbeddingMapping($name, $source->source, $source->model, $column . '_stale', $column . '_model');
+                }
             }
         }
 
@@ -126,6 +133,7 @@ final class AttributeDriver implements MetadataDriver
             self::listenerCallbacks($listeners),
             $this->tenancy($reflection, $fields),
             self::behaviors($reflection),
+            $embeddings,
         );
     }
 

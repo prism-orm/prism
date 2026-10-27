@@ -42,6 +42,9 @@ final class ClassMetadata
     /** Comportements déclarés par attributs (ADR 0015) ; aucun par défaut. */
     public readonly BehaviorMapping $behaviors;
 
+    /** @var array<string, EmbeddingMapping> champs #[EmbeddedVector], par nom (ADR 0018) */
+    private readonly array $embeddings;
+
     /**
      * @param class-string<T>                                                    $className
      * @param list<FieldMapping>                                                 $fields
@@ -54,6 +57,7 @@ final class ClassMetadata
      * @param class-string|null                                                  $repositoryClass
      * @param array<class-string, array<value-of<LifecycleEvent>, list<string>>> $entityListenerCallbacks
      *                                                                                                    méthodes de chaque listener d'entité, par événement
+     * @param list<EmbeddingMapping>                                             $embeddings
      */
     public function __construct(
         public readonly string $className,
@@ -73,8 +77,10 @@ final class ClassMetadata
         public readonly array $entityListenerCallbacks = [],
         public readonly ?TenancyMapping $tenancy = null,
         ?BehaviorMapping $behaviors = null,
+        array $embeddings = [],
     ) {
         $this->behaviors = $behaviors ?? new BehaviorMapping();
+        $this->embeddings = self::byName($className, $embeddings, static fn (EmbeddingMapping $e): string => $e->field);
         $this->fields = self::byName($className, $fields, static fn (FieldMapping $f): string => $f->fieldName);
         $this->embedded = self::byName($className, $embedded, static fn (EmbeddedMapping $e): string => $e->fieldName);
         $this->associations = self::byName($className, $associations, static fn (AssociationMapping $a): string => $a->fieldName);
@@ -113,6 +119,24 @@ final class ClassMetadata
         if (null !== $tenancy?->field && !isset($this->fields[$tenancy->field])) {
             throw MappingException::invalidField($className, $tenancy->field, 'the tenant field must be a mapped scalar field.');
         }
+        foreach ($this->embeddings as $name => $embedding) {
+            if (!isset($this->fields[$name])) {
+                throw MappingException::invalidField($className, $name, '#[EmbeddedVector] must be on a mapped scalar field.');
+            }
+        }
+    }
+
+    /**
+     * @return list<EmbeddingMapping> champs #[EmbeddedVector] (ADR 0018)
+     */
+    public function getEmbeddings(): array
+    {
+        return array_values($this->embeddings);
+    }
+
+    public function getEmbedding(string $field): ?EmbeddingMapping
+    {
+        return $this->embeddings[$field] ?? null;
     }
 
     /**

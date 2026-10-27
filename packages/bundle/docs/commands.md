@@ -47,6 +47,7 @@ return new PrismConfig(
 | `metadata` | the `EntityManager`'s | To pass for another implementation of `EntityManagerInterface` |
 | `metamodelDir` | `var/cache/prism/metamodel` | Default directory of `db:metamodel:generate` |
 | `largeTable` | `1_000_000` | Number of rows beyond which the linter reports an `ALTER` under MySQL (L10) |
+| `embeddingProviders` | `new EmbeddingProviderRegistry()` | The embedding providers by name, for `db:embeddings:compute` |
 
 ```console
 $ vendor/bin/prism list db
@@ -542,4 +543,55 @@ $ vendor/bin/prism db:audit:purge --older-than=P1Y
  ! [CAUTION] This would delete 1240 audit log row(s); nothing was done. Run with --force to delete them.
 
 $ vendor/bin/prism db:audit:purge --older-than=P1Y --force
+```
+
+## Embeddings
+
+An `#[EmbeddedVector]` field becomes stale when one of its source fields changes. A stale vector is left out of `nearest()` until it is computed again. Without a scheduler (the default), these commands compute the stale vectors. Like every `db:*` command, they see all the tenants.
+
+### `db:embeddings:compute`
+
+Computes the stale vectors of every `#[EmbeddedVector]` field, or of one entity. It reads the source texts, calls the provider named by the attribute (`model: 'default'`), then writes each vector in a short transaction. A row whose source changed in the meantime stays stale: its own computation is already scheduled. If the provider fails, the command stops with exit code `1` and the remaining rows stay stale.
+
+| Option | Shortcut | Effect |
+| --- | --- | --- |
+| `--class` | | Only this entity, by its class name or its short name |
+| `--batch-size` | | Texts sent to the provider per call (default: `64`) |
+| `--all` | | Also compute the vectors that are up to date, for example after changing the provider without a migration |
+
+```console
+$ vendor/bin/prism db:embeddings:compute --class=Document
+App\Entity\Document::$embedding: 1240 vector(s) computed.
+
+ [OK] 1240 vector(s) computed.
+```
+
+### `db:embeddings:status`
+
+Counts the vectors of each `#[EmbeddedVector]` field: up to date, stale, and rows by model. `(none)` counts the rows that were never computed, or whose vector the application set itself.
+
+| Option | Shortcut | Effect |
+| --- | --- | --- |
+| `--class` | | Only this entity, by its class name or its short name |
+
+```console
+$ vendor/bin/prism db:embeddings:status
+
+ ------------------------------- ------------ ------- ----------------------------------------------
+  Field                           Up to date   Stale   Rows by model
+ ------------------------------- ------------ ------- ----------------------------------------------
+  App\Entity\Document::$embedding   1238         2       (none): 2, ollama/nomic-embed-text:v1.5: 1238
+ ------------------------------- ------------ ------- ----------------------------------------------
+
+ ! [NOTE] 2 stale vector(s): they are left out of nearest() until db:embeddings:compute (or the
+ !        ComputeEmbedding messages) computes them.
+```
+
+To change the embedding model, a data migration marks every vector stale, then this command, or the messages, compute them again:
+
+```php no-run
+public function run(EntityManagerInterface $em): void
+{
+    $em->getRepository(Document::class)->markEmbeddingsStale('embedding');
+}
 ```

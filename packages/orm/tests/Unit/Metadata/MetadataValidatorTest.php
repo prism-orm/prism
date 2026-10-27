@@ -24,6 +24,7 @@ use Prism\Orm\Metadata\BehaviorMapping;
 use Prism\Orm\Metadata\ClassMetadata;
 use Prism\Orm\Metadata\Driver\AttributeDriver;
 use Prism\Orm\Metadata\EmbeddedMapping;
+use Prism\Orm\Metadata\EmbeddingMapping;
 use Prism\Orm\Metadata\FieldMapping;
 use Prism\Orm\Metadata\IdMapping;
 use Prism\Orm\Metadata\IndexMapping;
@@ -44,6 +45,8 @@ use Prism\Orm\Tests\Unit\Metadata\Fixtures\Callbacks\EmptyListener;
 use Prism\Orm\Tests\Unit\Metadata\Fixtures\Callbacks\ListenedEntity;
 use Prism\Orm\Tests\Unit\Metadata\Fixtures\Callbacks\UntypedCollections;
 use Prism\Orm\Vector\Distance;
+use Prism\Orm\Vector\EmbeddingProviderRegistry;
+use Prism\Orm\Vector\HashingEmbeddingProvider;
 
 /**
  * Cas du validateur, chacun avec son message exact. Avec les 20 erreurs du driver, ils forment
@@ -429,6 +432,55 @@ final class MetadataValidatorTest extends TestCase
     public function testVectorRulesPerPlatform(array $fields, array $indexes, ?AbstractPlatform $platform, array $expected): void
     {
         $errors = new MetadataValidator(platform: $platform)->validate([self::meta(Client::class, 'client', $fields, indexes: $indexes)]);
+
+        self::assertSame($expected, array_map(static fn (MappingError $e): string => (string) $e, $errors));
+    }
+
+    /**
+     * ADR 0018 : #[EmbeddedVector] sur un vecteur, des sources texte, des colonnes d'état libres,
+     * un fournisseur connu de la même dimension.
+     *
+     * @return iterable<string, array{list<FieldMapping>, list<EmbeddingMapping>, EmbeddingProviderRegistry|null, list<string>}>
+     */
+    public static function embeddingCases(): iterable
+    {
+        $vector = new FieldMapping('embedding', 'embedding', 'vector', nullable: true, length: 8);
+        $title = new FieldMapping('title', 'title', 'string');
+        $embedding = new EmbeddingMapping('embedding', ['title'], 'default', 'embedding_stale', 'embedding_model');
+        $providers = new EmbeddingProviderRegistry(['default' => new HashingEmbeddingProvider(8)]);
+
+        yield 'valid without providers' => [[$vector, $title], [$embedding], null, []];
+        yield 'valid with its provider' => [[$vector, $title], [$embedding], $providers, []];
+        yield 'not a vector' => [[new FieldMapping('embedding', 'embedding', 'text'), $title], [$embedding], null, [
+            Client::class . '::$embedding: #[EmbeddedVector] needs a "vector" field, not "text".',
+        ]];
+        yield 'unknown source' => [[$vector], [$embedding], null, [
+            Client::class . '::$embedding: #[EmbeddedVector] reads "title", which is not a mapped field.',
+        ]];
+        yield 'source not a text' => [[$vector, new FieldMapping('title', 'title', 'integer')], [$embedding], null, [
+            Client::class . '::$embedding: #[EmbeddedVector] reads "title", a "integer" field; a source must be a "string" or "text" field.',
+        ]];
+        yield 'state column taken' => [[$vector, $title, new FieldMapping('stale', 'embedding_stale', 'boolean')], [$embedding], null, [
+            Client::class . '::$embedding: column "embedding_stale" is already used by $stale.',
+        ]];
+        yield 'unknown provider' => [[$vector, $title], [$embedding], new EmbeddingProviderRegistry(['other' => new HashingEmbeddingProvider(8)]), [
+            Client::class . '::$embedding: #[EmbeddedVector] uses the embedding provider "default", which is not registered; registered providers: other.',
+        ]];
+        yield 'provider of another dimension' => [[$vector, $title], [$embedding], new EmbeddingProviderRegistry(['default' => new HashingEmbeddingProvider(16)]), [
+            Client::class . '::$embedding: the embedding provider "default" produces 16 dimensions, but the column has 8; change #[Column(dimensions:)] and migrate, or use another provider.',
+        ]];
+    }
+
+    /**
+     * @param list<FieldMapping>     $fields
+     * @param list<EmbeddingMapping> $embeddings
+     * @param list<string>           $expected
+     */
+    #[DataProvider('embeddingCases')]
+    public function testEmbeddedVectorRules(array $fields, array $embeddings, ?EmbeddingProviderRegistry $providers, array $expected): void
+    {
+        $metadata = new ClassMetadata(Client::class, 'client', new IdMapping('id'), [new FieldMapping('id', 'id', 'integer'), ...$fields], embeddings: $embeddings);
+        $errors = new MetadataValidator(embeddings: $providers)->validate([$metadata]);
 
         self::assertSame($expected, array_map(static fn (MappingError $e): string => (string) $e, $errors));
     }

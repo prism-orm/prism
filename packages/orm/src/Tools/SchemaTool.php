@@ -20,6 +20,7 @@ use Prism\Orm\Mapping\OnDelete;
 use Prism\Orm\Metadata\AssociationMapping;
 use Prism\Orm\Metadata\AssociationType;
 use Prism\Orm\Metadata\ClassMetadata;
+use Prism\Orm\Metadata\EmbeddingMapping;
 use Prism\Orm\Metadata\FieldMapping;
 use Prism\Orm\Metadata\MetadataValidator;
 use Prism\Orm\Vector\Distance;
@@ -121,6 +122,11 @@ final class SchemaTool
         $tenancy = $class->tenancy;
         if (null !== $tenancy && null === $tenancy->field) {
             $columns[] = new Column($tenancy->column, $tenancy->type, $tenancy->global);
+        }
+        // ADR 0018 : une ligne neuve est périmée tant que son vecteur n'est pas calculé
+        foreach ($class->getEmbeddings() as $embedding) {
+            $columns[] = new Column($embedding->staleColumn, 'boolean', default: true);
+            $columns[] = new Column($embedding->modelColumn, 'string', true, length: EmbeddingMapping::MODEL_LENGTH);
         }
 
         $table = new Table($class->tableName, $columns, [$class->getIdField()->columnName]);

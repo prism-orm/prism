@@ -78,11 +78,6 @@ interface EntityPersister
     public function count(array $criteria = []): int;
 
     /**
-     * Verrou de ligne pessimiste, tenu jusqu'à la fin de la transaction en cours.
-     *
-     * @return bool faux si la ligne n'existe pas
-     */
-    /**
      * Une colonne de plusieurs lignes, par identifiant (valeurs de la base) : le chargement par
      * lot d'un champ paresseux (RG-09.6). Une ligne absente n'est pas rendue.
      *
@@ -98,13 +93,15 @@ interface EntityPersister
      * recherche que l'index a laissée incomplète est relancée sans lui (MariaDB, ADR 0017).
      *
      * @param list<float>          $vector
-     * @param array<string, mixed> $criteria champ → valeur PHP
+     * @param array<string, mixed> $criteria    champ → valeur PHP
+     * @param string|null          $staleColumn colonne _stale d'un #[EmbeddedVector] : seules les
+     *                                          lignes à jour (RG-09.8)
      *
      * @return list<array<string, mixed>>
      *
      * @throws MappingException champ inconnu
      */
-    public function loadNearest(string $column, array $vector, VectorDistance $distance, int $limit, array $criteria = []): array;
+    public function loadNearest(string $column, array $vector, VectorDistance $distance, int $limit, array $criteria = [], ?string $staleColumn = null): array;
 
     /**
      * Les identifiants les plus proches d'un vecteur, du plus proche au plus lointain, filtrés
@@ -117,7 +114,7 @@ interface EntityPersister
      *
      * @throws MappingException champ inconnu
      */
-    public function loadNearestIds(string $column, array $vector, VectorDistance $distance, int $limit, array $criteria = []): array;
+    public function loadNearestIds(string $column, array $vector, VectorDistance $distance, int $limit, array $criteria = [], ?string $staleColumn = null): array;
 
     /**
      * Les identifiants des lignes qui contiennent au moins un mot cherché, du plus pertinent au
@@ -132,6 +129,48 @@ interface EntityPersister
      */
     public function loadFullTextIds(array $columns, ?string $language, string $query, int $limit, array $criteria = []): array;
 
+    /**
+     * Des colonnes de plusieurs lignes, par identifiant, filtrées (valeurs de la base), avec
+     * l'identifiant ; $lock : verrou d'écriture jusqu'à la fin de la transaction (ADR 0018).
+     *
+     * @param list<string> $columns
+     * @param list<mixed>  $ids
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function loadColumns(array $columns, array $ids, bool $lock = false): array;
+
+    /**
+     * Pagination sur clé des identifiants (valeurs de la base), filtrés ; avec $flag, seulement
+     * les lignes où cette colonne booléenne est vraie.
+     *
+     * @return list<mixed>
+     */
+    public function loadIdsAfter(?string $flag, mixed $afterId, int $limit): array;
+
+    /**
+     * UPDATE de toutes les lignes que les filtres laissent écrire.
+     *
+     * @param array<string, mixed> $changes colonne → valeur de la base
+     *
+     * @return int lignes touchées
+     */
+    public function updateAll(array $changes): int;
+
+    /**
+     * Nombre de lignes par valeurs des colonnes, filtrées, sous la colonne prism_count.
+     *
+     * @param non-empty-list<string> $columns
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function countGroupedBy(array $columns): array;
+
+    /**
+     * Verrou de ligne pessimiste, tenu jusqu'à la fin de la transaction en cours.
+     *
+     * @return bool faux si la ligne n'existe pas
+     */
     public function lock(mixed $id, LockMode $mode): bool;
 
     /**

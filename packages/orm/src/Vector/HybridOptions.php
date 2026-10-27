@@ -12,7 +12,8 @@ use Prism\Orm\Exception\InvalidArgumentException;
  *
  * - field : le champ vecteur, s'il y en a plusieurs ;
  * - fullTextIndex : le nom du #[FullTextIndex], s'il y en a plusieurs ;
- * - candidates : null, max(4 × limit, 40).
+ * - candidates : null, max(4 × limit, 40) ;
+ * - includeStale : garder dans la liste vectorielle les vecteurs #[EmbeddedVector] périmés (RG-09.8).
  *
  * @api
  */
@@ -28,6 +29,7 @@ final readonly class HybridOptions
         public ?int $candidates = null,
         public ?string $field = null,
         public ?string $fullTextIndex = null,
+        public bool $includeStale = false,
     ) {
         if ($k < 1 || $textWeight < 0.0 || $vectorWeight < 0.0 || 0.0 === $textWeight + $vectorWeight || (null !== $candidates && $candidates < 1)) {
             throw InvalidArgumentException::hybridOptions($k, $textWeight, $vectorWeight, $candidates);

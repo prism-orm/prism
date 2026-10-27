@@ -45,6 +45,9 @@ final class BasicEntityPersister implements EntityPersister
 
     private const string SCORE_ALIAS = 'prism_score';
 
+    /** Colonne du nombre de lignes dans countGroupedBy(). */
+    public const string COUNT_ALIAS = 'prism_count';
+
     private readonly string $idColumn;
 
     /** @var array<string, ParameterType> type de liaison par colonne */
@@ -54,6 +57,9 @@ final class BasicEntityPersister implements EntityPersister
 
     /** @var array<string, ParameterType> type de liaison de la colonne du tenant que ne porte aucun champ */
     private readonly array $tenantBinding;
+
+    /** @var array<string, ParameterType> colonnes d'état des #[EmbeddedVector], écrites jamais lues (ADR 0018) */
+    private readonly array $embeddingBindings;
 
     /** @var array<string, FieldMapping> colonne de jointure de chaque relation possédée, typée comme l'identifiant visé */
     private readonly array $joins;
@@ -102,6 +108,12 @@ final class BasicEntityPersister implements EntityPersister
         // colonne du tenant que ne porte aucun champ : écrite à l'INSERT, lue pour l'UoW (RG-08.6)
         $tenancy = $metadata->tenancy;
         $this->tenantBinding = null === $tenancy || null !== $tenancy->field ? [] : [$tenancy->column => $connection->getTypeRegistry()->get($tenancy->type)->getBindingType()];
+        $embeddingBindings = [];
+        foreach ($metadata->getEmbeddings() as $embedding) {
+            $embeddingBindings[$embedding->staleColumn] = $connection->getTypeRegistry()->get('boolean')->getBindingType();
+            $embeddingBindings[$embedding->modelColumn] = $connection->getTypeRegistry()->get('string')->getBindingType();
+        }
+        $this->embeddingBindings = $embeddingBindings;
         $this->identity = GenerationStrategy::Identity === GenerationStrategyResolver::resolve($metadata->id->strategy, $connection->getPlatform());
     }
 
@@ -208,14 +220,62 @@ final class BasicEntityPersister implements EntityPersister
         );
     }
 
-    public function loadNearest(string $column, array $vector, VectorDistance $distance, int $limit, array $criteria = []): array
+    public function loadColumns(array $columns, array $ids, bool $lock = false): array
     {
-        return $this->nearestOrExact($column, $vector, $distance, $limit, $criteria, idsOnly: false);
+        $qb = $this->connection->createQueryBuilder();
+        $qb = $qb->select($qb->column($this->idColumn), ...array_map(static fn (string $column): string => $qb->column($column), $columns))->from($this->metadata->tableName);
+        $qb = $this->filtered($qb->where($qb->expr()->in($qb->column($this->idColumn), $ids, $this->bindings[$this->idColumn])));
+
+        return $qb->lock($lock ? LockMode::PessimisticWrite : null)->executeQuery()->fetchAllAssociative();
     }
 
-    public function loadNearestIds(string $column, array $vector, VectorDistance $distance, int $limit, array $criteria = []): array
+    public function loadIdsAfter(?string $flag, mixed $afterId, int $limit): array
     {
-        return array_map(fn (array $row): mixed => $row[$this->idColumn], $this->nearestOrExact($column, $vector, $distance, $limit, $criteria, idsOnly: true));
+        $qb = $this->connection->createQueryBuilder();
+        $id = $qb->column($this->idColumn);
+        $qb = $this->filtered($qb->select($id)->from($this->metadata->tableName));
+        if (null !== $flag) {
+            $qb = $qb->andWhere($qb->expr()->eq($qb->column($flag), $this->connection->convertToDatabase(true, 'boolean'), $this->binding($flag, true)));
+        }
+        if (null !== $afterId) {
+            $qb = $qb->andWhere($qb->expr()->gt($id, $afterId, $this->bindings[$this->idColumn]));
+        }
+
+        return array_map(fn (array $row): mixed => $row[$this->idColumn], $qb->orderBy($id)->limit($limit)->executeQuery()->fetchAllAssociative());
+    }
+
+    public function updateAll(array $changes): int
+    {
+        $qb = $this->connection->createQueryBuilder()->update($this->metadata->tableName);
+        foreach ($changes as $column => $value) {
+            $qb = $this->setValue($qb, $column, $value);
+        }
+
+        return $this->filtered($qb, FilterOperation::Write)->executeStatement();
+    }
+
+    public function countGroupedBy(array $columns): array
+    {
+        $qb = $this->connection->createQueryBuilder();
+        $quoted = array_map(static fn (string $column): string => $qb->column($column), $columns);
+        $qb = $qb->select(...$quoted, ...['COUNT(*) AS ' . $this->connection->getPlatform()->quoteIdentifier(self::COUNT_ALIAS)])->from($this->metadata->tableName);
+
+        $qb = $this->filtered($qb)->groupBy(...$quoted);
+        foreach ($quoted as $column) {
+            $qb = $qb->addOrderBy($column);
+        }
+
+        return $qb->executeQuery()->fetchAllAssociative();
+    }
+
+    public function loadNearest(string $column, array $vector, VectorDistance $distance, int $limit, array $criteria = [], ?string $staleColumn = null): array
+    {
+        return $this->nearestOrExact($column, $vector, $distance, $limit, $criteria, idsOnly: false, staleColumn: $staleColumn);
+    }
+
+    public function loadNearestIds(string $column, array $vector, VectorDistance $distance, int $limit, array $criteria = [], ?string $staleColumn = null): array
+    {
+        return array_map(fn (array $row): mixed => $row[$this->idColumn], $this->nearestOrExact($column, $vector, $distance, $limit, $criteria, idsOnly: true, staleColumn: $staleColumn));
     }
 
     public function loadFullTextIds(array $columns, ?string $language, string $query, int $limit, array $criteria = []): array
@@ -241,12 +301,12 @@ final class BasicEntityPersister implements EntityPersister
      *
      * @return list<array<string, mixed>>
      */
-    private function nearestOrExact(string $column, array $vector, VectorDistance $distance, int $limit, array $criteria, bool $idsOnly): array
+    private function nearestOrExact(string $column, array $vector, VectorDistance $distance, int $limit, array $criteria, bool $idsOnly, ?string $staleColumn): array
     {
-        $rows = $this->nearest($column, $vector, $distance, $limit, $criteria, exact: false, idsOnly: $idsOnly);
+        $rows = $this->nearest($column, $vector, $distance, $limit, $criteria, exact: false, idsOnly: $idsOnly, staleColumn: $staleColumn);
         // ADR 0017 : sous un filtre sélectif, l'index de MariaDB peut rendre moins que la limite
         if (\count($rows) < $limit && $this->connection->getPlatform()->vectorIndexMayMissRows()) {
-            $rows = $this->nearest($column, $vector, $distance, $limit, $criteria, exact: true, idsOnly: $idsOnly);
+            $rows = $this->nearest($column, $vector, $distance, $limit, $criteria, exact: true, idsOnly: $idsOnly, staleColumn: $staleColumn);
         }
 
         return $rows;
@@ -258,7 +318,7 @@ final class BasicEntityPersister implements EntityPersister
      *
      * @return list<array<string, mixed>>
      */
-    private function nearest(string $column, array $vector, VectorDistance $distance, int $limit, array $criteria, bool $exact, bool $idsOnly): array
+    private function nearest(string $column, array $vector, VectorDistance $distance, int $limit, array $criteria, bool $exact, bool $idsOnly, ?string $staleColumn): array
     {
         $platform = $this->connection->getPlatform();
         $qb = $this->connection->createQueryBuilder();
@@ -272,6 +332,10 @@ final class BasicEntityPersister implements EntityPersister
             ->from($this->metadata->tableName)
             ->setParameter(self::VECTOR_PARAMETER, $vector, 'vector');
         $qb = $this->filtered($this->where($qb, $criteria));
+        if (null !== $staleColumn) {
+            // RG-09.8 : un vecteur périmé ne correspond plus à son texte
+            $qb = $qb->andWhere($qb->expr()->eq($qb->column($staleColumn), $this->connection->convertToDatabase(false, 'boolean'), $this->binding($staleColumn, false)));
+        }
 
         return $qb->orderBy($platform->quoteIdentifier(self::DISTANCE_ALIAS))->limit($limit)->executeQuery()->fetchAllAssociative();
     }
@@ -465,6 +529,6 @@ final class BasicEntityPersister implements EntityPersister
 
     private function binding(string $column, mixed $value): ParameterType
     {
-        return null === $value ? ParameterType::Null : ($this->bindings[$column] ?? $this->tenantBinding[$column] ?? ParameterType::String);
+        return null === $value ? ParameterType::Null : ($this->bindings[$column] ?? $this->tenantBinding[$column] ?? $this->embeddingBindings[$column] ?? ParameterType::String);
     }
 }

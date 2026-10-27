@@ -67,10 +67,13 @@ use Prism\Orm\Tenancy\StackTenantContext;
 use Prism\Orm\Tenancy\TenantContext;
 use Prism\Orm\Tenancy\TenantScope;
 use Prism\Orm\Tenancy\TenantSwitchListener;
+use Prism\Orm\Vector\DeferredEmbeddingScheduler;
 use Prism\Orm\Vector\Distance;
+use Prism\Orm\Vector\EmbeddingScheduler;
 use Prism\Orm\Vector\HybridOptions;
 use Prism\Orm\Vector\HybridResult;
 use Prism\Orm\Vector\ScoredResult;
+use Prism\Orm\Vector\StaleEmbeddings;
 use Prism\Orm\Vector\Vector;
 use Psr\Clock\ClockInterface;
 use Psr\EventDispatcher\EventDispatcherInterface;
@@ -203,6 +206,14 @@ final class UnitOfWork implements TenantSwitchListener
     /** @var list<array{class-string, string, ?string, string, array<string, array{mixed, mixed}>, bool}> lignes d'audit du flush en cours */
     private array $auditRecords = [];
 
+    private readonly EmbeddingScheduler $embeddingScheduler;
+
+    /** @var list<array{object, string}> vecteurs #[EmbeddedVector] devenus périmés dans le flush en cours : entité et champ */
+    private array $flushStale = [];
+
+    /** @var list<StaleEmbeddings> vecteurs périmés par des flushs validés, en attente de la fin de la transaction englobante */
+    private array $pendingStale = [];
+
     public function __construct(
         private readonly MetadataFactory $metadata,
         private readonly PersisterProvider $persisters,
@@ -215,8 +226,11 @@ final class UnitOfWork implements TenantSwitchListener
         ?ClockInterface $clock = null,
         private readonly ?ActorProvider $actors = null,
         private readonly ?AuditWriter $audit = null,
+        ?EmbeddingScheduler $embeddingScheduler = null,
     ) {
         $this->clock = $clock ?? new SystemClock();
+        // sans planificateur, db:embeddings:compute recalcule les vecteurs périmés (ADR 0018)
+        $this->embeddingScheduler = $embeddingScheduler ?? new DeferredEmbeddingScheduler();
         // sans contexte, une entité #[Tenanted] n'a jamais de tenant (RG-08.4)
         $this->tenants = $tenants ?? new StackTenantContext();
         $this->tenants->addSwitchListener($this);
@@ -434,6 +448,8 @@ final class UnitOfWork implements TenantSwitchListener
         $this->insertedTenants = [];
         $this->softDeleted = [];
         $this->restored = [];
+        // les lignes restent périmées en base : db:embeddings:compute les reprendra
+        $this->pendingStale = [];
         $this->identityMap = [];
         $this->keys = [];
         $this->collectionSnapshots = [];
@@ -622,6 +638,7 @@ final class UnitOfWork implements TenantSwitchListener
      * Les entités dont le vecteur est le plus proche (RG-09.4) : les filtres (tenant, suppression
      * logique) et les critères s'appliquent avant le classement, dans la base ; la distance est
      * celle du #[VectorIndex] du champ, sinon le cosinus. Les vecteurs sont lus avec les entités.
+     * Un vecteur #[EmbeddedVector] périmé est exclu, sauf $includeStale (RG-09.8).
      *
      * @template T of object
      *
@@ -635,7 +652,7 @@ final class UnitOfWork implements TenantSwitchListener
      * @throws MappingException                 champ inconnu, ou qui n'est pas un vecteur
      * @throws VectorDimensionMismatchException vecteur d'une autre dimension que le champ (RG-09.1)
      */
-    public function nearest(string $class, string $field, array|Vector $vector, int $limit = 10, array $criteria = []): array
+    public function nearest(string $class, string $field, array|Vector $vector, int $limit = 10, array $criteria = [], bool $includeStale = false): array
     {
         if ($limit < 1) {
             throw InvalidArgumentException::batchSize($limit);
@@ -643,7 +660,8 @@ final class UnitOfWork implements TenantSwitchListener
         $metadata = $this->metadata->getMetadataFor($class);
         [$mapping, $values, $distance] = $this->vectorSearch($metadata, $field, $vector, 'nearest()');
 
-        $rows = $this->persisters->getPersister($metadata)->loadNearest($mapping->columnName, $values, $distance->toDbal(), $limit, $this->criteria($metadata, $criteria));
+        $stale = $includeStale ? null : $metadata->getEmbedding($field)?->staleColumn;
+        $rows = $this->persisters->getPersister($metadata)->loadNearest($mapping->columnName, $values, $distance->toDbal(), $limit, $this->criteria($metadata, $criteria), $stale);
         $distances = [];
         foreach ($rows as $i => $row) {
             $value = $row[BasicEntityPersister::DISTANCE_ALIAS] ?? null;
@@ -665,7 +683,8 @@ final class UnitOfWork implements TenantSwitchListener
      * Recherche hybride (RG-09.5) : les candidats plein texte (au moins un mot cherché) et les
      * candidats vectoriels, filtrés de la même façon, fusionnés par Reciprocal Rank Fusion ; les
      * $limit meilleurs sont chargés en une requête, dans l'ordre fusionné. Le champ vecteur et
-     * l'index plein texte sont ceux de l'entité, ou ceux nommés par les options.
+     * l'index plein texte sont ceux de l'entité, ou ceux nommés par les options. Un vecteur
+     * périmé est exclu de la liste vectorielle, pas de la liste plein texte (RG-09.8).
      *
      * @template T of object
      *
@@ -704,7 +723,8 @@ final class UnitOfWork implements TenantSwitchListener
         $candidates = $options->candidatesFor($limit);
         $filters = $this->criteria($metadata, $criteria);
         $ranks = [];
-        foreach (['text' => $persister->loadFullTextIds($columns, $fullText[0]->language, $query, $candidates, $filters), 'vector' => $persister->loadNearestIds($mapping->columnName, $values, $distance->toDbal(), $candidates, $filters)] as $list => $ids) {
+        $stale = $options->includeStale ? null : $metadata->getEmbedding($field)?->staleColumn;
+        foreach (['text' => $persister->loadFullTextIds($columns, $fullText[0]->language, $query, $candidates, $filters), 'vector' => $persister->loadNearestIds($mapping->columnName, $values, $distance->toDbal(), $candidates, $filters, $stale)] as $list => $ids) {
             foreach ($ids as $rank => $id) {
                 $phpId = $this->toPhp($idField, $id);
                 $ranks[self::key($phpId)][$list] = $rank + 1;
@@ -734,6 +754,24 @@ final class UnitOfWork implements TenantSwitchListener
         }
 
         return $results;
+    }
+
+    /**
+     * Marque périmés tous les vecteurs d'un champ #[EmbeddedVector] que les filtres laissent
+     * écrire (changement de modèle, RG-09.10) ; les entités déjà chargées ne changent pas.
+     *
+     * @param class-string $class
+     *
+     * @return int lignes marquées
+     *
+     * @throws MappingException champ sans #[EmbeddedVector]
+     */
+    public function markEmbeddingsStale(string $class, string $field): int
+    {
+        $metadata = $this->metadata->getMetadataFor($class);
+        $embedding = $metadata->getEmbedding($field) ?? throw MappingException::invalidField($metadata->className, $field, 'the field has no #[EmbeddedVector].');
+
+        return $this->persisters->getPersister($metadata)->updateAll([$embedding->staleColumn => $this->types->get('boolean')->toDatabase(true, $this->conversion)]);
     }
 
     /**
@@ -1045,6 +1083,7 @@ final class UnitOfWork implements TenantSwitchListener
         $written = [];
 
         $this->auditRecords = [];
+        $this->flushStale = [];
         try {
             $done = $this->persisters->transactional(function () use ($updates, $collections, $insertions, $deletions, &$written): array {
                 $inserted = $this->executeInsertions($insertions, $written);
@@ -1070,6 +1109,7 @@ final class UnitOfWork implements TenantSwitchListener
 
         [$inserted, $updated, $deleted, $entries] = $done;
         $this->afterCommit($inserted, $updated, $deleted);
+        $this->collectStale();
         if ([] !== $entries) {
             $this->lifecycle->dispatch(new AuditRecordedEvent($entries));
         }
@@ -1114,7 +1154,7 @@ final class UnitOfWork implements TenantSwitchListener
                 $row[$column] = null;
             }
             $row = $this->withTenant($metadata, $entity, $row, $written);
-            $identity = $this->persisters->getPersister($metadata)->insert($row);
+            $identity = $this->persisters->getPersister($metadata)->insert($row + $this->embeddingState($metadata, $entity, $row, null));
             if (null !== $identity) {
                 $this->write($entity, $idField->fieldName, $this->toPhp($idField, $identity), $written);
             }
@@ -1176,7 +1216,7 @@ final class UnitOfWork implements TenantSwitchListener
                 $version = [$field->columnName, $old];
             }
 
-            $affected = $this->persisters->getPersister($metadata)->update($this->idOf($metadata, $oid), $changes, $version);
+            $affected = $this->persisters->getPersister($metadata)->update($this->idOf($metadata, $oid), $changes + $this->embeddingState($metadata, $entity, null, $changes), $version);
             if (0 === $affected && null !== $version) {
                 throw OptimisticLockException::versionMismatch($entity, $this->toPhp($metadata->getField($metadata->versionField), $version[1]));
             }
@@ -1516,6 +1556,85 @@ final class UnitOfWork implements TenantSwitchListener
     private static function auditKey(mixed $value): string
     {
         return \is_scalar($value) ? (string) $value : get_debug_type($value);
+    }
+
+    /**
+     * Colonnes d'état des #[EmbeddedVector] à écrire (ADR 0018). À l'INSERT ($row), le vecteur est
+     * périmé s'il est vide ; un vecteur fourni par l'application est gardé. À l'UPDATE ($changes),
+     * le vecteur devient périmé si une source change (il n'est pas touché), et à jour si
+     * l'application l'a remplacé seule. Les vecteurs devenus périmés sont notés pour le scheduler.
+     *
+     * @param ClassMetadata<object>     $metadata
+     * @param array<string, mixed>|null $row
+     * @param array<string, mixed>|null $changes
+     *
+     * @return array<string, mixed>
+     */
+    private function embeddingState(ClassMetadata $metadata, object $entity, ?array $row, ?array $changes): array
+    {
+        $state = [];
+        foreach ($metadata->getEmbeddings() as $embedding) {
+            $column = $metadata->getField($embedding->field)->columnName;
+            if (null !== $row) {
+                $stale = null === ($row[$column] ?? null);
+            } elseif ([] !== array_intersect_key($changes ?? [], array_flip(array_map(static fn (string $f): string => $metadata->getField($f)->columnName, $embedding->source)))) {
+                $stale = true;
+            } elseif (\array_key_exists($column, $changes ?? [])) {
+                $stale = false;
+            } else {
+                continue;
+            }
+            $state[$embedding->staleColumn] = $this->types->get('boolean')->toDatabase($stale, $this->conversion);
+            if (!$stale) {
+                // un vecteur de l'application : d'aucun modèle connu
+                $state[$embedding->modelColumn] = null;
+            } else {
+                $this->flushStale[] = [$entity, $embedding->field];
+            }
+        }
+
+        return $state;
+    }
+
+    /**
+     * Après le commit du flush : les vecteurs devenus périmés, par classe, champ et tenant, sont
+     * remis au scheduler ; dans une transaction englobante, seulement à sa fin (RG-09.7).
+     */
+    private function collectStale(): void
+    {
+        $groups = [];
+        foreach ($this->flushStale as [$entity, $field]) {
+            $oid = spl_object_id($entity);
+            $id = $this->idOf($metadata = $this->metadataOf($entity), $oid);
+            if (!\is_int($id) && !\is_string($id)) {
+                continue;
+            }
+            $tenant = self::tenantValue($this->snapshotTenant($metadata, $oid));
+            $groups[$metadata->className . "\0" . $field . "\0" . $tenant][] = [$metadata->className, $field, $id, $tenant];
+        }
+        $this->flushStale = [];
+        foreach ($groups as $rows) {
+            [$class, $field, , $tenant] = $rows[0];
+            $this->pendingStale[] = new StaleEmbeddings($class, $field, array_values(array_unique(array_column($rows, 2))), $tenant);
+        }
+        if (!$this->persisters->isTransactionActive()) {
+            $this->releaseStaleEmbeddings();
+        }
+    }
+
+    /**
+     * Remet au scheduler les vecteurs périmés par les flushs validés : à la fin d'un flush hors
+     * transaction, ou de EntityManager::wrapInTransaction().
+     *
+     * @internal
+     */
+    public function releaseStaleEmbeddings(): void
+    {
+        $pending = $this->pendingStale;
+        $this->pendingStale = [];
+        foreach ($pending as $stale) {
+            $this->embeddingScheduler->schedule($stale);
+        }
     }
 
     /**
