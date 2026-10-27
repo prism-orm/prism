@@ -30,6 +30,7 @@ final class MetamodelGenerator
         'datetime_immutable' => 'DateTimeField', 'date_immutable' => 'DateTimeField', 'time_immutable' => 'DateTimeField',
         'json' => 'JsonField',
         'binary' => 'BinaryField',
+        'vector' => 'VectorField',
     ];
 
     /**

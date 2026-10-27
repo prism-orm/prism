@@ -4,7 +4,7 @@ The errors reported by Prism's [PHPStan extension](/guide/phpstan), by identifie
 
 ## Repository calls
 
-These rules check the criteria and order arguments of `findBy()`, `findOneBy()`, `count()` and `iterate()` on a Prism repository.
+These rules check the criteria and order arguments of `findBy()`, `findOneBy()`, `count()`, `iterate()` and `nearest()` on a Prism repository, and the field that `nearest()` searches.
 
 ### `prism.findBy.unknownField`
 
@@ -47,6 +47,20 @@ $customers->findBy([], ['name' => 'ASC']);
 ```
 
 **Fix:** `['name' => Order::Asc]`, with `use Prism\Dbal\Query\Order;`.
+
+### `prism.nearest.notVector`
+
+The field searched by `nearest()` is not a field of type `vector` of the entity. The message lists the vector fields the entity has.
+
+```text
+App\Entity\Article::$title is not a vector field: nearest() searches a field of type "vector" (embedding).
+```
+
+```php no-run
+$articles->nearest('title', $question);
+```
+
+**Fix:** name the vector field, here `'embedding'`.
 
 ## Projections
 

@@ -40,7 +40,7 @@ final class Invoice_ extends M\Metamodel
 
     public readonly M\DateTimeField $deletedAt;
 
-    public readonly M\MixedField $embedding;
+    public readonly M\VectorField $embedding;
 
     public readonly \Prism\Orm\Tests\Unit\Mapping\Fixtures\Address_ $billingAddress;
 
@@ -72,7 +72,7 @@ final class Invoice_ extends M\Metamodel
         $this->createdBy = new M\StringField($this, 'createdBy');
         $this->updatedBy = new M\StringField($this, 'updatedBy');
         $this->deletedAt = new M\DateTimeField($this, 'deletedAt');
-        $this->embedding = new M\MixedField($this, 'embedding');
+        $this->embedding = new M\VectorField($this, 'embedding');
         $this->billingAddress = new \Prism\Orm\Tests\Unit\Mapping\Fixtures\Address_($this, 'billingAddress');
         $this->client = new M\Relation($this, 'client', \Prism\Orm\Tests\Unit\Mapping\Fixtures\Client_::class);
         $this->creditNote = new M\Relation($this, 'creditNote', \Prism\Orm\Tests\Unit\Mapping\Fixtures\Invoice_::class);

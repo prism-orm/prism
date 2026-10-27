@@ -126,6 +126,18 @@ final class MariaDbPlatform extends AbstractMySqlPlatform
         return 'SHOW CREATE TABLE ' . $this->quoteIdentifier($table);
     }
 
+    // MariaDB n'utilise son index que sur la distance nue : « + 0 » le fait calculer sur chaque ligne
+    public function getExactVectorDistanceSql(VectorDistance $distance, string $column, string $vector): string
+    {
+        return '(' . $this->getVectorDistanceSql($distance, $column, $vector) . ' + 0)';
+    }
+
+    // le graphe hors du cache et un filtre sélectif : moins de lignes que demandé (mesuré, ADR 0017)
+    public function vectorIndexMayMissRows(): bool
+    {
+        return true;
+    }
+
     protected function getVectorDeclarationSql(Column $column): string
     {
         return \sprintf('VECTOR(%d)', $column->length);

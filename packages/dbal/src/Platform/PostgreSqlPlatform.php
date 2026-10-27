@@ -115,9 +115,14 @@ final class PostgreSqlPlatform extends AbstractPlatform
     }
 
     // valeur par défaut depuis 9.1, mais modifiable par l'administrateur ; quoteStringLiteral() en dépend
+    /**
+     * hnsw.iterative_scan (pgvector 0.8) : sous un filtre sélectif, l'index HNSW poursuit son
+     * parcours jusqu'à la limite (ADR 0017) ; l'ordre, à peine relâché, est rétabli par l'ORM.
+     * Sans pgvector, le réglage est gardé sans effet.
+     */
     public function getSessionInitSql(): array
     {
-        return ['SET standard_conforming_strings = on'];
+        return ['SET standard_conforming_strings = on', 'SET hnsw.iterative_scan = relaxed_order'];
     }
 
     public function failedStatementAbortsTransaction(): bool

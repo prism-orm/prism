@@ -101,6 +101,18 @@ final class VectorSqlTest extends TestCase
         self::assertSame($expected, $platform->getVectorDistanceSql($distance, 'd.embedding', $platform->getVectorParameterSql(':v')));
     }
 
+    // relance exacte (ADR 0017) : MariaDB n'utilise pas son index sur une distance enveloppée
+    public function testExactDistance(): void
+    {
+        $mariaDb = new MariaDbPlatform('11.8');
+        $postgreSql = new PostgreSqlPlatform('16');
+
+        self::assertTrue($mariaDb->vectorIndexMayMissRows());
+        self::assertSame('(VEC_DISTANCE_COSINE(e, VEC_FromText(:v)) + 0)', $mariaDb->getExactVectorDistanceSql(VectorDistance::Cosine, 'e', 'VEC_FromText(:v)'));
+        self::assertFalse($postgreSql->vectorIndexMayMissRows());
+        self::assertSame('(e <=> :v)', $postgreSql->getExactVectorDistanceSql(VectorDistance::Cosine, 'e', ':v'));
+    }
+
     // RG-09.3 : refusé par la plateforme ; le validateur du mapping le refusera plus tôt (étape 3)
     public function testMariaDbHasNoInnerProduct(): void
     {

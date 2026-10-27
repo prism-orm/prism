@@ -6,6 +6,7 @@ namespace Prism\Orm\Tests\Support;
 
 use Prism\Dbal\LockMode;
 use Prism\Dbal\Query\Order;
+use Prism\Dbal\Schema\VectorDistance;
 use Prism\Orm\Filter\FilterOperation;
 use Prism\Orm\Mapping\GenerationStrategy;
 use Prism\Orm\Metadata\ClassMetadata;
@@ -51,6 +52,11 @@ final class InMemoryPersister implements EntityPersister
         $row = $this->storage->load($this->table, $id);
 
         return null === $row ? null : $this->flagged($row);
+    }
+
+    public function loadNearest(string $column, array $vector, VectorDistance $distance, int $limit, array $criteria = []): array
+    {
+        throw new \LogicException('nearest() needs a database: see the functional tests.');
     }
 
     public function loadColumn(string $column, array $ids): array

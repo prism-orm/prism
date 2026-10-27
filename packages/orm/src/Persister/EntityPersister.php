@@ -6,6 +6,7 @@ namespace Prism\Orm\Persister;
 
 use Prism\Dbal\LockMode;
 use Prism\Dbal\Query\Order;
+use Prism\Dbal\Schema\VectorDistance;
 use Prism\Orm\Exception\MappingException;
 use Prism\Orm\Filter\FilterOperation;
 
@@ -90,6 +91,20 @@ interface EntityPersister
      * @return list<array{mixed, mixed}> [identifiant, valeur]
      */
     public function loadColumn(string $column, array $ids): array;
+
+    /**
+     * Les lignes les plus proches d'un vecteur (RG-09.4), filtrées et triées par la base, chacune
+     * avec sa distance sous la colonne prism_distance ; les vecteurs paresseux y sont lus. Une
+     * recherche que l'index a laissée incomplète est relancée sans lui (MariaDB, ADR 0017).
+     *
+     * @param list<float>          $vector
+     * @param array<string, mixed> $criteria champ → valeur PHP
+     *
+     * @return list<array<string, mixed>>
+     *
+     * @throws MappingException champ inconnu
+     */
+    public function loadNearest(string $column, array $vector, VectorDistance $distance, int $limit, array $criteria = []): array;
 
     public function lock(mixed $id, LockMode $mode): bool;
 

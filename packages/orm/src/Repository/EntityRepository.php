@@ -8,7 +8,10 @@ use Prism\Dbal\Query\Order;
 use Prism\Orm\EntityManagerInterface;
 use Prism\Orm\Exception\InvalidArgumentException;
 use Prism\Orm\Exception\MappingException;
+use Prism\Orm\Exception\VectorDimensionMismatchException;
 use Prism\Orm\Metadata\ClassMetadata;
+use Prism\Orm\Vector\ScoredResult;
+use Prism\Orm\Vector\Vector;
 
 /**
  * Lecture des entités d'une classe. Seule classe du cœur ouverte à l'héritage (ADR 0006) : un
@@ -83,6 +86,28 @@ class EntityRepository
     public function findBy(array $criteria, array $orderBy = [], ?int $limit = null, int $offset = 0): array
     {
         return $this->entityManager->getUnitOfWork()->findBy($this->metadata->className, $criteria, $orderBy, $limit, $offset);
+    }
+
+    /**
+     * Les entités dont le vecteur $field est le plus proche de $vector, de la plus proche à la
+     * plus lointaine, chacune avec sa distance et son score (RG-09.4). Les critères, le tenant et
+     * la suppression logique filtrent avant le classement.
+     *
+     *     foreach ($docs->nearest('embedding', $question, limit: 5, criteria: ['published' => true]) as $hit) {
+     *         echo $hit->entity->title, ' ', $hit->score;
+     *     }
+     *
+     * @param list<float>|Vector   $vector
+     * @param array<string, mixed> $criteria
+     *
+     * @return list<ScoredResult<T>>
+     *
+     * @throws MappingException                 champ inconnu, ou qui n'est pas un vecteur
+     * @throws VectorDimensionMismatchException vecteur d'une autre dimension que le champ (RG-09.1)
+     */
+    public function nearest(string $field, array|Vector $vector, int $limit = 10, array $criteria = []): array
+    {
+        return $this->entityManager->getUnitOfWork()->nearest($this->metadata->className, $field, $vector, $limit, $criteria);
     }
 
     /**

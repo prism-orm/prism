@@ -136,6 +136,18 @@ final class SearchIndexSqlTest extends TestCase
         self::assertStringStartsWith('CREATE INDEX "idx_doc_', $sql[1]);
     }
 
+    // non-régression : une table créée par une migration, pas seulement par getCreateSchemaSql()
+    public function testSqliteSkipsBothWhenAMigrationCreatesTheTable(): void
+    {
+        $platform = new SqlitePlatform('3.46');
+        $table = self::table()->withVectorIndexOn('embedding', VectorDistance::Cosine)->withFullTextIndexOn(['title']);
+
+        $sql = $platform->getMigrationSql(new Comparator($platform)->compare(new Schema(), new Schema([$table])));
+
+        self::assertCount(1, $sql, implode(' | ', $sql));
+        self::assertStringStartsWith('CREATE TABLE "doc"', $sql[0]);
+    }
+
     // ce que la base ne garde pas n'est pas comparé ; une option changée recrée l'index
     public function testComparatorUsesTheCanonicalForm(): void
     {

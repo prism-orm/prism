@@ -33,6 +33,7 @@ final class FindByRuleTest extends RuleTestCase
     {
         $invoice = Invoice::class;
         $client = Client::class;
+        $doc = \Prism\Orm\Tests\Functional\VectorFixtures\Doc::class;
         $relation = ': findBy() compares only fields and owning ToOne relations; join it with the typed query builder instead.';
 
         $this->analyse([\dirname(__DIR__) . '/data/find-by.php'], [
@@ -49,6 +50,11 @@ final class FindByRuleTest extends RuleTestCase
             ["The order of {$invoice}::\$total in findBy() is string, not a " . Order::class . ' case.', 45],
             ["Unknown field {$invoice}::\$totl in the criteria of findBy(). Did you mean \"total\"?", 54],
             ['Unknown field ' . Customer::class . '::$nme in the criteria of findBy(). Did you mean "name"?', 57],
+            // RG-09.4
+            ["{$doc}::\$title is not a vector field: nearest() searches a field of type \"vector\" (embedding, draft, raw).", 66],
+            ["{$doc}::\$embeding is not a vector field: nearest() searches a field of type \"vector\" (embedding, draft, raw).", 67],
+            ["Unknown field {$doc}::\$titel in the criteria of nearest(). Did you mean \"title\"?", 68],
+            ["{$invoice}::\$total is not a vector field: nearest() searches a field of type \"vector\", and the entity has none.", 70],
         ]);
     }
 }

@@ -332,7 +332,7 @@ final class EntityQueryBuilder
             $qb = $qb->addOrderBy($sql, $ordering->order);
         }
 
-        return [$qb->limit($one ? min(2, $this->limit ?? 2) : $this->limit)->offset($this->offset), $context, $aliases];
+        return [$context->withParameters($qb)->limit($one ? min(2, $this->limit ?? 2) : $this->limit)->offset($this->offset), $context, $aliases];
     }
 
     /**
@@ -483,7 +483,7 @@ final class EntityQueryBuilder
         foreach ($ordered->orderBy as $i => $ordering) {
             $qb = $qb->addOrderBy($orderings[$i], $ordering->order);
         }
-        $ids = $qb->limit($perPage)->offset($offset)->executeQuery()->fetchFirstColumn();
+        $ids = $context->withParameters($qb)->limit($perPage)->offset($offset)->executeQuery()->fetchFirstColumn();
         if ([] === $ids) {
             return new Paginator([], $page, $perPage, $count);
         }
@@ -654,7 +654,7 @@ final class EntityQueryBuilder
             $qb = $qb->addOrderBy($column, $order);
         }
 
-        return [$qb->limit($limit)->offset($offset), $nodes];
+        return [$context->withParameters($qb)->limit($limit)->offset($offset), $nodes];
     }
 
     /**

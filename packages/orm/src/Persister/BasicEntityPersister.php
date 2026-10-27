@@ -9,6 +9,7 @@ use Prism\Dbal\LockMode;
 use Prism\Dbal\ParameterType;
 use Prism\Dbal\Query\Order;
 use Prism\Dbal\Query\QueryBuilder;
+use Prism\Dbal\Schema\VectorDistance;
 use Prism\Dbal\Type\Type;
 use Prism\Orm\Exception\MappingException;
 use Prism\Orm\Filter\FilterCollection;
@@ -36,6 +37,11 @@ final class BasicEntityPersister implements EntityPersister
 
     // alias de la table de l'entité jointe à une table pivot
     private const string TARGET_ALIAS = 't';
+
+    /** Colonne de la distance dans les lignes de loadNearest(). */
+    public const string DISTANCE_ALIAS = 'prism_distance';
+
+    private const string VECTOR_PARAMETER = 'nearest_vector';
 
     private readonly string $idColumn;
 
@@ -200,6 +206,40 @@ final class BasicEntityPersister implements EntityPersister
         );
     }
 
+    public function loadNearest(string $column, array $vector, VectorDistance $distance, int $limit, array $criteria = []): array
+    {
+        $rows = $this->nearest($column, $vector, $distance, $limit, $criteria, exact: false);
+        // ADR 0017 : sous un filtre sélectif, l'index de MariaDB peut rendre moins que la limite
+        if (\count($rows) < $limit && $this->connection->getPlatform()->vectorIndexMayMissRows()) {
+            $rows = $this->nearest($column, $vector, $distance, $limit, $criteria, exact: true);
+        }
+
+        return $rows;
+    }
+
+    /**
+     * @param list<float>          $vector
+     * @param array<string, mixed> $criteria
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function nearest(string $column, array $vector, VectorDistance $distance, int $limit, array $criteria, bool $exact): array
+    {
+        $platform = $this->connection->getPlatform();
+        $qb = $this->connection->createQueryBuilder();
+        $parameter = $platform->getVectorParameterSql(':' . self::VECTOR_PARAMETER);
+        $sql = $exact
+            ? $platform->getExactVectorDistanceSql($distance, $qb->column($column), $parameter)
+            : $platform->getVectorDistanceSql($distance, $qb->column($column), $parameter);
+        // la distance nue, triée par son alias : la seule forme qui garde l'index sous MariaDB
+        $qb = $qb->select(...$this->selection($qb, null, lazy: false), ...[$sql . ' AS ' . $platform->quoteIdentifier(self::DISTANCE_ALIAS)])
+            ->from($this->metadata->tableName)
+            ->setParameter(self::VECTOR_PARAMETER, $vector, 'vector');
+        $qb = $this->filtered($this->where($qb, $criteria));
+
+        return $qb->orderBy($platform->quoteIdentifier(self::DISTANCE_ALIAS))->limit($limit)->executeQuery()->fetchAllAssociative();
+    }
+
     public function lock(mixed $id, LockMode $mode): bool
     {
         $qb = $this->connection->createQueryBuilder();
@@ -292,12 +332,12 @@ final class BasicEntityPersister implements EntityPersister
      *
      * @return list<string>
      */
-    private function selection(QueryBuilder $qb, ?string $alias): array
+    private function selection(QueryBuilder $qb, ?string $alias, bool $lazy = true): array
     {
         $platform = $this->connection->getPlatform();
 
         return array_map(
-            fn (string $column): string => isset($this->lazy[$column])
+            fn (string $column): string => $lazy && isset($this->lazy[$column])
                 ? \sprintf('CASE WHEN %s IS NULL THEN 1 ELSE 0 END AS %s', $qb->column($column, $alias), $platform->quoteIdentifier($column))
                 : $qb->column($column, $alias),
             $this->columns(),

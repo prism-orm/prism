@@ -17,20 +17,20 @@ final class Doc_ extends M\Metamodel
 
     public readonly M\StringField $title;
 
-    public readonly M\MixedField $embedding;
+    public readonly M\VectorField $embedding;
 
-    public readonly M\MixedField $draft;
+    public readonly M\VectorField $draft;
 
-    public readonly M\MixedField $raw;
+    public readonly M\VectorField $raw;
 
     public function __construct(string $alias = 'doc')
     {
         parent::__construct($alias);
         $this->id = new M\IntField($this, 'id');
         $this->title = new M\StringField($this, 'title');
-        $this->embedding = new M\MixedField($this, 'embedding');
-        $this->draft = new M\MixedField($this, 'draft');
-        $this->raw = new M\MixedField($this, 'raw');
+        $this->embedding = new M\VectorField($this, 'embedding');
+        $this->draft = new M\VectorField($this, 'draft');
+        $this->raw = new M\VectorField($this, 'raw');
     }
 
     public static function as(string $alias): self

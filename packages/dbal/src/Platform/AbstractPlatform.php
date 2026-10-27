@@ -141,6 +141,27 @@ abstract class AbstractPlatform
     }
 
     /**
+     * La même distance, calculée sur chaque ligne sans l'index vectoriel : la relance exacte
+     * d'une recherche que l'index a laissée incomplète sous un filtre (ADR 0017). Identique
+     * à getVectorDistanceSql() là où l'index ne rend jamais moins de lignes que demandé.
+     *
+     * @throws InvalidSchemaException plateforme sans vecteurs, ou distance qu'elle ne calcule pas
+     */
+    public function getExactVectorDistanceSql(VectorDistance $distance, string $column, string $vector): string
+    {
+        return $this->getVectorDistanceSql($distance, $column, $vector);
+    }
+
+    /**
+     * Vrai si un index vectoriel peut rendre moins de lignes que la limite sous un filtre, sans
+     * réglage qui l'empêche : la recherche relance alors le calcul exact (MariaDB, ADR 0017).
+     */
+    public function vectorIndexMayMissRows(): bool
+    {
+        return false;
+    }
+
+    /**
      * Conversion SQL d'une expression texte en entier ou en décimal.
      *
      * @param 'integer'|'decimal' $type
@@ -343,7 +364,8 @@ abstract class AbstractPlatform
 
         // 6. index
         foreach ($diff->createdTables as $table) {
-            foreach ($table->getIndexes() as $index) {
+            // les index tels que la plateforme les crée (ni vectoriel ni plein texte sous SQLite)
+            foreach ($this->getCanonicalTable($table)->getIndexes() as $index) {
                 $sql[] = $this->getCreateIndexSql($table->name, $index);
             }
         }

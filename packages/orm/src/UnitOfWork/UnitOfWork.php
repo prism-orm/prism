@@ -6,6 +6,7 @@ namespace Prism\Orm\UnitOfWork;
 
 use Prism\Dbal\LockMode;
 use Prism\Dbal\Query\Order;
+use Prism\Dbal\Schema\IndexKind;
 use Prism\Dbal\Type\ConversionContext;
 use Prism\Dbal\Type\TypeRegistry;
 use Prism\Orm\Audit\AuditLog;
@@ -59,11 +60,14 @@ use Prism\Orm\Metadata\AssociationType;
 use Prism\Orm\Metadata\ClassMetadata;
 use Prism\Orm\Metadata\FieldMapping;
 use Prism\Orm\Metadata\MetadataFactory;
+use Prism\Orm\Persister\BasicEntityPersister;
 use Prism\Orm\Persister\PersisterProvider;
 use Prism\Orm\Tenancy\StackTenantContext;
 use Prism\Orm\Tenancy\TenantContext;
 use Prism\Orm\Tenancy\TenantScope;
 use Prism\Orm\Tenancy\TenantSwitchListener;
+use Prism\Orm\Vector\Distance;
+use Prism\Orm\Vector\ScoredResult;
 use Prism\Orm\Vector\Vector;
 use Psr\Clock\ClockInterface;
 use Psr\EventDispatcher\EventDispatcherInterface;
@@ -609,6 +613,62 @@ final class UnitOfWork implements TenantSwitchListener
         $metadata = $this->metadata->getMetadataFor($class);
 
         return $this->persisters->getPersister($metadata)->count($this->criteria($metadata, $criteria));
+    }
+
+    /**
+     * Les entités dont le vecteur est le plus proche (RG-09.4) : les filtres (tenant, suppression
+     * logique) et les critères s'appliquent avant le classement, dans la base ; la distance est
+     * celle du #[VectorIndex] du champ, sinon le cosinus. Les vecteurs sont lus avec les entités.
+     *
+     * @template T of object
+     *
+     * @param class-string<T>      $class
+     * @param list<float>|Vector   $vector
+     * @param array<string, mixed> $criteria
+     *
+     * @return list<ScoredResult<T>>
+     *
+     * @throws InvalidArgumentException         limite inférieure à 1
+     * @throws MappingException                 champ inconnu, ou qui n'est pas un vecteur
+     * @throws VectorDimensionMismatchException vecteur d'une autre dimension que le champ (RG-09.1)
+     */
+    public function nearest(string $class, string $field, array|Vector $vector, int $limit = 10, array $criteria = []): array
+    {
+        if ($limit < 1) {
+            throw InvalidArgumentException::batchSize($limit);
+        }
+        $metadata = $this->metadata->getMetadataFor($class);
+        if (!$metadata->hasField($field) || 'vector' !== $metadata->getField($field)->type) {
+            throw MappingException::invalidField($class, $field, 'nearest() needs a field of type "vector".');
+        }
+        $mapping = $metadata->getField($field);
+        $values = ($vector instanceof Vector ? $vector : new Vector($vector))->toArray();
+        if (null !== $mapping->length && \count($values) !== $mapping->length) {
+            throw VectorDimensionMismatchException::forField($class, $field, $mapping->length, \count($values));
+        }
+        $distance = Distance::Cosine;
+        foreach ($metadata->indexes as $index) {
+            if (IndexKind::Vector === $index->kind && [$field] === $index->fields) {
+                $distance = $index->distance ?? Distance::Cosine;
+            }
+        }
+
+        $rows = $this->persisters->getPersister($metadata)->loadNearest($mapping->columnName, $values, $distance->toDbal(), $limit, $this->criteria($metadata, $criteria));
+        $distances = [];
+        foreach ($rows as $i => $row) {
+            $value = $row[BasicEntityPersister::DISTANCE_ALIAS] ?? null;
+            $distances[$i] = is_numeric($value) ? (float) $value : \INF;
+            unset($rows[$i][BasicEntityPersister::DISTANCE_ALIAS]);
+        }
+        $entities = $this->hydrate($metadata, $rows, vectors: true);
+        // pgvector (parcours itératif) peut rendre un ordre légèrement relâché : rétabli ici
+        asort($distances);
+        $results = [];
+        foreach ($distances as $i => $d) {
+            $results[] = new ScoredResult($entities[$i], $d, $distance);
+        }
+
+        return $results;
     }
 
     /**
