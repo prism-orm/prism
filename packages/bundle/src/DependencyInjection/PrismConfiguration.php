@@ -147,6 +147,7 @@ final class PrismConfiguration
                                             ->integerNode('dimensions')->isRequired()->min(1)->end()
                                             ->scalarNode('api_key')->defaultNull()->end()
                                             ->booleanNode('send_dimensions')->info('Send the dimension, for the models that reduce it (text-embedding-3-*).')->defaultFalse()->end()
+                                            ->scalarNode('prefix')->info('Put before each text: "search_document: " for nomic-embed-text.')->defaultValue('')->end()
                                         ->end()
                                     ->end()
                                 ->end()
@@ -204,9 +205,9 @@ final class PrismConfiguration
      * Un EntityManager par défaut s'il n'y en a aucun, ses connexions résolues, l'EntityManager
      * par défaut nommé.
      *
-     * @param array{default_entity_manager: ?string, connections: array<string, array{url: string}>, entity_managers: array<string, array{connection: ?string, entity_dirs: list<string>, batch_size: int, migrations: array{dir: ?string, namespace: ?string}}>, metamodel: array{dir: string}, connection_idle_ttl: int, tenancy: array{type: string, guard: ?string, resolver: array{header?: string, subdomain?: string, user?: bool}, loader: ?string}, embeddings: array{scheduler: string, batch_size: int<1, max>, providers: array<string, array{service: ?string, openai?: array{base_url: string, model: string, dimensions: int, api_key: ?string, send_dimensions: bool}}>}} $config
+     * @param array{default_entity_manager: ?string, connections: array<string, array{url: string}>, entity_managers: array<string, array{connection: ?string, entity_dirs: list<string>, batch_size: int, migrations: array{dir: ?string, namespace: ?string}}>, metamodel: array{dir: string}, connection_idle_ttl: int, tenancy: array{type: string, guard: ?string, resolver: array{header?: string, subdomain?: string, user?: bool}, loader: ?string}, embeddings: array{scheduler: string, batch_size: int<1, max>, providers: array<string, array{service: ?string, openai?: array{base_url: string, model: string, dimensions: int, api_key: ?string, send_dimensions: bool, prefix: string}}>}} $config
      *
-     * @return array{default_entity_manager: string, connections: array<string, array{url: string}>, entity_managers: array<string, array{connection: string, entity_dirs: list<string>, batch_size: int, migrations: array{dir: ?string, namespace: ?string}}>, metamodel: array{dir: string}, connection_idle_ttl: int, tenancy: array{type: string, guard: ?string, resolver: array{header?: string, subdomain?: string, user?: bool}, loader: ?string}, embeddings: array{scheduler: string, batch_size: int<1, max>, providers: array<string, array{service: ?string, openai?: array{base_url: string, model: string, dimensions: int, api_key: ?string, send_dimensions: bool}}>}}
+     * @return array{default_entity_manager: string, connections: array<string, array{url: string}>, entity_managers: array<string, array{connection: string, entity_dirs: list<string>, batch_size: int, migrations: array{dir: ?string, namespace: ?string}}>, metamodel: array{dir: string}, connection_idle_ttl: int, tenancy: array{type: string, guard: ?string, resolver: array{header?: string, subdomain?: string, user?: bool}, loader: ?string}, embeddings: array{scheduler: string, batch_size: int<1, max>, providers: array<string, array{service: ?string, openai?: array{base_url: string, model: string, dimensions: int, api_key: ?string, send_dimensions: bool, prefix: string}}>}}
      */
     private static function resolve(array $config): array
     {

@@ -199,6 +199,34 @@ final class EmbeddingsTest extends TestCase
         foreach ($notes as $note) {
             self::assertSame([false, 'prism/hashing-8'], self::state($em, $note->id));
         }
+
+        // critère de sortie de la phase 9 : contenu modifié → périmé → recalcul asynchrone → à jour
+        $before = self::vector($em, $notes[0]->id);
+        // sortir du tenant a vidé l'identity map (RG-08.8) : la note est relue dans le sien
+        $tenants->runAs(5, static function () use ($em, $notes): void {
+            $note = $em->find(Note::class, $notes[0]->id);
+            \assert($note instanceof Note);
+            $note->text = 'One, rewritten.';
+            $em->flush();
+        });
+        self::assertSame([true, 'prism/hashing-8'], self::state($em, $notes[0]->id));
+        $sent = $transport->getSent();
+        $message = $sent[array_key_last($sent)]->getMessage();
+        \assert($message instanceof ComputeEmbedding);
+        self::assertSame([$notes[0]->id], $message->ids);
+        $handler($message, $ack = new Acknowledger(ComputeEmbeddingHandler::class));
+        $handler->flush(true);
+        self::assertSame([false, 'prism/hashing-8'], self::state($em, $notes[0]->id));
+        self::assertNotSame($before, self::vector($em, $notes[0]->id), 'the vector follows the new text');
+    }
+
+    private static function vector(EntityManager $em, ?int $id): mixed
+    {
+        return $em->getTenantContext()->runAsSystem(static function () use ($em, $id): mixed {
+            $qb = $em->getConnection()->createQueryBuilder();
+
+            return $qb->select($qb->column('embedding'))->from('note')->where($qb->expr()->eq($qb->column('id'), $id))->executeQuery()->fetchOne();
+        });
     }
 
     // une erreur du fournisseur rejette le lot : Messenger réessaie, les lignes restent périmées

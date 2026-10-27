@@ -165,6 +165,10 @@ The API key, sent as a bearer token. `~` for a local server. Use an environment 
 
 `true` sends the dimension with each request, for the models that reduce it (`text-embedding-3-*`). Default: `false`.
 
+### `prism.embeddings.providers.<name>.openai.prefix`
+
+Put before each text. Some models expect a prefix that tells documents from questions: `'search_document: '` and `'search_query: '` for `nomic-embed-text`, as two providers of the same model. Default: `''`.
+
 ## Metamodel
 
 ### `prism.metamodel.dir`

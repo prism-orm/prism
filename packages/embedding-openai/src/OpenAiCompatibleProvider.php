@@ -18,7 +18,9 @@ use Symfony\Contracts\HttpClient\HttpClientInterface;
  *
  * Les textes partent par lots de $batchSize, une requête par lot. Le modèle est stocké par ligne
  * (RG-09.10) ; la dimension n'est pas envoyée, sauf $sendDimensions (modèles qui la réduisent,
- * comme text-embedding-3-*), mais elle est vérifiée sur chaque réponse.
+ * comme text-embedding-3-*), mais elle est vérifiée sur chaque réponse. $prefix précède chaque
+ * texte, pour les modèles qui distinguent documents et questions : « search_document: » et
+ * « search_query: » pour nomic-embed-text, deux fournisseurs du même modèle.
  *
  * @api
  */
@@ -36,6 +38,7 @@ final readonly class OpenAiCompatibleProvider implements EmbeddingProvider
         private ?string $apiKey = null,
         private int $batchSize = 64,
         private bool $sendDimensions = false,
+        private string $prefix = '',
     ) {
         if ($dimensions < 1) {
             throw InvalidArgumentException::invalidVector(\sprintf('the dimension must be at least 1, got %d', $dimensions));
@@ -74,7 +77,7 @@ final readonly class OpenAiCompatibleProvider implements EmbeddingProvider
      */
     private function request(array $texts): array
     {
-        $body = ['model' => $this->model, 'input' => $texts];
+        $body = ['model' => $this->model, 'input' => array_map(fn (string $text): string => $this->prefix . $text, $texts)];
         if ($this->sendDimensions) {
             $body['dimensions'] = $this->dimensions;
         }

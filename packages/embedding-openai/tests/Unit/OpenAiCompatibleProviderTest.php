@@ -62,6 +62,22 @@ final class OpenAiCompatibleProviderTest extends TestCase
         self::assertSame(['model' => 'text-embedding-3-small', 'input' => ['a'], 'dimensions' => 2], json_decode(\is_string($sent['body'] ?? null) ? $sent['body'] : '', true));
     }
 
+    // nomic-embed-text : un préfixe pour les documents, un autre pour les questions
+    public function testPrefixesEachText(): void
+    {
+        $sent = [];
+        $client = new MockHttpClient(static function (string $method, string $url, array $options) use (&$sent): MockResponse {
+            $sent = $options;
+
+            return self::response([[0.5, 0.5], [0.5, 0.5]]);
+        });
+        new OpenAiCompatibleProvider($client, 'http://ollama:11434/v1', 'nomic-embed-text:v1.5', 2, prefix: 'search_query: ')->embed(['partial payment', 'stock']);
+
+        $body = json_decode(\is_string($sent['body'] ?? null) ? $sent['body'] : '', true);
+        self::assertIsArray($body);
+        self::assertSame(['search_query: partial payment', 'search_query: stock'], $body['input'] ?? null);
+    }
+
     /**
      * @return iterable<string, array{MockResponse, string}>
      */

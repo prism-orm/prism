@@ -196,7 +196,7 @@ final class PrismBundle extends AbstractBundle
      */
     public function loadExtension(array $config, ContainerConfigurator $container, ContainerBuilder $builder): void
     {
-        /** @var array{default_entity_manager: string, connections: array<string, array{url: string}>, entity_managers: array<string, array{connection: string, entity_dirs: list<string>, batch_size: int, migrations: array{dir: ?string, namespace: ?string}}>, metamodel: array{dir: string}, connection_idle_ttl: int, tenancy: array{type: string, guard: ?string, resolver: array{header?: string, subdomain?: string, user?: bool}, loader: ?string}, embeddings: array{scheduler: string, batch_size: int<1, max>, providers: array<string, array{service: ?string, openai?: array{base_url: string, model: string, dimensions: int, api_key: ?string, send_dimensions: bool}}>}} $config */
+        /** @var array{default_entity_manager: string, connections: array<string, array{url: string}>, entity_managers: array<string, array{connection: string, entity_dirs: list<string>, batch_size: int, migrations: array{dir: ?string, namespace: ?string}}>, metamodel: array{dir: string}, connection_idle_ttl: int, tenancy: array{type: string, guard: ?string, resolver: array{header?: string, subdomain?: string, user?: bool}, loader: ?string}, embeddings: array{scheduler: string, batch_size: int<1, max>, providers: array<string, array{service: ?string, openai?: array{base_url: string, model: string, dimensions: int, api_key: ?string, send_dimensions: bool, prefix: string}}>}} $config */
         $debug = (bool) $builder->getParameter('kernel.debug');
         $default = $config['default_entity_manager'];
 
@@ -227,6 +227,7 @@ final class PrismBundle extends AbstractBundle
                 $openai['api_key'],
                 $embeddings['batch_size'],
                 $openai['send_dimensions'],
+                $openai['prefix'],
             ]));
             $providers[$providerName] = 'prism.embedding_provider.' . $providerName;
         }
