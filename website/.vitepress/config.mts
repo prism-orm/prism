@@ -38,7 +38,7 @@ export default defineConfig({
         nav: [
             { text: 'Guide', link: '/guide/introduction', activeMatch: '^/guide/' },
             { text: 'Symfony', link: '/bundle/symfony', activeMatch: '^/bundle/symfony' },
-            { text: 'Commands', link: '/bundle/commands', activeMatch: '^/bundle/commands' },
+            { text: 'Reference', link: '/reference/attributes', activeMatch: '^/(reference/|bundle/commands)' },
         ],
         sidebar: [
             {
@@ -70,9 +70,17 @@ export default defineConfig({
             },
             {
                 text: 'Symfony',
+                items: [{ text: 'Prism in Symfony', link: '/bundle/symfony' }],
+            },
+            {
+                text: 'Reference',
                 items: [
-                    { text: 'Prism in Symfony', link: '/bundle/symfony' },
+                    { text: 'Attributes', link: '/reference/attributes' },
+                    { text: 'Configuration', link: '/reference/configuration' },
                     { text: 'Console commands', link: '/bundle/commands' },
+                    { text: 'Events', link: '/reference/events' },
+                    { text: 'Exceptions', link: '/reference/exceptions' },
+                    { text: 'PHPStan errors', link: '/reference/errors' },
                 ],
             },
         ],

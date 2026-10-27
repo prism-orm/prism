@@ -37,6 +37,9 @@ final class ReferenceCompletenessTest extends TestCase
     /** RG-10a.2 : déclarés pour le pilier 4, livrés en phase 9 ; absents de la référence d'ici là. */
     private const array PHASE_9_ATTRIBUTES = ['EmbeddedVector', 'FullTextIndex', 'VectorIndex'];
 
+    /** RG-10a.2 : paramètres lus mais pas encore exploités (type vector, colonnes paresseuses), phase 9. */
+    private const array PHASE_9_PARAMETERS = ['Column' => ['dimensions', 'lazy']];
+
     /** La forme courte de prism.yaml, convertie avant l'arbre (PrismConfiguration::expandShortForm). */
     private const array SHORT_FORM = ['prism.url', 'prism.entity_dirs', 'prism.migrations.dir', 'prism.migrations.namespace'];
 
@@ -51,6 +54,10 @@ final class ReferenceCompletenessTest extends TestCase
             $expected[] = $name;
             $parameters = new \ReflectionClass($class)->getConstructor()?->getParameters() ?? [];
             foreach ($parameters as $parameter) {
+                if (\in_array($parameter->getName(), self::PHASE_9_PARAMETERS[$name] ?? [], true)) {
+                    self::assertStringNotContainsString('`' . $parameter->getName() . '`', $sections[$name] ?? '', \sprintf('RG-10a.2: #[%s(%s)] is documented with phase 9', $name, $parameter->getName()));
+                    continue;
+                }
                 if (!isset($sections[$name]) || 1 !== preg_match('/^\| *`' . preg_quote($parameter->getName(), '/') . '` *\|/m', $sections[$name])) {
                     $missing[] = '#[' . $name . '(' . $parameter->getName() . ')]';
                 }
@@ -67,7 +74,7 @@ final class ReferenceCompletenessTest extends TestCase
     public function testEveryEventIsDocumented(): void
     {
         $sections = self::sections(self::page(self::EVENTS), '/^#{2,4} `(\w+)`/m');
-        $events = array_keys(array_filter(self::apiClasses(), static fn (\ReflectionClass $c): bool => $c->isInstantiable()
+        $events = array_keys(array_filter(self::apiClasses(), static fn (\ReflectionClass $c): bool => self::isConcrete($c)
             && (str_ends_with($c->getShortName(), 'Event') || str_ends_with($c->getShortName(), 'Detected'))));
 
         self::assertSameNames($events, array_keys($sections), 'events');
@@ -76,10 +83,21 @@ final class ReferenceCompletenessTest extends TestCase
     public function testEveryExceptionIsDocumented(): void
     {
         $sections = self::sections(self::page(self::EXCEPTIONS), '/^#{2,4} `(\w+)`/m');
-        $exceptions = array_keys(array_filter(self::apiClasses(), static fn (\ReflectionClass $c): bool => $c->isInstantiable()
+        $exceptions = array_keys(array_filter(self::apiClasses(), static fn (\ReflectionClass $c): bool => self::isConcrete($c)
             && $c->implementsInterface(\Throwable::class) && $c->implementsInterface(PrismException::class)));
 
         self::assertSameNames($exceptions, array_keys($sections), 'exceptions');
+    }
+
+    /**
+     * Ni interface ni classe abstraite ; une exception à constructeur privé, créée par ses
+     * méthodes statiques, en est une.
+     *
+     * @param \ReflectionClass<object> $class
+     */
+    private static function isConcrete(\ReflectionClass $class): bool
+    {
+        return !$class->isInterface() && !$class->isAbstract() && !$class->isTrait() && !$class->isEnum();
     }
 
     public function testEveryPhpStanErrorIsDocumented(): void
