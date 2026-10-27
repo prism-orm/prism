@@ -227,6 +227,41 @@ framework:
                 middleware: [prism_reset]
 ```
 
+## Embeddings
+
+An `#[EmbeddedVector]` field is computed from its source fields by an embedding provider, named by the attribute (`model: 'default'`). The bundle registers the providers by name:
+
+```yaml
+prism:
+    embeddings:
+        scheduler: auto        # messenger | synchronous | deferred
+        batch_size: 64         # texts per provider call, ids per message
+        providers:
+            default:
+                openai: { base_url: 'http://ollama:11434/v1', model: 'nomic-embed-text:v1.5', dimensions: 768 }
+            legacy:
+                service: App\Embedding\LegacyProvider
+```
+
+The `openai` form needs `composer require prism-orm/embedding-openai symfony/http-client`. It speaks the `/v1/embeddings` API of OpenAI, Mistral, Ollama, vLLM, LocalAI and Text Embeddings Inference; give `api_key` for a hosted one. Any service that implements `EmbeddingProvider` is also registered: under the name of its `#[AsEmbeddingProvider('name')]` attribute, or under its service id.
+
+When a source field changes, the flush marks the vector stale; once the transaction is committed, the scheduler takes over:
+
+- `messenger`: dispatches one `ComputeEmbedding` message per batch of ids. Route it to an asynchronous transport. The handler processes the messages in batches, in the tenant of the rows, and a failure is retried by Messenger. `auto` picks it when a message bus exists.
+- `synchronous`: computes the vectors at once, after the flush. For scripts and small applications.
+- `deferred`: does nothing; run `db:embeddings:compute`, by hand or from a cron. `auto` picks it without Messenger.
+
+```yaml
+framework:
+    messenger:
+        transports:
+            async: '%env(MESSENGER_TRANSPORT_DSN)%'
+        routing:
+            Prism\Bundle\Messenger\ComputeEmbedding: async
+```
+
+A stale vector is left out of `nearest()` until it is computed again. At `cache:warmup`, an unknown provider name, or a provider whose dimension is not the one of the column, is refused with the other mapping errors.
+
 ## Test
 
 The `prism-orm/test-pack` package brings factories, a database reset, and query counting:

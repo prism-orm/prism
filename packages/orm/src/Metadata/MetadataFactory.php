@@ -7,6 +7,7 @@ namespace Prism\Orm\Metadata;
 use Prism\Dbal\Type\TypeRegistry;
 use Prism\Orm\Exception\MappingException;
 use Prism\Orm\Metadata\Driver\MetadataDriver;
+use Prism\Orm\Vector\EmbeddingProviderRegistry;
 use Psr\Cache\CacheItemPoolInterface;
 
 /**
@@ -31,12 +32,18 @@ final class MetadataFactory
 
     private readonly MetadataValidator $validator;
 
+    /**
+     * @param EmbeddingProviderRegistry|null $embeddings les fournisseurs : un #[EmbeddedVector] au
+     *                                                   fournisseur inconnu ou d'une autre dimension
+     *                                                   est refusé par warmUp() (ADR 0018)
+     */
     public function __construct(
         private readonly MetadataDriver $driver,
         private readonly ?CacheItemPoolInterface $cache = null,
         ?TypeRegistry $types = null,
+        ?EmbeddingProviderRegistry $embeddings = null,
     ) {
-        $this->validator = new MetadataValidator($types);
+        $this->validator = new MetadataValidator($types, embeddings: $embeddings);
     }
 
     /**

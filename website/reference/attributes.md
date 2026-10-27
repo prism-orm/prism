@@ -310,6 +310,14 @@ Writes each change of the entity into `prism_audit_log`, in the transaction of t
 
 `Prism\Bundle\Attribute\AsEntityListener`: makes an entity listener, named in `#[EntityListeners]`, a service with its dependencies. Without it, the listener is created without arguments. No parameter.
 
+### `#[AsEmbeddingProvider]`
+
+`Prism\Bundle\Attribute\AsEmbeddingProvider`: registers an `EmbeddingProvider` service under a name, the one an embedded vector field gives as its `model`. Without it, an autoconfigured provider is registered under its service id. See [Embeddings](/bundle/symfony#embeddings).
+
+| Parameter | Default | Description |
+| --- | --- | --- |
+| `name` | `'default'` | The name of the provider |
+
 ### `#[MapEntity]`
 
 `Prism\Bundle\Attribute\MapEntity`: how a controller argument typed with an entity is loaded from the route. Without it, the identifier is the route parameter named after the argument, or `{id}`.

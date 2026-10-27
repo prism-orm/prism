@@ -1008,6 +1008,10 @@ final class UnitOfWork implements TenantSwitchListener
         } finally {
             $this->flushing = false;
         }
+        // RG-09.7 : après le commit et PostFlush, flush terminé : un scheduler peut vider l'UoW
+        if (!$this->persisters->isTransactionActive()) {
+            $this->releaseStaleEmbeddings();
+        }
     }
 
     /**
@@ -1597,8 +1601,9 @@ final class UnitOfWork implements TenantSwitchListener
     }
 
     /**
-     * Après le commit du flush : les vecteurs devenus périmés, par classe, champ et tenant, sont
-     * remis au scheduler ; dans une transaction englobante, seulement à sa fin (RG-09.7).
+     * Après le commit du flush : les vecteurs devenus périmés, par classe, champ et tenant, mis de
+     * côté pour le scheduler, à qui commit() les remet une fois le flush terminé ; dans une
+     * transaction englobante, seulement à sa fin (RG-09.7).
      */
     private function collectStale(): void
     {
@@ -1617,22 +1622,18 @@ final class UnitOfWork implements TenantSwitchListener
             [$class, $field, , $tenant] = $rows[0];
             $this->pendingStale[] = new StaleEmbeddings($class, $field, array_values(array_unique(array_column($rows, 2))), $tenant);
         }
-        if (!$this->persisters->isTransactionActive()) {
-            $this->releaseStaleEmbeddings();
-        }
     }
 
     /**
      * Remet au scheduler les vecteurs périmés par les flushs validés : à la fin d'un flush hors
-     * transaction, ou de EntityManager::wrapInTransaction().
+     * transaction, ou de EntityManager::wrapInTransaction(). Un lot remis n'est plus en attente,
+     * même si le scheduler échoue sur un suivant.
      *
      * @internal
      */
     public function releaseStaleEmbeddings(): void
     {
-        $pending = $this->pendingStale;
-        $this->pendingStale = [];
-        foreach ($pending as $stale) {
+        while (null !== $stale = array_shift($this->pendingStale)) {
             $this->embeddingScheduler->schedule($stale);
         }
     }

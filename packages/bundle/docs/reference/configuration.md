@@ -24,6 +24,10 @@ prism:
         guard: ~                          # exception in debug, log otherwise
         resolver: ~                       # one of header, subdomain, user
         loader: ~
+    embeddings:
+        scheduler: auto                   # messenger if a message bus exists, deferred otherwise
+        batch_size: 64
+        providers: {}                     # <name>: { service: … } or { openai: { … } }
     metamodel:
         dir: '%kernel.cache_dir%/prism/metamodel'
 ```
@@ -124,6 +128,42 @@ Only one of `header`, `subdomain` and `user` can be set. Without any, the applic
 ### `prism.tenancy.loader`
 
 The id of a `TenantLoader` service that turns the identifier read by the resolver (a header value, a subdomain) into the tenant identifier. Without it, the identifier read is the tenant, an integer for `integer` and `bigint`.
+
+## Embeddings
+
+The providers and the computation of the `#[EmbeddedVector]` fields. See [Embeddings](../symfony.md#embeddings).
+
+### `prism.embeddings.scheduler`
+
+What happens to the vectors a flush made stale, once its transaction is committed: `messenger` dispatches `ComputeEmbedding` messages, `synchronous` computes them at once, `deferred` leaves them to `db:embeddings:compute`. Default: `auto`, which is `messenger` when a message bus exists, `deferred` otherwise. `messenger` without a bus is refused.
+
+### `prism.embeddings.batch_size`
+
+The texts sent to a provider in one call, the ids in one `ComputeEmbedding` message, and the messages the handler processes together. Default: `64`.
+
+### `prism.embeddings.providers.<name>.service`
+
+The id of a service that implements `EmbeddingProvider`, registered under `<name>`: the name that `#[EmbeddedVector(model:)]` gives. A provider is either `service` or `openai`.
+
+### `prism.embeddings.providers.<name>.openai.base_url`
+
+The base URL of an API in the OpenAI format, without `/embeddings`: `https://api.openai.com/v1`, `http://ollama:11434/v1`. Needs `prism-orm/embedding-openai` and `symfony/http-client`.
+
+### `prism.embeddings.providers.<name>.openai.model`
+
+The model sent with each request, and stored with each vector it computes.
+
+### `prism.embeddings.providers.<name>.openai.dimensions`
+
+The dimension of its vectors. It must equal the `dimensions` of the column, checked at `cache:warmup`, and every response is checked against it.
+
+### `prism.embeddings.providers.<name>.openai.api_key`
+
+The API key, sent as a bearer token. `~` for a local server. Use an environment variable: `'%env(OPENAI_API_KEY)%'`.
+
+### `prism.embeddings.providers.<name>.openai.send_dimensions`
+
+`true` sends the dimension with each request, for the models that reduce it (`text-embedding-3-*`). Default: `false`.
 
 ## Metamodel
 

@@ -119,6 +119,45 @@ final class PrismConfiguration
                         ->end()
                     ->end()
                 ->end()
+                ->arrayNode('embeddings')
+                    ->info('Embeddings of the #[EmbeddedVector] fields (ADR 0018): the providers by name, and how the stale vectors are computed.')
+                    ->addDefaultsIfNotSet()
+                    ->children()
+                        ->enumNode('scheduler')
+                            ->info('After the commit of a flush: "messenger" dispatches ComputeEmbedding, "synchronous" computes at once, "deferred" leaves it to db:embeddings:compute; "auto": messenger if a message bus exists, deferred otherwise.')
+                            ->values(['auto', 'messenger', 'synchronous', 'deferred'])
+                            ->defaultValue('auto')
+                        ->end()
+                        ->integerNode('batch_size')
+                            ->info('Texts sent to a provider per call, ids per ComputeEmbedding message, and messages handled together.')
+                            ->min(1)
+                            ->defaultValue(64)
+                        ->end()
+                        ->arrayNode('providers')
+                            ->info('Providers by the name #[EmbeddedVector(model:)] gives ("default" by default): a service, or the OpenAI-compatible API (prism-orm/embedding-openai). EmbeddingProvider services are also registered by #[AsEmbeddingProvider], or under their id.')
+                            ->useAttributeAsKey('name')
+                            ->arrayPrototype()
+                                ->children()
+                                    ->scalarNode('service')->info('Id of an EmbeddingProvider service.')->defaultNull()->end()
+                                    ->arrayNode('openai')
+                                        ->info('POST <base_url>/embeddings: OpenAI, Mistral, Ollama (/v1), vLLM, LocalAI, Text Embeddings Inference.')
+                                        ->children()
+                                            ->scalarNode('base_url')->isRequired()->cannotBeEmpty()->end()
+                                            ->scalarNode('model')->isRequired()->cannotBeEmpty()->end()
+                                            ->integerNode('dimensions')->isRequired()->min(1)->end()
+                                            ->scalarNode('api_key')->defaultNull()->end()
+                                            ->booleanNode('send_dimensions')->info('Send the dimension, for the models that reduce it (text-embedding-3-*).')->defaultFalse()->end()
+                                        ->end()
+                                    ->end()
+                                ->end()
+                                ->validate()
+                                    ->ifTrue(static fn (array $provider): bool => (null === ($provider['service'] ?? null)) === !isset($provider['openai']))
+                                    ->thenInvalid('An embedding provider is either "service" or "openai".')
+                                ->end()
+                            ->end()
+                        ->end()
+                    ->end()
+                ->end()
                 ->arrayNode('metamodel')
                     ->addDefaultsIfNotSet()
                     ->children()
@@ -165,9 +204,9 @@ final class PrismConfiguration
      * Un EntityManager par défaut s'il n'y en a aucun, ses connexions résolues, l'EntityManager
      * par défaut nommé.
      *
-     * @param array{default_entity_manager: ?string, connections: array<string, array{url: string}>, entity_managers: array<string, array{connection: ?string, entity_dirs: list<string>, batch_size: int, migrations: array{dir: ?string, namespace: ?string}}>, metamodel: array{dir: string}, connection_idle_ttl: int, tenancy: array{type: string, guard: ?string, resolver: array{header?: string, subdomain?: string, user?: bool}, loader: ?string}} $config
+     * @param array{default_entity_manager: ?string, connections: array<string, array{url: string}>, entity_managers: array<string, array{connection: ?string, entity_dirs: list<string>, batch_size: int, migrations: array{dir: ?string, namespace: ?string}}>, metamodel: array{dir: string}, connection_idle_ttl: int, tenancy: array{type: string, guard: ?string, resolver: array{header?: string, subdomain?: string, user?: bool}, loader: ?string}, embeddings: array{scheduler: string, batch_size: int<1, max>, providers: array<string, array{service: ?string, openai?: array{base_url: string, model: string, dimensions: int, api_key: ?string, send_dimensions: bool}}>}} $config
      *
-     * @return array{default_entity_manager: string, connections: array<string, array{url: string}>, entity_managers: array<string, array{connection: string, entity_dirs: list<string>, batch_size: int, migrations: array{dir: ?string, namespace: ?string}}>, metamodel: array{dir: string}, connection_idle_ttl: int, tenancy: array{type: string, guard: ?string, resolver: array{header?: string, subdomain?: string, user?: bool}, loader: ?string}}
+     * @return array{default_entity_manager: string, connections: array<string, array{url: string}>, entity_managers: array<string, array{connection: string, entity_dirs: list<string>, batch_size: int, migrations: array{dir: ?string, namespace: ?string}}>, metamodel: array{dir: string}, connection_idle_ttl: int, tenancy: array{type: string, guard: ?string, resolver: array{header?: string, subdomain?: string, user?: bool}, loader: ?string}, embeddings: array{scheduler: string, batch_size: int<1, max>, providers: array<string, array{service: ?string, openai?: array{base_url: string, model: string, dimensions: int, api_key: ?string, send_dimensions: bool}}>}}
      */
     private static function resolve(array $config): array
     {
