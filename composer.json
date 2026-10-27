@@ -7,6 +7,7 @@
         "php": ">=8.4",
         "ext-pdo": "*",
         "psr/cache": "^3.0",
+        "psr/clock": "^1.0",
         "psr/event-dispatcher": "^1.0",
         "psr/log": "^3.0",
         "symfony/console": "^7.4 || ^8.0"
@@ -56,7 +57,9 @@
             "Prism\\Bundle\\Tests\\": "packages/bundle/tests/",
             "Prism\\PHPStan\\Tests\\": "packages/phpstan/tests/",
             "Prism\\TestPack\\Tests\\": "packages/test-pack/tests/",
-            "Prism\\Benchmarks\\": "benchmarks/"
+            "Prism\\Benchmarks\\": "benchmarks/",
+            "Prism\\Website\\Tests\\": "website/tests/",
+            "App\\": "demo/src/"
         }
     },
     "config": {

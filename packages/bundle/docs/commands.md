@@ -1,16 +1,16 @@
-# Commandes console
+# Console commands
 
-Référence des commandes `db:*` de Prism : rôle, arguments, options, codes de retour et exemples. Les règles citées (RG-xx) sont celles de la feuille de route de Prism ; pour l'usage dans Symfony, voir [Prism dans Symfony](symfony.md).
+Reference of Prism's `db:*` commands: what each does, its arguments and options, its exit codes and examples. For their use in Symfony, see [Prism in Symfony](symfony.md).
 
-Les exemples sont des sorties réelles de `bin/prism` sur SQLite, avec deux entités (`Customer`, `Invoice`) ; seuls les chemins absolus ont été raccourcis. Le SQL affiché dépend de la plateforme de la connexion.
+The examples are real outputs of `bin/prism` on SQLite, with two entities (`Customer`, `Invoice`); only absolute paths were shortened. The SQL shown depends on the platform of the connection.
 
-## Lancer les commandes
+## Running the commands
 
-### `bin/prism` et `prism.php`
+### `bin/prism` and `prism.php`
 
-Hors Symfony, l'exécutable `vendor/bin/prism` (paquet `prism-orm/migrations`) charge le fichier `prism.php` du répertoire courant, ou celui de `--config=<fichier>`. Ce fichier retourne soit l'`EntityManager`, soit un `PrismConfig` pour régler le reste.
+Without Symfony, the `vendor/bin/prism` executable (package `prism-orm/migrations`) loads the `prism.php` file of the current directory, or the file given by `--config=<file>`. This file returns either the `EntityManager`, or a `PrismConfig` to set the rest.
 
-La forme courte suffit quand les réglages par défaut conviennent (migrations dans `migrations/`, namespace `App\Migrations`, environnement `dev`) :
+The short form is enough when the defaults suit you (migrations in `migrations/`, namespace `App\Migrations`, `dev` environment):
 
 ```php
 <?php // prism.php
@@ -22,56 +22,56 @@ use Prism\Orm\EntityManager;
 use Prism\Orm\Metadata\Driver\AttributeDriver;
 use Prism\Orm\Metadata\MetadataFactory;
 
-// bin/prism a déjà chargé l'autoloader de Composer
+// bin/prism has already loaded Composer's autoloader
 return new EntityManager(
     DriverManager::fromUrl((string) getenv('DATABASE_URL')),
     new MetadataFactory(new AttributeDriver([__DIR__ . '/src/Entity'])),
 );
 ```
 
-La forme complète :
+The complete form:
 
 ```php
 return new PrismConfig(
     $entityManager,
     migrations: new MigrationsConfiguration(__DIR__ . '/migrations', 'App\\Migrations', environment: 'prod'),
     metamodelDir: 'var/cache/prism/metamodel', // db:metamodel:generate
-    largeTable: 1_000_000,                     // seuil de la règle L10 du linter
+    largeTable: 1_000_000,                     // threshold of the L10 linter rule
 );
 ```
 
-| Paramètre de `PrismConfig` | Défaut | Rôle |
+| `PrismConfig` parameter | Default | Effect |
 | --- | --- | --- |
-| `entityManager` | — | L'EntityManager ; sa connexion sert à toutes les commandes |
-| `migrations` | `new MigrationsConfiguration()` | Répertoire et namespace des migrations, environnement (`dev`, `prod`…) |
-| `metadata` | celle de l'`EntityManager` | À donner pour une autre implémentation d'`EntityManagerInterface` |
-| `metamodelDir` | `var/cache/prism/metamodel` | Répertoire par défaut de `db:metamodel:generate` |
-| `largeTable` | `1_000_000` | Nombre de lignes au-delà duquel le linter signale un `ALTER` sous MySQL (L10) |
+| `entityManager` | — | The entity manager; its connection serves every command |
+| `migrations` | `new MigrationsConfiguration()` | Directory and namespace of the migrations, environment (`dev`, `prod`...) |
+| `metadata` | the `EntityManager`'s | To pass for another implementation of `EntityManagerInterface` |
+| `metamodelDir` | `var/cache/prism/metamodel` | Default directory of `db:metamodel:generate` |
+| `largeTable` | `1_000_000` | Number of rows beyond which the linter reports an `ALTER` under MySQL (L10) |
 
 ```console
 $ vendor/bin/prism list db
 $ vendor/bin/prism --config=config/prism.php db:migrations:status
 ```
 
-Dans une application Symfony, le bundle déclare les mêmes commandes dans `bin/console` (ADR 0013). Elles y gagnent l'option `--em=<nom>`, qui choisit l'EntityManager (par défaut, celui par défaut) : `bin/console db:migrations:migrate --em=billing`. Chaque EntityManager a ses propres migrations.
+In a Symfony application, the bundle registers the same commands in `bin/console`. They gain the `--em=<name>` option, which picks the entity manager (the default one otherwise): `bin/console db:migrations:migrate --em=billing`. Each entity manager has its own migrations.
 
-### Conventions communes
+### Common conventions
 
-- **Codes de retour** : `0` (`Command::SUCCESS`), `1` (`Command::FAILURE` : erreur, base désynchronisée, linter en échec), `2` (`Command::INVALID` : option manquante ou invalide, ou commande destructrice lancée sans `--force`).
-- **Commandes destructrices** : rien n'est exécuté sans `--force` ; la commande dit ce qu'elle aurait fait et rend `2`.
-- **Environnement `prod`** : `db:migrations:migrate`, `db:migrations:execute` et `db:database:drop` demandent une confirmation, sauf avec `--no-interaction` (RG-06.9).
-- **Options globales** de Symfony Console, valables partout : `--no-interaction` (`-n`), `--quiet` (`-q`), `--verbose` (`-v`), `--ansi` / `--no-ansi`, `--help` (`-h`).
-- Les tables et séquences préfixées `prism_` appartiennent à Prism (`prism_migration_versions`) : aucune commande ne les supprime comme « non mappées » (ADR 0012).
+- **Exit codes**: `0` (`Command::SUCCESS`), `1` (`Command::FAILURE`: an error, a database out of sync, a failed lint), `2` (`Command::INVALID`: a missing or invalid option, or a destructive command run without `--force`).
+- **Destructive commands**: nothing runs without `--force`; the command says what it would have done and returns `2`.
+- **`prod` environment**: `db:migrations:migrate`, `db:migrations:execute` and `db:database:drop` ask for confirmation, unless `--no-interaction`.
+- **Global options** of Symfony Console, valid everywhere: `--no-interaction` (`-n`), `--quiet` (`-q`), `--verbose` (`-v`), `--ansi` / `--no-ansi`, `--help` (`-h`).
+- The tables and sequences prefixed with `prism_` belong to Prism (`prism_migration_versions`, `prism_audit_log`): no command drops them as "not mapped".
 
-## Base de données
+## Database
 
 ### `db:database:create`
 
-Crée la base nommée dans l'URL de la connexion. Sous PostgreSQL, Prism se connecte à la base `postgres` pour la créer ; sous SQLite, il crée le fichier.
+Creates the database named in the URL of the connection. Under PostgreSQL, Prism connects to the `postgres` database to create it; under SQLite, it creates the file.
 
-| Option | Raccourci | Rôle |
+| Option | Shortcut | Effect |
 | --- | --- | --- |
-| `--if-not-exists` | | Ne rien faire si la base existe déjà (code `0`) |
+| `--if-not-exists` | | Do nothing if the database exists (exit code `0`) |
 
 ```console
 $ vendor/bin/prism db:database:create
@@ -83,12 +83,12 @@ $ vendor/bin/prism db:database:create --if-not-exists
 
 ### `db:database:drop`
 
-Supprime la base de la connexion, avec toutes ses données. Exige `--force` ; en `prod`, demande en plus une confirmation.
+Drops the database of the connection, with all its data. Requires `--force`; in `prod`, also asks for confirmation.
 
-| Option | Raccourci | Rôle |
+| Option | Shortcut | Effect |
 | --- | --- | --- |
-| `--force` | `-f` | Supprimer la base |
-| `--if-exists` | | Ne rien faire si la base n'existe pas (code `0`) |
+| `--force` | `-f` | Drop the database |
+| `--if-exists` | | Do nothing if the database does not exist (exit code `0`) |
 
 ```console
 $ vendor/bin/prism db:database:drop
@@ -99,17 +99,17 @@ $ vendor/bin/prism db:database:drop
 $ vendor/bin/prism db:database:drop --force --if-exists
 ```
 
-## Schéma sans migrations
+## Schema without migrations
 
-Pour le développement et les tests : la base suit le mapping directement. En production, on passe par les migrations.
+For development and tests: the database follows the mapping directly. In production, use migrations.
 
 ### `db:schema:create`
 
-Crée les tables, index, clés étrangères et séquences du mapping. Refuse si l'une des tables existe déjà.
+Creates the tables, indexes, foreign keys and sequences of the mapping. Refuses if one of the tables already exists.
 
-| Option | Raccourci | Rôle |
+| Option | Shortcut | Effect |
 | --- | --- | --- |
-| `--dump-sql` | | Afficher le SQL au lieu de l'exécuter |
+| `--dump-sql` | | Show the SQL instead of running it |
 
 ```console
 $ vendor/bin/prism db:schema:create --dump-sql
@@ -120,13 +120,13 @@ $ vendor/bin/prism db:schema:create --dump-sql
 
 ### `db:schema:update`
 
-Aligne le schéma de la base sur le mapping. Sans `--force`, rien n'est exécuté (RG-02.9) : la commande compte les requêtes et rend `2`. Les tables non mappées ne sont supprimées qu'avec `--complete`.
+Brings the schema of the database in line with the mapping. Without `--force`, nothing runs: the command counts the statements and returns `2`. Tables that are not mapped are dropped only with `--complete`.
 
-| Option | Raccourci | Rôle |
+| Option | Shortcut | Effect |
 | --- | --- | --- |
-| `--dump-sql` | | Afficher le SQL qui serait exécuté |
-| `--force` | `-f` | Exécuter le SQL |
-| `--complete` | | Supprimer aussi les tables et séquences non mappées (sauf `prism_*`) |
+| `--dump-sql` | | Show the SQL that would run |
+| `--force` | `-f` | Run the SQL |
+| `--complete` | | Also drop the tables and sequences that are not mapped (except `prism_*`) |
 
 ```console
 $ vendor/bin/prism db:schema:update --dump-sql
@@ -138,12 +138,12 @@ $ vendor/bin/prism db:schema:update --dump-sql
 
 ### `db:schema:drop`
 
-Supprime les tables et séquences du mapping, et leurs données. Exige `--force`.
+Drops the tables and sequences of the mapping, and their data. Requires `--force`.
 
-| Option | Raccourci | Rôle |
+| Option | Shortcut | Effect |
 | --- | --- | --- |
-| `--dump-sql` | | Afficher le SQL au lieu de l'exécuter |
-| `--force` | `-f` | Exécuter le SQL (détruit les données des tables mappées) |
+| `--dump-sql` | | Show the SQL instead of running it |
+| `--force` | `-f` | Run the SQL (destroys the data of the mapped tables) |
 
 ```console
 $ vendor/bin/prism db:schema:drop
@@ -154,11 +154,11 @@ $ vendor/bin/prism db:schema:drop
 
 ### `db:schema:validate`
 
-Valide le mapping (`MetadataValidator`), puis vérifie que la base y correspond. Rend `1` si le mapping est invalide ou si la base n'est pas synchronisée ; les avertissements (RG-04.6) ne font pas échouer.
+Validates the mapping, then checks that the database matches it. Returns `1` if the mapping is invalid or the database is out of sync; warnings do not fail.
 
-| Option | Raccourci | Rôle |
+| Option | Shortcut | Effect |
 | --- | --- | --- |
-| `--skip-sync` | | Valider le mapping seulement, sans se connecter à la base |
+| `--skip-sync` | | Validate the mapping only, without connecting to the database |
 
 ```console
 $ vendor/bin/prism db:schema:validate
@@ -177,16 +177,16 @@ Database
 
 ## Migrations
 
-Une migration est une suite d'opérations de schéma portables : la même migration s'exécute sur les 4 bases, et son SQL est produit par la plateforme au moment de l'exécution (ADR 0012). Les fichiers s'appellent `VersionYYYYMMDDHHMMSS` et s'exécutent dans cet ordre (RG-06.1) ; leur état est tenu dans la table `prism_migration_versions`.
+A migration is a list of portable schema operations: the same migration runs on the four databases, and its SQL is produced by the platform when it runs. The files are named `VersionYYYYMMDDHHMMSS` and run in that order; their state is kept in the `prism_migration_versions` table. See the [migrations guide](/guide/migrations).
 
 ### `db:migrations:generate`
 
-Crée une migration vide à compléter. Avec `--data`, une migration de données (`VersionYYYYMMDDHHMMSSData`), qui reçoit l'EntityManager et s'exécute après la migration de schéma de la même version (RG-06.8).
+Creates an empty migration to fill in. With `--data`, a data migration (`VersionYYYYMMDDHHMMSSData`), which receives the entity manager and runs after the schema migration of the same version.
 
-| Option | Raccourci | Rôle |
+| Option | Shortcut | Effect |
 | --- | --- | --- |
-| `--data` | | Créer une migration de données |
-| `--for` | | Avec `--data` : la migration de schéma qu'elle suit (`VersionYYYYMMDDHHMMSS`) ; sinon, une nouvelle version |
+| `--data` | | Create a data migration |
+| `--for` | | With `--data`: the schema migration it follows (`VersionYYYYMMDDHHMMSS`); a new version otherwise |
 
 ```console
 $ vendor/bin/prism db:migrations:generate --data --for=Version20261021205005
@@ -195,21 +195,21 @@ $ vendor/bin/prism db:migrations:generate --data --for=Version20261021205005
       migrations/Version20261021205005Data.php
 ```
 
-Deux migrations générées dans la même seconde auraient le même nom : la commande refuse alors d'écraser le fichier et demande d'attendre une seconde.
+Two migrations generated within the same second would have the same name: the command then refuses to overwrite the file and asks you to wait a second.
 
 ### `db:migrations:diff`
 
-Compare les entités à la base et écrit la migration qui les rapproche.
+Compares the entities with the database and writes the migration that brings them together.
 
-- **Sans changement**, aucun fichier n'est créé et la commande rend `0` (RG-06.2).
-- **Renommages** (RG-06.3) : une colonne ou une table supprimée et une autre ajoutée, de même type, font poser la question « renommage ? » en mode interactif. Confirmé, c'est un `renameColumn()` ou un `renameTable()` qui garde les données. En mode non interactif, la migration garde la suppression et l'ajout, avec un avertissement en commentaire.
-- **`down()`** n'est écrit que s'il est sûr ; une migration qui détruit des données lève `IrreversibleMigrationException` dans son `down()` (RG-06.7).
-- Les tables non mappées ne sont supprimées qu'avec `--complete` ; les tables `prism_*` jamais.
+- **Without a change**, no file is created and the command returns `0`.
+- **Renames**: a dropped column or table and an added one, of the same type, make the command ask "rename?" in interactive mode. Confirmed, a `renameColumn()` or `renameTable()` keeps the data. In non-interactive mode, the migration keeps the drop and the add, with a warning in a comment.
+- **`down()`** is written only when it is safe; a migration that destroys data throws `IrreversibleMigrationException` in its `down()`.
+- Tables that are not mapped are dropped only with `--complete`; `prism_*` tables never.
 
-| Option | Raccourci | Rôle |
+| Option | Shortcut | Effect |
 | --- | --- | --- |
-| `--complete` | | Supprimer aussi les tables et séquences non mappées (sauf `prism_*`) |
-| `--dry-run` | | Afficher la migration au lieu de l'écrire |
+| `--complete` | | Also drop the tables and sequences that are not mapped (except `prism_*`) |
+| `--dry-run` | | Show the migration instead of writing it |
 
 ```console
 $ vendor/bin/prism db:migrations:diff --no-interaction
@@ -225,7 +225,7 @@ $ vendor/bin/prism db:migrations:diff --no-interaction
       migrations/Version20261021205005.php. Review it, then run db:migrations:migrate.
 ```
 
-Le fichier généré :
+The generated file:
 
 ```php
 final class Version20261021205005 extends AbstractMigration
@@ -252,17 +252,17 @@ final class Version20261021205005 extends AbstractMigration
 
 ### `db:migrations:migrate`
 
-Exécute les migrations en attente, ou migre jusqu'à une version : les migrations en attente jusqu'à elle, puis celles exécutées après elle, revertées de la plus récente à la plus ancienne. `0` revertit tout.
+Runs the pending migrations, or migrates to a version: the pending migrations up to it, then the migrations executed after it, reverted from the newest to the oldest. `0` reverts everything.
 
-- Une migration exécutée puis modifiée bloque la commande, sauf `--allow-modified` (RG-06.4 : checksum des opérations).
-- Une migration tourne dans une transaction quand la plateforme sait annuler son DDL (PostgreSQL). Sinon, la commande le dit avant d'exécuter : un échec peut laisser un état partiel (RG-06.6).
-- En `prod`, la commande demande confirmation, sauf `--no-interaction` (RG-06.9).
+- A migration modified after it ran blocks the command, unless `--allow-modified`: Prism keeps a checksum of the operations of each executed migration.
+- A migration runs in a transaction when the platform can roll its DDL back (PostgreSQL). Otherwise, the command says so before it starts: a failure can leave the database half-migrated.
+- In `prod`, the command asks for confirmation, unless `--no-interaction`.
 
-| Argument / option | Raccourci | Rôle |
+| Argument / option | Shortcut | Effect |
 | --- | --- | --- |
-| `<version>` | | Version visée (`VersionYYYYMMDDHHMMSS`), ou `0` pour tout revertir ; facultatif |
-| `--dry-run` | | Afficher le SQL de chaque migration sans l'exécuter |
-| `--allow-modified` | | Exécuter même si une migration exécutée a été modifiée depuis (RG-06.4) |
+| `<version>` | | Target version (`VersionYYYYMMDDHHMMSS`), or `0` to revert everything; optional |
+| `--dry-run` | | Show the SQL of each migration without running it |
+| `--allow-modified` | | Run even if an executed migration was modified since |
 
 ```console
 $ vendor/bin/prism db:migrations:migrate --dry-run
@@ -291,14 +291,14 @@ $ vendor/bin/prism db:migrations:migrate 0 --dry-run
 
 ### `db:migrations:execute`
 
-Exécute une seule migration, dans un sens : exactement une option parmi `--up` et `--down` (sinon code `2`). Une migration de schéma seule, sans sa migration de données, se joue ainsi. Confirmation en `prod` (RG-06.9).
+Runs one migration, in one direction: exactly one of `--up` and `--down` (exit code `2` otherwise). This is how a schema migration runs without its data migration. Asks for confirmation in `prod`.
 
-| Argument / option | Raccourci | Rôle |
+| Argument / option | Shortcut | Effect |
 | --- | --- | --- |
-| `<version>` | | Version à exécuter (`VersionYYYYMMDDHHMMSS`) ; obligatoire |
-| `--up` | | Exécuter son `up()` |
-| `--down` | | Exécuter son `down()` |
-| `--dry-run` | | Afficher son SQL sans l'exécuter |
+| `<version>` | | The version to run (`VersionYYYYMMDDHHMMSS`); required |
+| `--up` | | Run its `up()` |
+| `--down` | | Run its `down()` |
+| `--dry-run` | | Show its SQL without running it |
 
 ```console
 $ vendor/bin/prism db:migrations:execute Version20261021204946 --down --dry-run
@@ -311,7 +311,7 @@ $ vendor/bin/prism db:migrations:execute Version20261021204946 --down --dry-run
 
 ### `db:migrations:status`
 
-Résume la position de la base : version courante, dernière version, nombre de migrations exécutées et en attente. Signale une migration modifiée après exécution (que `migrate` refusera) ou dont le fichier a disparu.
+Sums up the position of the database: current version, latest version, number of executed and pending migrations. Reports a migration modified after it ran (which `migrate` will refuse) or whose file has gone.
 
 ```console
 $ vendor/bin/prism db:migrations:status
@@ -327,7 +327,7 @@ $ vendor/bin/prism db:migrations:status
 
 ### `db:migrations:list`
 
-Liste chaque migration avec son état (`pending`, `executed`, `modified`, `missing`), sa date d'exécution en UTC, sa durée et sa description.
+Lists each migration with its state (`pending`, `executed`, `modified`, `missing`), its execution date in UTC, its duration and its description.
 
 ```console
 $ vendor/bin/prism db:migrations:list
@@ -340,35 +340,35 @@ $ vendor/bin/prism db:migrations:list
 
 ### `db:migrations:lint`
 
-Analyse les migrations en attente avant leur exécution (RG-06.5) : leurs opérations, appliquées une à une au schéma, croisées avec les données de la base, le mapping et la plateforme. Une erreur fait échouer la commande (code `1`) ; un avertissement aussi avec `--strict`. `#[IgnoreLint('L12', reason: '…')]` sur une migration ignore une règle assumée.
+Analyzes the pending migrations before they run: their operations, applied one by one to the schema, checked against the data of the database, the mapping and the platform. An error fails the command (exit code `1`); a warning too with `--strict`. `#[IgnoreLint('L12', reason: '...')]` on a migration silences a rule you accept.
 
-| Argument / option | Raccourci | Rôle |
+| Argument / option | Shortcut | Effect |
 | --- | --- | --- |
-| `<version>` | | Analyser les migrations en attente jusqu'à cette version ; facultatif |
-| `--strict` | | Échouer aussi sur les avertissements |
+| `<version>` | | Lint the pending migrations up to this version; optional |
+| `--strict` | | Also fail on warnings |
 
-| Code | Sévérité | Cas |
+| Code | Severity | Case |
 | --- | --- | --- |
-| L00 | erreur | Opération impossible sur le schéma |
-| L01 | erreur | Colonne NOT NULL sans défaut ajoutée à une table non vide |
-| L02 | erreur | Colonne passée à NOT NULL alors qu'elle contient des NULL |
-| L03 | erreur | Colonne supprimée, encore mappée |
-| L04 | erreur | Table supprimée, encore mappée |
-| L05 | erreur | Table ou colonne renommée dont l'ancien nom est encore mappé |
-| L06 | erreur | Table supprimée, encore visée par une clé étrangère |
-| L07 | erreur | Index unique sur des doublons |
-| L08 | erreur | Clé étrangère sur des lignes orphelines |
-| L09 | avertissement | Index sans `CONCURRENTLY` sur une table non vide, sous PostgreSQL |
-| L10 | avertissement | DDL sur une table de plus d'un million de lignes, sous MySQL et MariaDB |
-| L11 | avertissement | Table non vide supprimée |
-| L12 | avertissement | Colonne supprimée d'une table non vide |
-| L13 | avertissement | Colonne rétrécie sur une table non vide |
-| L14 | avertissement | Type de colonne changé sur une table non vide |
-| L15 | avertissement | Clé primaire changée sur une table non vide |
-| L16 | avertissement | SQL brut (`$m->sql()`), ni portable ni analysable |
-| L17 | avertissement | Plusieurs DDL sans transaction, sous MySQL et MariaDB (RG-06.6) |
-| L18 | avertissement | Table créée sans clé primaire |
-| L19 | avertissement | Migration irréversible (RG-06.7) |
+| L00 | error | Operation impossible on the schema |
+| L01 | error | `NOT NULL` column without a default added to a table with rows |
+| L02 | error | Column made `NOT NULL` while it holds `NULL`s |
+| L03 | error | Column dropped while still mapped |
+| L04 | error | Table dropped while still mapped |
+| L05 | error | Table or column renamed while its old name is still mapped |
+| L06 | error | Table dropped while a foreign key still references it |
+| L07 | error | Unique index on duplicates |
+| L08 | error | Foreign key on orphan rows |
+| L09 | warning | Index without `CONCURRENTLY` on a table with rows, under PostgreSQL |
+| L10 | warning | DDL on a table of more than a million rows, under MySQL and MariaDB |
+| L11 | warning | Table with rows dropped |
+| L12 | warning | Column dropped from a table with rows |
+| L13 | warning | Column shrunk on a table with rows |
+| L14 | warning | Column type changed on a table with rows |
+| L15 | warning | Primary key changed on a table with rows |
+| L16 | warning | Raw SQL (`$m->sql()`), neither portable nor analyzable |
+| L17 | warning | Several DDL statements without a transaction, under MySQL and MariaDB |
+| L18 | warning | Table created without a primary key |
+| L19 | warning | Irreversible migration |
 
 ```console
 $ vendor/bin/prism db:migrations:lint
@@ -388,11 +388,11 @@ $ vendor/bin/prism db:migrations:lint
  [ERROR] 1 pending migration(s) linted: 2 error(s), 1 warning(s).
 ```
 
-## Mapping et outils
+## Mapping and tools
 
 ### `db:mapping:info`
 
-Liste les entités mappées, avec leur table et leur repository.
+Lists the mapped entities, with their table and their repository.
 
 ```console
 $ vendor/bin/prism db:mapping:info
@@ -408,14 +408,14 @@ $ vendor/bin/prism db:mapping:info
 
 ### `db:query:sql`
 
-Exécute une requête SQL brute, avec des paramètres nommés liés (`:name`), jamais concaténés. Une requête qui n'est pas une lecture exige `--force` (sinon code `2`).
+Runs a raw SQL query, with bound named parameters (`:name`), never concatenated. A query that is not a read requires `--force` (exit code `2` otherwise).
 
-| Argument / option | Raccourci | Rôle |
+| Argument / option | Shortcut | Effect |
 | --- | --- | --- |
-| `<sql>` | | La requête, avec des paramètres `:nommés` ; obligatoire |
-| `--param` | `-p` | Un paramètre lié, `nom=valeur` ; répétable |
-| `--force` | `-f` | Exécuter une requête qui n'est pas une lecture |
-| `--max-rows` | | Nombre maximal de lignes affichées (défaut : 100) |
+| `<sql>` | | The query, with `:named` parameters; required |
+| `--param` | `-p` | A bound parameter, `name=value`; repeatable |
+| `--force` | `-f` | Run a query that is not a read |
+| `--max-rows` | | Maximum number of rows shown (default: 100) |
 
 ```console
 $ vendor/bin/prism db:query:sql "SELECT version, execution_time_ms FROM prism_migration_versions"
@@ -438,24 +438,24 @@ $ vendor/bin/prism db:query:sql --force "INSERT INTO customer (name, email) VALU
 
 ### `db:import`
 
-Génère les entités d'une base existante (RG-06.10) : une classe `final` par table, typée strictement, avec un `ManyToOne` (ou un `OneToOne` si la colonne est unique) par clé étrangère. Le mapping écrit est exact, si bien que le premier `db:migrations:diff` après l'import est vide, aux approximations signalées près.
+Generates the entities of an existing database: one `final` class per table, strictly typed, with a `ManyToOne` (or a `OneToOne` if the column is unique) per foreign key. The mapping it writes is exact, so the first `db:migrations:diff` after the import is empty, apart from the reported approximations.
 
-- **Jamais d'écrasement** d'un fichier existant sans `--force`.
-- **Signalé, jamais approximé en silence** :
-  - les tables sans clé primaire ou à clé composite (non importées, RG-02.4) ;
-  - les clés étrangères composites ou vers une table non importée (gardées en colonne) ;
-  - les colonnes de jointure sans index ou avec un défaut ;
-  - les colonnes `ENUM`, lues comme un `string` (ADR 0012, section 8).
-- **Toujours exclues** : `prism_*` et `doctrine_migration_versions`.
+- **Never overwrites** an existing file without `--force`.
+- **Reported, never silently approximated**:
+  - tables without a primary key or with a composite one (not imported);
+  - composite foreign keys, or foreign keys to a table that is not imported (kept as a column);
+  - join columns without an index or with a default;
+  - `ENUM` columns, read as a `string`.
+- **Always excluded**: `prism_*` and `doctrine_migration_versions`.
 
-| Option | Raccourci | Rôle |
+| Option | Shortcut | Effect |
 | --- | --- | --- |
-| `--namespace` | | Namespace des entités (défaut : `App\Entity`) |
-| `--dir` | | Répertoire des fichiers (défaut : `src/Entity`) |
-| `--strip-prefix` | | Préfixe de table retiré des noms de classe |
-| `--exclude` | | Expression régulière des tables à ignorer ; répétable |
-| `--dry-run` | | Afficher les entités au lieu de les écrire |
-| `--force` | `-f` | Remplacer les fichiers existants |
+| `--namespace` | | Namespace of the entities (default: `App\Entity`) |
+| `--dir` | | Directory of the files (default: `src/Entity`) |
+| `--strip-prefix` | | Table prefix removed from the class names |
+| `--exclude` | | Regular expression of the tables to ignore; repeatable |
+| `--dry-run` | | Show the entities instead of writing them |
+| `--force` | `-f` | Replace existing files |
 
 ```console
 $ vendor/bin/prism db:import --dry-run --namespace='App\Imported' --exclude=invoice
@@ -492,14 +492,14 @@ final class Customer
 
 ### `db:metamodel:generate`
 
-Génère les classes du metamodel du QueryBuilder typé (`Customer_`, `Invoice_`…), et les aides aux IDE (ADR 0009, RG-05.1, RG-05.2). Seuls les fichiers qui changent sont réécrits ; ceux des entités disparues sont supprimés. Les fichiers générés ne sont pas versionnés.
+Generates the metamodel classes of the typed query builder (`Customer_`, `Invoice_`...), and the IDE helpers. Only the files that change are rewritten; those of removed entities are deleted. The generated files are not versioned.
 
-| Option | Raccourci | Rôle |
+| Option | Shortcut | Effect |
 | --- | --- | --- |
-| `--dir` | | Répertoire des classes générées (défaut : `metamodelDir` de `PrismConfig`, `var/cache/prism/metamodel`) |
-| `--ide-stub` | | Stub du metamodel pour les IDE, hors des répertoires qu'ils excluent (défaut : `.prism/metamodel.php`, à ignorer dans git) |
-| `--phpstorm-meta` | | Répertoire des métadonnées PhpStorm, où `prism.php` associe chaque entité à son repository (défaut : `.phpstorm.meta.php`) |
-| `--no-ide` | | Générer le metamodel seul, sans les aides aux IDE |
+| `--dir` | | Directory of the generated classes (default: `metamodelDir` of `PrismConfig`, `var/cache/prism/metamodel`) |
+| `--ide-stub` | | Stub of the metamodel for IDEs, outside the directories they exclude (default: `.prism/metamodel.php`, to ignore in git) |
+| `--phpstorm-meta` | | Directory of the PhpStorm metadata, where `prism.php` maps each entity to its repository (default: `.phpstorm.meta.php`) |
+| `--no-ide` | | Generate the metamodel only, without the IDE helpers |
 
 ```console
 $ vendor/bin/prism db:metamodel:generate --no-ide
@@ -511,11 +511,34 @@ $ vendor/bin/prism db:metamodel:generate --no-ide
 
 ### `db:cache:clear-metadata`
 
-Vide le cache PSR-6 des metadata, s'il y en a un. Sans cache configuré, les attributs sont relus à chaque exécution : il n'y a rien à vider.
+Clears the PSR-6 cache of the metadata, if there is one. Without a configured cache, the attributes are read on each run: there is nothing to clear.
 
 ```console
 $ vendor/bin/prism db:cache:clear-metadata
 
  ! [NOTE] No metadata cache is configured: the attributes are read on each run, there is nothing to
  !        clear.
+```
+
+### `db:audit:purge`
+
+Deletes the rows of the audit log (`prism_audit_log`) older than the retention of their entity, `#[Prism\Auditable(retention: 'P10Y')]`. It is the only way to delete an audit row (GDPR). An entity without a retention is purged only with `--older-than`. Without `--force`, the command shows what it would delete.
+
+| Option | Shortcut | Effect |
+| --- | --- | --- |
+| `--older-than` | | ISO 8601 retention for the audited entities that declare none, for example `P1Y` |
+| `--force` | `-f` | Delete the rows |
+
+```console
+$ vendor/bin/prism db:audit:purge --older-than=P1Y
+
+ ------------------ ----------- --------------------- ------
+  Entity             Retention   Rows before           Rows
+ ------------------ ----------- --------------------- ------
+  App\Entity\Order   P1Y         2025-10-26 09:00:00   1240
+ ------------------ ----------- --------------------- ------
+
+ ! [CAUTION] This would delete 1240 audit log row(s); nothing was done. Run with --force to delete them.
+
+$ vendor/bin/prism db:audit:purge --older-than=P1Y --force
 ```

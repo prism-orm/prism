@@ -11,6 +11,7 @@ use Prism\Dbal\Schema\Schema;
 use Prism\Dbal\Schema\Sequence;
 use Prism\Dbal\Schema\Table;
 use Prism\Dbal\Type\TypeRegistry;
+use Prism\Orm\Audit\AuditLog;
 use Prism\Orm\Exception\MappingException;
 use Prism\Orm\Id\GenerationStrategyResolver;
 use Prism\Orm\Mapping\GenerationStrategy;
@@ -28,6 +29,11 @@ use Prism\Orm\Metadata\MetadataValidator;
  * - Une colonne de jointure a le type de l'identifiant visé, une clé étrangère et un index
  *   (unique pour un OneToOne), sauf si un index la couvre déjà.
  * - Un ManyToMany propriétaire produit sa table pivot.
+ * - Une entité #[Tenanted] a sa colonne du tenant, indexée et en tête de ses index et de ses
+ *   contraintes d'unicité (RG-08.1).
+ * - Les contraintes d'unicité d'une entité #[SoftDeletable] ne couvrent que les lignes non
+ *   supprimées (index partiel, RG-08.15).
+ * - Une entité #[Auditable] ajoute la table prism_audit_log (RG-08.10).
  * - Les noms générés sont déterministes (RG-01.7) : le diff reste stable.
  *
  * @api
@@ -72,6 +78,10 @@ final class SchemaTool
                 }
             }
         }
+        // RG-08.10 : le journal d'audit, géré comme une table mappée (ADR 0015)
+        if ([] !== array_filter($metadata, static fn (ClassMetadata $class): bool => $class->behaviors->auditable)) {
+            $tables[] = AuditLog::table();
+        }
 
         return new Schema($tables, $sequences);
     }
@@ -105,11 +115,19 @@ final class SchemaTool
             $columns[] = self::joinColumn((string) $association->joinColumn, $byClass[$association->targetEntity]->getIdField(), $association->nullable);
         }
 
+        $tenancy = $class->tenancy;
+        if (null !== $tenancy && null === $tenancy->field) {
+            $columns[] = new Column($tenancy->column, $tenancy->type, $tenancy->global);
+        }
+
         $table = new Table($class->tableName, $columns, [$class->getIdField()->columnName]);
 
+        // RG-08.15 : une ligne supprimée logiquement ne compte plus pour l'unicité
+        $live = null === $class->behaviors->deletedAt ? null : $class->getField($class->behaviors->deletedAt)->columnName;
         foreach ($class->getFields() as $field) {
             if ($field->unique) {
-                $table = $table->withIndexOn([$field->columnName], unique: true);
+                // unique par tenant : un numéro de facture se répète d'un tenant à l'autre
+                $table = $table->withIndexOn(self::tenantFirst($class, [$field->columnName]), unique: true, whereNull: $live);
             }
         }
         foreach ($class->indexes as $index) {
@@ -117,7 +135,10 @@ final class SchemaTool
                 throw MappingException::invalidMetadata($class->className, \sprintf('the unique constraint on "%s" has a "where" condition; partial indexes arrive with phase 8 (RG-08.15). Enforcing it without its condition would reject valid rows.', implode(', ', $index->fields)));
             }
             // un index non unique sans sa condition est plus large, jamais faux
-            $table = $table->withIndexOn(array_map(fn (string $field): string => $this->columnOf($class, $field), $index->fields), $index->unique, $index->name);
+            $table = $table->withIndexOn(self::tenantFirst($class, array_map(fn (string $field): string => $this->columnOf($class, $field), $index->fields)), $index->unique, $index->name, $index->unique ? $live : null);
+        }
+        if (null !== $tenancy && !self::isCovered($table, $tenancy->column)) {
+            $table = $table->withIndexOn([$tenancy->column]);
         }
 
         foreach ($joins as $association) {
@@ -183,6 +204,24 @@ final class SchemaTool
     private static function joinColumn(string $name, FieldMapping $targetId, bool $nullable): Column
     {
         return new Column($name, $targetId->type, $nullable, length: $targetId->length, fixed: $targetId->fixed);
+    }
+
+    /**
+     * RG-08.1 : la colonne du tenant en tête d'un index d'entité tenantée, sauf s'il la nomme déjà.
+     *
+     * @param ClassMetadata<object> $class
+     * @param list<string>          $columns
+     *
+     * @return list<string>
+     */
+    private static function tenantFirst(ClassMetadata $class, array $columns): array
+    {
+        $tenant = $class->tenancy?->column;
+        if (null === $tenant || \in_array(strtolower($tenant), array_map(strtolower(...), $columns), true)) {
+            return $columns;
+        }
+
+        return [$tenant, ...$columns];
     }
 
     private static function isUnique(Table $table, string $column): bool

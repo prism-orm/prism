@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Prism\Orm\Persister;
 
 use Prism\Dbal\Connection;
+use Prism\Orm\Filter\FilterCollection;
 use Prism\Orm\Id\IdGeneratorFactory;
 use Prism\Orm\Metadata\ClassMetadata;
 use Prism\Orm\Metadata\Driver\AttributeDriver;
@@ -12,7 +13,8 @@ use Prism\Orm\Metadata\MetadataFactory;
 
 /**
  * Persisters sur une Connection du DBAL ; la transaction du flush est Connection::transactional()
- * (un savepoint si une transaction est déjà ouverte, RG-01.1).
+ * (un savepoint si une transaction est déjà ouverte, RG-01.1). Les filtres sont ceux de
+ * l'EntityManager (ADR 0014).
  *
  * @internal
  */
@@ -29,6 +31,7 @@ final class DbalPersisterProvider implements PersisterProvider
     public function __construct(
         private readonly Connection $connection,
         ?MetadataFactory $metadata = null,
+        private readonly FilterCollection $filters = new FilterCollection(),
     ) {
         $this->generators = new IdGeneratorFactory($connection->getPlatform());
         $this->metadata = $metadata ?? new MetadataFactory(new AttributeDriver(), types: $connection->getTypeRegistry());
@@ -43,7 +46,7 @@ final class DbalPersisterProvider implements PersisterProvider
                     $joins[$association->fieldName] = [(string) $association->joinColumn, $this->metadata->getMetadataFor($association->targetEntity)->getIdField()->type];
                 }
             }
-            $this->persisters[$metadata->className] = new BasicEntityPersister($this->connection, $metadata, $joins);
+            $this->persisters[$metadata->className] = new BasicEntityPersister($this->connection, $metadata, $joins, $this->filters);
         }
 
         return $this->persisters[$metadata->className];

@@ -159,6 +159,32 @@ jobs:
                   tools: composer
             - run: tools/compat/compat.sh ${{ matrix.symfony }} ${{ matrix.app }}
 
+    # ADR 0016 : le site de documentation ; le build échoue sur un lien interne cassé
+    website:
+        name: Site de documentation
+        runs-on: ubuntu-latest
+        defaults:
+            run:
+                working-directory: website
+        steps:
+            - uses: actions/checkout@v4
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: '22'
+                  cache: npm
+                  cache-dependency-path: website/package-lock.json
+            - run: npm ci --no-fund --no-audit
+            - run: npm run build
+            # RG-10.3 : les exemples non exécutés, à garder rares (exécutés par website/tests/Functional/ExamplesTest)
+            - name: Exemples marqués no-run
+              working-directory: .
+              run: grep -rn --include='*.md' --exclude-dir=node_modules -E '^ {0,3}(```|~~~)php[^ ]*.* no-run' website packages/*/docs || echo 'Aucun.'
+            # le site construit, à publier sur l'hébergement du projet (GitLab Pages)
+            - uses: actions/upload-artifact@v4
+              with:
+                  name: website
+                  path: website/.vitepress/dist
+
     split:
         name: Split vers prism-orm/*
         needs: [quality, tests]

@@ -16,6 +16,7 @@ use Prism\Orm\Mapping\OnDelete;
 use Prism\Orm\Mapping\Order;
 use Prism\Orm\Metadata\AssociationMapping;
 use Prism\Orm\Metadata\AssociationType;
+use Prism\Orm\Metadata\BehaviorMapping;
 use Prism\Orm\Metadata\ClassMetadata;
 use Prism\Orm\Metadata\Driver\AttributeDriver;
 use Prism\Orm\Metadata\EmbeddedMapping;
@@ -26,6 +27,7 @@ use Prism\Orm\Metadata\JoinTableMapping;
 use Prism\Orm\Metadata\MappingError;
 use Prism\Orm\Metadata\MappingSeverity;
 use Prism\Orm\Metadata\MetadataValidator;
+use Prism\Orm\Metadata\TenancyMapping;
 use Prism\Orm\Tests\Unit\Mapping\Fixtures\Address;
 use Prism\Orm\Tests\Unit\Mapping\Fixtures\Client;
 use Prism\Orm\Tests\Unit\Mapping\Fixtures\FixtureStatus;
@@ -55,9 +57,9 @@ final class MetadataValidatorTest extends TestCase
      *
      * @return ClassMetadata<T>
      */
-    private static function meta(string $class, string $table, array $fields = [], array $associations = [], array $embedded = [], array $indexes = [], ?string $version = null, ?GenerationStrategy $strategy = null, ?FieldMapping $id = null): ClassMetadata
+    private static function meta(string $class, string $table, array $fields = [], array $associations = [], array $embedded = [], array $indexes = [], ?string $version = null, ?GenerationStrategy $strategy = null, ?FieldMapping $id = null, ?TenancyMapping $tenancy = null, ?BehaviorMapping $behaviors = null): ClassMetadata
     {
-        return new ClassMetadata($class, $table, new IdMapping('id', $strategy), [$id ?? new FieldMapping('id', 'id', 'integer'), ...$fields], $embedded, $associations, $indexes, $version);
+        return new ClassMetadata($class, $table, new IdMapping('id', $strategy), [$id ?? new FieldMapping('id', 'id', 'integer'), ...$fields], $embedded, $associations, $indexes, $version, tenancy: $tenancy, behaviors: $behaviors);
     }
 
     private static function toOne(string $class, string $field, string $target, ?string $inversedBy = null, AssociationType $type = AssociationType::ManyToOne, bool $nullable = true, OnDelete $onDelete = OnDelete::Restrict, ?string $joinColumn = null): AssociationMapping
@@ -260,6 +262,56 @@ final class MetadataValidatorTest extends TestCase
                 self::manyToMany(UntypedCollections::class, 'typed', Tag::class, joinTable: 'pivot_typed'),
             ]), self::meta(Tag::class, 'tag')],
             array_map(static fn (string $field): string => UntypedCollections::class . '::$' . $field . ': a collection relation must be typed Prism\\Orm\\Collection\\Collection (not array, iterable or nullable), initialized with new ArrayCollection() in the constructor (ADR 0007).', ['iterable', 'array', 'nullable']),
+        ];
+        // colonne du tenant (RG-08.1, ADR 0014)
+        yield '28a unsupported tenant type' => [
+            static fn (): array => [self::meta(Client::class, 'client', tenancy: new TenancyMapping('tenant_id', 'string'))],
+            [Client::class . ': the tenant type "string" is not supported; use one of: integer, bigint, uuid.'],
+        ];
+        yield '28b tenant column already used' => [
+            static fn (): array => [self::meta(Invoice::class, 'invoice', [], [self::toOne(Invoice::class, 'tenant', Client::class)], tenancy: new TenancyMapping('tenant_id')), $client()],
+            [Invoice::class . ': the #[Tenanted] column "tenant_id" is already used by $tenant; rename one of them (#[Tenanted(column: ...)]).'],
+        ];
+        yield '28c tenant column too long' => [
+            static fn (): array => [self::meta(Client::class, 'client', tenancy: new TenancyMapping(str_repeat('t', 64)))],
+            [Client::class . ': column name "' . str_repeat('t', 64) . '" is 64 bytes long; the maximum is 63 (PostgreSQL would silently truncate it).'],
+        ];
+        yield '28d tenant property of another type' => [
+            static fn (): array => [self::meta(Client::class, 'client', [new FieldMapping('tenantId', 'tenant_id', 'string')], tenancy: new TenancyMapping('tenant_id', field: 'tenantId'))],
+            [Client::class . '::$tenantId: the #[Tenanted] column "tenant_id" has type "string", but the tenant type is "integer".'],
+        ];
+        yield '28e nullable tenant property' => [
+            static fn (): array => [self::meta(Client::class, 'client', [new FieldMapping('tenantId', 'tenant_id', 'integer', true)], tenancy: new TenancyMapping('tenant_id', field: 'tenantId'))],
+            [Client::class . '::$tenantId: the #[Tenanted] column "tenant_id" is never NULL; make the property non-nullable, or use #[Tenanted(global: true)] for shared rows.'],
+        ];
+        yield '28f non-nullable global tenant property' => [
+            static fn (): array => [self::meta(Tag::class, 'tag', [new FieldMapping('tenantId', 'tenant_id', 'integer')], tenancy: new TenancyMapping('tenant_id', global: true, field: 'tenantId'))],
+            [Tag::class . '::$tenantId: the #[Tenanted(global: true)] column "tenant_id" holds NULL for shared rows; make the property nullable.'],
+        ];
+        yield '28g identifier as tenant column' => [
+            static fn (): array => [self::meta(Client::class, 'client', tenancy: new TenancyMapping('id', field: 'id'))],
+            [Client::class . '::$id: the identifier cannot be the #[Tenanted] column "id".'],
+        ];
+        // comportements (ADR 0015)
+        yield '29a behavior on an unknown field' => [
+            static fn (): array => [self::meta(Client::class, 'client', behaviors: new BehaviorMapping(createdAt: 'created'))],
+            [Client::class . ': #[Timestampable] names "created", which is not a mapped field.'],
+        ];
+        yield '29b timestamp of another type' => [
+            static fn (): array => [self::meta(Client::class, 'client', [new FieldMapping('createdAt', 'created_at', 'string')], behaviors: new BehaviorMapping(createdAt: 'createdAt'))],
+            [Client::class . '::$createdAt: #[Timestampable] needs a "datetime_immutable" field, not "string".'],
+        ];
+        yield '29c non-nullable author' => [
+            static fn (): array => [self::meta(Client::class, 'client', [new FieldMapping('createdBy', 'created_by', 'string')], behaviors: new BehaviorMapping(createdBy: 'createdBy'))],
+            [Client::class . '::$createdBy: #[Blameable] needs a nullable field.'],
+        ];
+        yield '29d non-nullable deletion date' => [
+            static fn (): array => [self::meta(Client::class, 'client', [new FieldMapping('deletedAt', 'deleted_at', 'datetime_immutable')], behaviors: new BehaviorMapping(deletedAt: 'deletedAt'))],
+            [Client::class . '::$deletedAt: #[SoftDeletable] needs a nullable field.'],
+        ];
+        yield '29e audit excludes an unknown field' => [
+            static fn (): array => [self::meta(Client::class, 'client', behaviors: new BehaviorMapping(auditable: true, auditExclude: ['missing']))],
+            [Client::class . ': #[Auditable] excludes "missing", which is not a mapped field or relation.'],
         ];
         // une interface n'est pas une classe instanciable
         $missing = \Countable::class;

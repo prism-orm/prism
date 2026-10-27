@@ -26,4 +26,15 @@ final class NameGenerator
 
         return $prefix . '_' . substr($readable, 0, $room) . '_' . $hash;
     }
+
+    /**
+     * Nom d'un index : un index partiel ne prend pas celui de l'index complet sur les mêmes
+     * colonnes (ADR 0015).
+     *
+     * @param list<string> $columns
+     */
+    public static function index(string $table, array $columns, bool $unique, ?string $whereNull = null): string
+    {
+        return self::generate($unique ? 'uniq' : 'idx', $table, null === $whereNull ? $columns : [...$columns, 'where ' . $whereNull . ' is null']);
+    }
 }

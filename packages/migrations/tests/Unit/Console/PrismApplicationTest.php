@@ -5,8 +5,17 @@ declare(strict_types=1);
 namespace Prism\Migrations\Tests\Unit\Console;
 
 use PHPUnit\Framework\TestCase;
+use Prism\Dbal\DriverManager;
 use Prism\Migrations\Console\PrismApplication;
+use Prism\Migrations\Console\PrismConfig;
 use Prism\Migrations\MigrationsConfiguration;
+use Prism\Orm\EntityManager;
+use Prism\Orm\Tenancy\StackTenantContext;
+use Symfony\Component\Console\Command\Command;
+use Symfony\Component\Console\Input\ArrayInput;
+use Symfony\Component\Console\Input\InputInterface;
+use Symfony\Component\Console\Output\NullOutput;
+use Symfony\Component\Console\Output\OutputInterface;
 
 /**
  * bin/prism : prism.php, --config, et toutes les commandes db:* câblées.
@@ -87,11 +96,42 @@ final class PrismApplicationTest extends TestCase
         sort($commands);
 
         self::assertSame([
-            'db:cache:clear-metadata', 'db:database:create', 'db:database:drop', 'db:import', 'db:mapping:info', 'db:metamodel:generate',
+            'db:audit:purge', 'db:cache:clear-metadata', 'db:database:create', 'db:database:drop', 'db:import', 'db:mapping:info', 'db:metamodel:generate',
             'db:migrations:diff', 'db:migrations:execute', 'db:migrations:generate', 'db:migrations:lint', 'db:migrations:list',
             'db:migrations:migrate', 'db:migrations:status', 'db:query:sql',
             'db:schema:create', 'db:schema:drop', 'db:schema:update', 'db:schema:validate',
         ], $commands);
         self::assertSame('Prism', $application->getName());
+    }
+
+    // ADR 0014 : les commandes db:* administrent toute la base, en mode système
+    public function testCommandsRunInSystemMode(): void
+    {
+        $context = new StackTenantContext(7);
+        $application = PrismApplication::create(new PrismConfig(new EntityManager(DriverManager::fromUrl('sqlite:///:memory:?serverVersion=3.46.0'), tenantContext: $context)));
+        $application->setAutoExit(false);
+        /** @var \ArrayObject<int, bool> $seen */
+        $seen = new \ArrayObject();
+        $application->addCommands([new class($context, $seen) extends Command {
+            /**
+             * @param \ArrayObject<int, bool> $seen
+             */
+            public function __construct(private readonly StackTenantContext $context, private readonly \ArrayObject $seen)
+            {
+                parent::__construct('test:system');
+            }
+
+            protected function execute(InputInterface $input, OutputInterface $output): int
+            {
+                $this->seen->append($this->context->isSystem());
+
+                return Command::SUCCESS;
+            }
+        }]);
+
+        self::assertSame(Command::SUCCESS, $application->run(new ArrayInput(['command' => 'test:system']), new NullOutput()));
+        self::assertSame([true], $seen->getArrayCopy());
+        self::assertFalse($context->isSystem(), 'restored afterwards');
+        self::assertSame(7, $context->getTenantId());
     }
 }

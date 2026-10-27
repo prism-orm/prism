@@ -1,0 +1,46 @@
+{# Panneau Tenant du profiler (ADR 0014) : tenant de la requête, résolution, runAs et runAsSystem. #}
+{% extends '@WebProfiler/Profiler/layout.html.twig' %}
+
+{% block toolbar %}
+    {% set icon %}
+        {{ source('@Prism/Collector/icon.svg') }}
+        <span class="sf-toolbar-value">{{ collector.tenant }}</span>
+    {% endset %}
+    {% set text %}
+        <div class="sf-toolbar-info-piece"><b>Tenant</b><span>{{ collector.tenant }}</span></div>
+        <div class="sf-toolbar-info-piece"><b>Resolved by</b><span>{{ collector.strategy ?? 'the application' }}</span></div>
+        <div class="sf-toolbar-info-piece"><b>Tenant switches</b><span>{{ collector.switches|length }}</span></div>
+    {% endset %}
+    {{ include('@WebProfiler/Profiler/toolbar_item.html.twig', { link: profiler_url }) }}
+{% endblock %}
+
+{% block menu %}
+    <span class="label">
+        <span class="icon">{{ source('@Prism/Collector/icon.svg') }}</span>
+        <strong>Tenant</strong>
+    </span>
+{% endblock %}
+
+{% block panel %}
+    <h2>Tenant</h2>
+    <div class="metrics">
+        <div class="metric"><span class="value">{{ collector.tenant }}</span><span class="label">Tenant of the request</span></div>
+        <div class="metric"><span class="value">{{ collector.strategy ?? '-' }}</span><span class="label">Resolver</span></div>
+        <div class="metric"><span class="value">{{ collector.identifier ?? '-' }}</span><span class="label">Identifier read</span></div>
+        <div class="metric"><span class="value">{{ collector.switches|length }}</span><span class="label">Tenant switches</span></div>
+    </div>
+
+    <h3>runAs() and runAsSystem()</h3>
+    {% if collector.switches is empty %}
+        <div class="empty"><p>No tenant switch during this request.</p></div>
+    {% else %}
+        <table>
+            <thead><tr><th>#</th><th>From</th><th>To</th><th></th></tr></thead>
+            <tbody>
+            {% for switch in collector.switches %}
+                <tr><td>{{ loop.index }}</td><td>{{ switch.from }}</td><td>{{ switch.to }}</td><td>{{ switch.leaving ? 'leaving' : 'entering' }}</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    {% endif %}
+{% endblock %}

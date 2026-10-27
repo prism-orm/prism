@@ -78,7 +78,8 @@ final class SqlitePlatform extends AbstractPlatform
     // origin « c » : index créés par CREATE INDEX (pas ceux implicites des clés primaires et UNIQUE)
     public function getListIndexesSql(): string
     {
-        return 'SELECT l.name, i.name AS column_name, CASE WHEN l."unique" = 1 THEN 0 ELSE 1 END AS non_unique FROM pragma_index_list(?) l'
+        return 'SELECT l.name, i.name AS column_name, CASE WHEN l."unique" = 1 THEN 0 ELSE 1 END AS non_unique,'
+            . " CASE WHEN l.partial = 1 THEN (SELECT s.sql FROM sqlite_master s WHERE s.type = 'index' AND s.name = l.name) END AS predicate FROM pragma_index_list(?) l"
             . " JOIN pragma_index_info(l.name) i WHERE l.origin = 'c' ORDER BY l.name, i.seqno";
     }
 

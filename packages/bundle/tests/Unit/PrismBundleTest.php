@@ -170,7 +170,7 @@ final class PrismBundleTest extends TestCase
 
         $names = array_keys($application->all('db'));
         sort($names);
-        self::assertCount(18, $names);
+        self::assertCount(19, $names);
         self::assertContains('db:migrations:migrate', $names);
 
         $command = $application->find('db:mapping:info');

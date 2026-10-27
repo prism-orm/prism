@@ -12,7 +12,7 @@ URL_sqlite  := sqlite:///:memory:
 DATABASES := mysql mariadb pgsql sqlite
 
 .DEFAULT_GOAL := help
-.PHONY: help up down build install shell test test-unit test-db test-all-db stan cs cs-check infection bench bench-baseline bench-compare coverage compat test-symfony demo-install demo-test worker-test ci
+.PHONY: help up down build install shell test test-unit test-db test-all-db stan cs cs-check infection bench bench-tenancy bench-baseline bench-compare coverage compat test-symfony demo-install demo-test worker-test docs-install docs-dev docs-build ci
 
 help: ## Affiche cette aide
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
@@ -61,6 +61,9 @@ infection: ## Mutation testing (une classe : make infection FILTER=packages/dbal
 bench: ## Benchmarks et critères de la phase 3, sur MySQL par défaut : make bench [DB=mariadb|pgsql]
 	$(RUN) env DATABASE_URL='$(URL_$(DB))' vendor/bin/phpbench run --report=aggregate $(if $(FILTER),--filter=$(FILTER))
 
+bench-tenancy: ## Critère de la phase 8 : surcoût du filtre tenant < 5 % sur la lecture, sur MySQL par défaut : make bench-tenancy [DB=mariadb|pgsql]
+	$(RUN) env DATABASE_URL='$(URL_$(DB))' php -d opcache.enable_cli=1 tools/bench/tenancy-overhead.php
+
 bench-baseline: ## Enregistre la référence de bench-compare (avant une modification de l'UoW ou de l'hydratation)
 	$(RUN) env DATABASE_URL='$(URL_$(DB))' vendor/bin/phpbench run --report=aggregate --tag=baseline $(if $(FILTER),--filter=$(FILTER))
 
@@ -86,5 +89,14 @@ worker-test: ## La démo en worker FrankenPHP, 10 000 requêtes, mémoire mesur�
 	$(DC) --profile demo up -d --build --wait frankenphp
 	$(RUN) php tools/worker/load.php http://frankenphp $(or $(N),10000)
 	$(DC) --profile demo stop frankenphp
+
+docs-install: ## Le site de documentation : dépendances npm (ADR 0016)
+	$(DC) run --rm node npm ci
+
+docs-dev: ## Le site en local avec rechargement : http://localhost:5173 (après make docs-install)
+	$(DC) run --rm --service-ports node npm run dev
+
+docs-build: ## Construit le site dans website/.vitepress/dist ; échoue sur un lien interne cassé
+	$(DC) run --rm node npm run build
 
 ci: cs-check stan test ## Tout ce que la CI vérifie : à lancer avant de terminer une tâche

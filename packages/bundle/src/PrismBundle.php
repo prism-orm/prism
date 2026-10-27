@@ -6,16 +6,24 @@ namespace Prism\Bundle;
 
 use Prism\Bundle\Attribute\AsEntityListener;
 use Prism\Bundle\Attribute\AsPrismListener;
+use Prism\Bundle\Audit\ContextActorProvider;
+use Prism\Bundle\Audit\RequestStackRequestIdProvider;
 use Prism\Bundle\Command\EntityManagerCommand;
+use Prism\Bundle\Debug\AuditDataCollector;
+use Prism\Bundle\Debug\AuditRecorder;
 use Prism\Bundle\Debug\FlushRecorder;
 use Prism\Bundle\Debug\PrismDataCollector;
 use Prism\Bundle\Debug\QueryRecorder;
+use Prism\Bundle\Debug\TenantDataCollector;
+use Prism\Bundle\Debug\TenantRecorder;
+use Prism\Bundle\DependencyInjection\Compiler\FilterPass;
 use Prism\Bundle\DependencyInjection\Compiler\ListenerPass;
 use Prism\Bundle\DependencyInjection\Compiler\MakerPass;
 use Prism\Bundle\DependencyInjection\Compiler\RepositoryPass;
 use Prism\Bundle\DependencyInjection\ConfigurationFactory;
 use Prism\Bundle\DependencyInjection\PrismConfiguration;
 use Prism\Bundle\Event\ContainerEntityListenerResolver;
+use Prism\Bundle\Exception\InvalidConfigurationException;
 use Prism\Bundle\Maker\MakeEntity;
 use Prism\Bundle\Maker\MakeMigration;
 use Prism\Bundle\Maker\MakePrismEntity;
@@ -25,6 +33,7 @@ use Prism\Bundle\Metamodel\MetamodelRefresher;
 use Prism\Bundle\Metamodel\PrismCacheWarmer;
 use Prism\Bundle\Security\EntityUserProvider;
 use Prism\Bundle\Security\EntityUserProviderFactory;
+use Prism\Bundle\Tenancy\TenantResolver;
 use Prism\Bundle\Validator\UniqueEntityValidator;
 use Prism\Bundle\ValueResolver\EntityValueResolver;
 use Prism\Bundle\Worker\ConnectionKeeper;
@@ -35,17 +44,26 @@ use Prism\Dbal\Type\Type;
 use Prism\Dbal\Type\TypeRegistry;
 use Prism\Migrations\Console\Command as Migrations;
 use Prism\Migrations\MigrationsConfiguration;
+use Prism\Orm\Audit\RequestIdProvider;
+use Prism\Orm\Behavior\ActorProvider;
 use Prism\Orm\Console\Command as Orm;
 use Prism\Orm\Debug\N1Detector;
 use Prism\Orm\EntityManager;
 use Prism\Orm\EntityManagerInterface;
+use Prism\Orm\Event\AuditRecordedEvent;
 use Prism\Orm\Event\BatchLoadedEvent;
 use Prism\Orm\Event\PostFlushEvent;
 use Prism\Orm\Event\PostPersistEvent;
 use Prism\Orm\Event\PostRemoveEvent;
 use Prism\Orm\Event\PreUpdateEvent;
+use Prism\Orm\Filter\EntityFilter;
+use Prism\Orm\Filter\FilterCollection;
 use Prism\Orm\Metadata\Driver\AttributeDriver;
 use Prism\Orm\Metadata\MetadataFactory;
+use Prism\Orm\Tenancy\StackTenantContext;
+use Prism\Orm\Tenancy\TenantContext;
+use Prism\Orm\Tenancy\TenantGuard;
+use Prism\Orm\Tenancy\TenantGuardMode;
 use Symfony\Bundle\MakerBundle\Maker\AbstractMaker;
 use Symfony\Bundle\SecurityBundle\DependencyInjection\SecurityExtension;
 use Symfony\Component\Config\Definition\Configurator\DefinitionConfigurator;
@@ -69,7 +87,8 @@ use Symfony\Component\Validator\ConstraintValidator;
 /**
  * Intégration Symfony de Prism (ADR 0013) : connexions et EntityManagers nommés depuis
  * prism.yaml, autowiring (repositories compris), types et listeners par tags, commandes db:*
- * avec --em, metamodel et cache warmers, réinitialisation par kernel.reset.
+ * avec --em, metamodel et cache warmers, réinitialisation par kernel.reset ; multi-tenancy :
+ * contexte, résolution par requête, garde du SQL brut, filtres tagués prism.filter (ADR 0014).
  *
  * @api
  */
@@ -89,6 +108,7 @@ final class PrismBundle extends AbstractBundle
         'db:query:sql' => [Orm\QuerySqlCommand::class, ['connection']],
         'db:import' => [Orm\ImportCommand::class, ['connection']],
         'db:cache:clear-metadata' => [Orm\CacheClearMetadataCommand::class, ['metadata']],
+        'db:audit:purge' => [Orm\AuditPurgeCommand::class, ['connection', 'metadata', 'clock']],
         'db:metamodel:generate' => [Orm\MetamodelGenerateCommand::class, ['metadata', 'metamodel']],
         'db:migrations:generate' => [Migrations\GenerateCommand::class, ['migrations']],
         'db:migrations:diff' => [Migrations\DiffCommand::class, ['connection', 'metadata', 'migrations']],
@@ -121,12 +141,16 @@ final class PrismBundle extends AbstractBundle
     // vu dans build() : loadExtension() reçoit un conteneur sans les extensions des autres bundles
     private bool $doctrine = false;
 
+    private bool $security = false;
+
     public function build(ContainerBuilder $container): void
     {
         $this->doctrine = $container->hasExtension('doctrine');
+        $this->security = $container->hasExtension('security');
         $container->setParameter(MakerPass::PARAMETER, !$this->doctrine);
         $container->addCompilerPass(new RepositoryPass());
         $container->addCompilerPass(new ListenerPass());
+        $container->addCompilerPass(new FilterPass());
         // avant MakeCommandRegistrationPass de MakerBundle (priorité 10)
         $container->addCompilerPass(new MakerPass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, 20);
         // le type « prism » des providers de security.yaml, si SecurityBundle est là
@@ -156,11 +180,33 @@ final class PrismBundle extends AbstractBundle
      */
     public function loadExtension(array $config, ContainerConfigurator $container, ContainerBuilder $builder): void
     {
-        /** @var array{default_entity_manager: string, connections: array<string, array{url: string}>, entity_managers: array<string, array{connection: string, entity_dirs: list<string>, batch_size: int, migrations: array{dir: ?string, namespace: ?string}}>, metamodel: array{dir: string}, connection_idle_ttl: int} $config */
+        /** @var array{default_entity_manager: string, connections: array<string, array{url: string}>, entity_managers: array<string, array{connection: string, entity_dirs: list<string>, batch_size: int, migrations: array{dir: ?string, namespace: ?string}}>, metamodel: array{dir: string}, connection_idle_ttl: int, tenancy: array{type: string, guard: ?string, resolver: array{header?: string, subdomain?: string, user?: bool}, loader: ?string}} $config */
         $debug = (bool) $builder->getParameter('kernel.debug');
         $default = $config['default_entity_manager'];
 
         $builder->registerForAutoconfiguration(Type::class)->addTag('prism.type');
+        $builder->registerForAutoconfiguration(EntityFilter::class)->addTag(FilterPass::TAG);
+
+        // ADR 0014 : un tenant par requête, partagé par les EntityManagers, oublié à kernel.reset
+        $tenancy = $config['tenancy'];
+        $builder->setDefinition('prism.tenant_context', new Definition(StackTenantContext::class))->addTag('kernel.reset', ['method' => 'reset']);
+        $builder->setAlias(TenantContext::class, 'prism.tenant_context');
+        $builder->setAlias(StackTenantContext::class, 'prism.tenant_context');
+        // RG-08.7 : exception en dev et en test, log critique en prod, sauf choix explicite
+        $guardMode = 'log' === ($tenancy['guard'] ?? ($debug ? 'exception' : 'log')) ? TenantGuardMode::Log : TenantGuardMode::Exception;
+        // ADR 0015 : auteur et requête des comportements et de l'audit ; une application les remplace par leur alias
+        $builder->setDefinition('prism.actor_provider', new Definition(ContextActorProvider::class, [new Reference('security.token_storage', ContainerInterface::NULL_ON_INVALID_REFERENCE)]))
+            ->addTag('kernel.event_listener', ['event' => 'console.command', 'method' => 'onConsoleCommand'])
+            ->addTag('kernel.reset', ['method' => 'reset']);
+        $builder->setAlias(ActorProvider::class, 'prism.actor_provider');
+        $builder->setDefinition('prism.request_id_provider', new Definition(RequestStackRequestIdProvider::class, [new Reference('request_stack')]));
+        $builder->setAlias(RequestIdProvider::class, 'prism.request_id_provider');
+        $clock = new Reference('clock', ContainerInterface::NULL_ON_INVALID_REFERENCE);
+
+        $guards = [];
+        foreach ($config['entity_managers'] as $name => $em) {
+            $guards[$em['connection']][] = new Definition(TenantGuard::class, [new Reference('prism.metadata_factory.' . $name), new Reference('prism.tenant_context'), $guardMode, new Reference('logger', ContainerInterface::NULL_ON_INVALID_REFERENCE)]);
+        }
         $builder->registerAttributeForAutoconfiguration(AsEntityListener::class, static function (ChildDefinition $definition): void {
             $definition->addTag('prism.entity_listener');
         });
@@ -179,18 +225,18 @@ final class PrismBundle extends AbstractBundle
         $profiled = [];
         $configurations = [];
         foreach ($config['connections'] as $name => $connection) {
-            $configuration = new Reference('prism.dbal_configuration');
+            $observers = [];
             // RG-07.4 et RG-04.16 : enregistreur et détecteur N+1 en dev seulement, absents en prod
             if ($debug) {
                 $builder->setDefinition('prism.debug.queries.' . $name, new Definition(QueryRecorder::class, [self::RECORDED_QUERIES]))
                     ->addTag('kernel.reset', ['method' => 'reset']);
                 $builder->setDefinition('prism.debug.n1_detector.' . $name, new Definition(N1Detector::class, [new Reference('event_dispatcher', ContainerInterface::NULL_ON_INVALID_REFERENCE)]))
                     ->addTag('kernel.reset', ['method' => 'reset']);
-                $profiled[$name] = [new Reference('prism.debug.queries.' . $name), new Reference('prism.debug.n1_detector.' . $name)];
-                $builder->setDefinition('prism.dbal_configuration.' . $name, new Definition(Configuration::class, [new TaggedIteratorArgument('prism.type'), $profiled[$name]]))
-                    ->setFactory([ConfigurationFactory::class, 'create']);
-                $configuration = new Reference('prism.dbal_configuration.' . $name);
+                $observers = $profiled[$name] = [new Reference('prism.debug.queries.' . $name), new Reference('prism.debug.n1_detector.' . $name)];
             }
+            $builder->setDefinition('prism.dbal_configuration.' . $name, new Definition(Configuration::class, [new TaggedIteratorArgument('prism.type'), $observers, $guards[$name] ?? []]))
+                ->setFactory([ConfigurationFactory::class, 'create']);
+            $configuration = new Reference('prism.dbal_configuration.' . $name);
             $configurations[$name] = $configuration;
             $builder->setDefinition('prism.connection.' . $name, new Definition(Connection::class, [$connection['url'], $configuration]))
                 ->setFactory([DriverManager::class, 'fromUrl']);
@@ -205,6 +251,7 @@ final class PrismBundle extends AbstractBundle
         $commands = [];
         $metamodels = [];
         $flushRecorders = [];
+        $auditRecorders = [];
         foreach ($config['entity_managers'] as $name => $em) {
             $connection = new Reference('prism.connection.' . $em['connection']);
             $metadata = new Reference('prism.metadata_factory.' . $name);
@@ -217,11 +264,13 @@ final class PrismBundle extends AbstractBundle
                 $builder->setDefinition('prism.metadata_cache.' . $name, new ChildDefinition('cache.adapter.system'))->addTag('cache.pool');
                 $cache = new Reference('prism.metadata_cache.' . $name);
             }
+            // les types de la configuration de base : celle de la connexion porte des gardes qui lisent cette metadata
             $builder->setDefinition('prism.metadata_factory.' . $name, new Definition(MetadataFactory::class, [
-                new Definition(AttributeDriver::class, [$em['entity_dirs']]),
+                new Definition(AttributeDriver::class, ['$directories' => $em['entity_dirs'], '$tenantType' => $tenancy['type']]),
                 $cache,
-                new Definition(TypeRegistry::class, [$configurations[$em['connection']]])->setFactory([ConfigurationFactory::class, 'types']),
+                new Definition(TypeRegistry::class, [new Reference('prism.dbal_configuration')])->setFactory([ConfigurationFactory::class, 'types']),
             ]));
+            $builder->setDefinition('prism.filters.' . $name, new Definition(FilterCollection::class));
 
             // un dispatcher par EntityManager : ses événements ne disent pas qui les émet (ADR 0013)
             $dispatcher = $builder->setDefinition('prism.event_dispatcher.' . $name, new Definition(EventDispatcher::class));
@@ -232,6 +281,9 @@ final class PrismBundle extends AbstractBundle
                     $dispatcher->addMethodCall('addListener', [$event, [new ServiceClosureArgument(new Reference($recorder)), $method]]);
                 }
                 $flushRecorders[$name] = new Reference($recorder);
+                $builder->setDefinition('prism.debug.audit.' . $name, new Definition(AuditRecorder::class, [$name]))->addTag('kernel.reset', ['method' => 'reset']);
+                $dispatcher->addMethodCall('addListener', [AuditRecordedEvent::class, [new ServiceClosureArgument(new Reference('prism.debug.audit.' . $name)), 'onAuditRecorded']]);
+                $auditRecorders[] = new Reference('prism.debug.audit.' . $name);
             }
             $builder->setDefinition('prism.entity_manager.' . $name, new Definition(EntityManager::class, [
                 $connection,
@@ -239,6 +291,11 @@ final class PrismBundle extends AbstractBundle
                 new Reference('prism.event_dispatcher.' . $name),
                 new Reference('prism.entity_listener_resolver'),
                 $em['batch_size'],
+                new Reference('prism.tenant_context'),
+                new Reference('prism.filters.' . $name),
+                $clock,
+                new Reference(ActorProvider::class),
+                new Reference(RequestIdProvider::class),
             ]))->addTag('kernel.reset', ['method' => 'clear']); // RG-07.5
             $builder->registerAliasForArgument('prism.entity_manager.' . $name, EntityManagerInterface::class, $name . 'EntityManager');
 
@@ -259,6 +316,7 @@ final class PrismBundle extends AbstractBundle
                 'migrations' => new Reference('prism.migrations_configuration.' . $name),
                 'environment' => '%kernel.environment%',
                 'metamodel' => $metamodel,
+                'clock' => $clock,
             ];
             foreach (self::COMMANDS as $command => [$class, $needs]) {
                 $id = \sprintf('prism.command.%s.%s', $name, $command);
@@ -282,10 +340,39 @@ final class PrismBundle extends AbstractBundle
             $debug,
         ]))->addTag('kernel.cache_warmer');
 
-        // le panneau du profiler (dev seulement) ; retiré par le conteneur si le profiler est absent
+        // RG-08.5 : le tenant de chaque requête principale, avant le firewall, ou après lui pour l'utilisateur
+        $resolver = null;
+        foreach ([TenantResolver::HEADER, TenantResolver::SUBDOMAIN, TenantResolver::USER] as $strategy) {
+            $source = $tenancy['resolver'][$strategy] ?? null;
+            if (null === $source || false === $source) {
+                continue;
+            }
+            if (TenantResolver::USER === $strategy && !$this->security) {
+                throw new InvalidConfigurationException('The "user" tenant resolver reads the logged-in user: it needs SecurityBundle.');
+            }
+            $resolver = new Reference('prism.tenant_resolver');
+            $builder->setDefinition('prism.tenant_resolver', new Definition(TenantResolver::class, [
+                new Reference('prism.tenant_context'),
+                $strategy,
+                \is_string($source) ? $source : '',
+                $tenancy['type'],
+                null === $tenancy['loader'] ? null : new Reference($tenancy['loader']),
+                TenantResolver::USER === $strategy ? new Reference('security.token_storage') : null,
+            ]))
+                ->addTag('kernel.event_listener', ['event' => 'kernel.request', 'method' => 'onKernelRequest', 'priority' => TenantResolver::USER === $strategy ? 7 : 64])
+                ->addTag('kernel.reset', ['method' => 'reset']);
+        }
+
+        // les panneaux du profiler (dev seulement) ; retirés par le conteneur si le profiler est absent
         if ($debug) {
             $builder->setDefinition('prism.data_collector', new Definition(PrismDataCollector::class, [$profiled, $flushRecorders, self::RECORDED_QUERIES]))
                 ->addTag('data_collector', ['template' => PrismDataCollector::getTemplate(), 'id' => 'prism', 'priority' => 250]);
+            $builder->setDefinition('prism.audit_data_collector', new Definition(AuditDataCollector::class, [$auditRecorders]))
+                ->addTag('data_collector', ['template' => AuditDataCollector::getTemplate(), 'id' => 'prism_audit', 'priority' => 248]);
+            $builder->setDefinition('prism.debug.tenant', new Definition(TenantRecorder::class))->addTag('kernel.reset', ['method' => 'reset']);
+            $builder->getDefinition('prism.tenant_context')->addMethodCall('addSwitchListener', [new Reference('prism.debug.tenant')]);
+            $builder->setDefinition('prism.tenant_data_collector', new Definition(TenantDataCollector::class, [new Reference('prism.tenant_context'), new Reference('prism.debug.tenant'), $resolver]))
+                ->addTag('data_collector', ['template' => TenantDataCollector::getTemplate(), 'id' => 'prism_tenant', 'priority' => 249]);
         }
 
         $entityManagers = array_combine(array_keys($config['entity_managers']), array_map(static fn (string $name): Reference => new Reference('prism.entity_manager.' . $name), array_keys($config['entity_managers'])));
@@ -350,6 +437,7 @@ final class PrismBundle extends AbstractBundle
                 new ServiceLocatorArgument($byEntityManager),
                 $default,
                 array_keys($config['entity_managers']),
+                new Reference('prism.tenant_context'),
             ]))->addTag('console.command', ['command' => $command]);
         }
     }

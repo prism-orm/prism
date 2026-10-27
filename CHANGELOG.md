@@ -2,6 +2,46 @@
 
 Toutes les évolutions notables de Prism, par version. Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) ; versions [SemVer](https://semver.org/lang/fr/), en `0.x` jusqu'à la 1.0 (RT-16). Les règles citées (RG-xx, RT-xx) sont décrites dans `docs/ROADMAP.md`, les décisions (ADR) dans `docs/adr/`.
 
+## [0.8.0] — 2026-10-27
+
+Phase 8 : pilier 3, multi-tenancy et audit. Isoler les données de chaque client B2B sans oubli possible, et tracer chaque modification ; guide : [Multi-tenancy](website/guide/multi-tenancy.md) et [Audit and behaviors](website/guide/audit.md).
+
+### Ajouté
+
+- `#[Tenanted]` (ADR 0014) : colonne `tenant_id` (`integer`, `bigint` ou `uuid`) indexée et en tête des index et des contraintes d'unicité (RG-08.1) ; propriété du tenant facultative, remplie par l'ORM ; `#[Tenanted(global: true)]` pour les référentiels mixtes, lignes partagées lisibles par tous, écrites en mode système seulement.
+- `TenantContext` et `StackTenantContext` : `runAs()`, `runAsSystem()` (RG-08.5), `reset()`. Sans tenant, toute opération sur une entité tenantée lève `MissingTenantException` : il n'y a pas de mode « tous les tenants » implicite (RG-08.4).
+- `TenantFilter` sur chaque lecture et écriture de l'ORM : `find()`, `findBy()`, `count()`, `iterate()`, `refresh()`, `lock()`, ghosts, batch fetching, collections et `EXTRA_LAZY`, QueryBuilder typé (racine dans le `WHERE`, entité jointe dans son `ON`), `Paginator`, projections (RG-08.2). Isolation : 36 scénarios (42 cas) sur les 4 bases, aucune fuite.
+- `tenant_id` écrit par l'UnitOfWork, `TenantMismatchException` pour un autre tenant ou un tenant changé (RG-08.3) ; relations entre tenants refusées au flush, même en mode système (`CrossTenantRelationException`, RG-08.6).
+- Identity map vidée à chaque changement de tenant ; changement refusé avec des modifications non flushées (`TenantSwitchException`, RG-08.8) ; `TenantSwitchListener`, `TenantScope`.
+- `TenantGuard` et `QueryGuard` (DBAL) : le SQL brut sur une table tenantée doit filtrer `tenant_id` ; refus en cas de doute (sous-requête, `WITH`, `UNION`, découpage incertain), exception ou log critique (RG-08.7).
+- Filtres d'entité : `EntityFilter`, `FilterCollection`, tag `prism.filter` du bundle.
+- `#[Timestampable]` et `#[Blameable]` (ADR 0015) : heure UTC (horloge PSR-20) et auteur (`ActorProvider`) à l'INSERT, puis à chaque UPDATE qui change un autre champ (RG-08.13, RG-08.16).
+- `#[SoftDeletable]` : `remove()` écrit la date de suppression, `remove($entity, hardDelete: true)` supprime la ligne, `EntityManager::restore()` ; lignes supprimées exclues des lectures, `->withDeleted()` ; une référence vers une ligne supprimée reste lisible ; unicité sur les seules lignes non supprimées (RG-08.14, RG-08.15).
+- `#[Auditable]` : table `prism_audit_log` gérée par `db:migrations:diff`, une ligne par entité modifiée dans la transaction du flush, changeset, tenant, auteur, identifiant de requête, mode système ; champs `sensitive` masqués, `exclude` ; `AuditReader` (historique, état à une date), `AuditRecordedEvent`, `db:audit:purge` (RG-08.5, RG-08.10 à RG-08.12).
+- Bundle : configuration `prism.tenancy`, `TenantResolver` (en-tête, sous-domaine et `TenantLoader`, utilisateur `TenantAwareUserInterface`), contexte remis à zéro par `kernel.reset`, commandes `db:*` en mode système (aussi dans `bin/prism`), auteur depuis Security ou la commande, `X-Request-Id`, horloge de Symfony, panneaux « Tenant » et « Audit » du profiler.
+- DBAL : index partiel « colonne IS NULL » (`Index::$whereNull`), en index partiel sous PostgreSQL et SQLite, en colonne virtuelle masquée sous MySQL et MariaDB ; `Configuration::withGuards()`.
+- Migrations : `createIndex(whereNull:)`, généré par `db:migrations:diff` pour l'unicité avec suppression logique.
+- Démo multi-sociétés : `acme.localhost` et `globex.localhost` (`TenantLoader` sur le sous-domaine), catalogue partagé, clients supprimés logiquement, commandes horodatées, factures auditées ; 14 tests, worker FrankenPHP sur 10 000 requêtes qui alternent les deux sociétés, sans fuite ni croissance de mémoire.
+- `make bench-tenancy` : surcoût du filtre tenant sur une lecture de 10 000 entités (critère < 5 %).
+
+### Modifié
+
+- `EntityManagerInterface` : `remove()` gagne `hardDelete`, et la nouvelle méthode `restore()` ; une implémentation tierce de l'interface doit les ajouter (ADR 0015).
+- L'ORM lit toujours la colonne du tenant, gardée dans le snapshot de l'UnitOfWork, jamais sur l'entité.
+- `EntityManager` accepte en fin de constructeur un `TenantContext`, une `FilterCollection`, une horloge, un `ActorProvider` et un `RequestIdProvider`.
+- Dépendances : `psr/log` et `psr/clock` déclarés par `prism-orm/orm`.
+- Mesures : couverture `orm` 96,2 %, `dbal` 88,9 %, `bundle` 95,1 % ; MSI couvert `UnitOfWork` 85 %, `Comparator` 94 %, `CommitOrderCalculator` 97 %, `BatchLoader` 94 %, `TenantFilter` 100 %, analyse de la garde 86 %.
+
+### Documentation
+
+Phase 10a, avancée avant la phase 9 (ADR 0016) : un site de documentation complet, en anglais, dont chaque exemple est exécuté.
+
+- Site VitePress (`website/`, `make docs-dev`, `make docs-build`, job CI `website`) : démarrer, guides du cœur et des piliers 1 à 3, Symfony, recettes ERP (factures, stocks, multi-sociétés), migrer depuis Doctrine, référence. Les pages d'un paquet restent dans `packages/<paquet>/docs`, publiées aussi par le split.
+- Exemples exécutés en CI sur les 4 bases (RG-10.3), dans un processus chacun, sur les données de la démo, sous la garde du SQL brut ; une page peut s'exécuter en séquence (`examples: sequence`) ; les blocs `no-run` sont listés par la CI.
+- Référence vérifiée contre le code dans les deux sens : attributs et paramètres, options de `prism.yaml`, commandes, événements, exceptions, erreurs PHPStan ; liens internes et ancres vérifiés.
+- `symfony.md` et `commands.md` traduits en anglais ; exemple `selectInto(CustomerRevenue::class)` corrigé (paramètre `lastInvoice`).
+- Écarts trouvés en écrivant, reportés au backlog (phase 10b) : deux enums `Order`, docblock de `#[Index(where:)]`, `contains()` en `Fetch::ExtraLazy`, commentaire en français de `db:import`.
+
 ## [0.7.0] — 2026-10-22
 
 Phase 7 : bundle Symfony. `composer require prism-orm/bundle` suffit pour remplacer Doctrine dans une application Symfony 7.4 ou 8 ; guide : [Prism dans Symfony](packages/bundle/docs/symfony.md).

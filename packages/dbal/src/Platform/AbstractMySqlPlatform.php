@@ -9,6 +9,7 @@ use Prism\Dbal\Exception\InvalidParameterException;
 use Prism\Dbal\Schema\Column;
 use Prism\Dbal\Schema\ColumnDiff;
 use Prism\Dbal\Schema\ForeignKey;
+use Prism\Dbal\Schema\Index;
 use Prism\Dbal\Schema\Table;
 use Prism\Dbal\Schema\TableDiff;
 
@@ -19,6 +20,9 @@ use Prism\Dbal\Schema\TableDiff;
  */
 abstract class AbstractMySqlPlatform extends AbstractPlatform
 {
+    // colonnes virtuelles des index partiels (ADR 0015)
+    public const string LIVE_PREFIX = 'prism_live_';
+
     // MySQL et MariaDB n'ont pas DEFAULT VALUES
     public function getInsertDefaultValuesSql(string $table): string
     {
@@ -80,6 +84,45 @@ abstract class AbstractMySqlPlatform extends AbstractPlatform
         return 'DROP INDEX ' . $this->quoteIdentifier($index) . ' ON ' . $this->quoteIdentifier($table);
     }
 
+    /**
+     * Pas d'index partiel : une colonne virtuelle vaut 1 pour une ligne couverte, NULL sinon, et
+     * finit l'index ; les NULL ne se heurtent pas dans un index unique (RG-08.15, ADR 0015).
+     */
+    public function getCreateIndexSql(string $table, Index $index): string
+    {
+        if (null === $index->whereNull) {
+            return parent::getCreateIndexSql($table, $index);
+        }
+        $live = self::liveColumn($index->name);
+
+        return \sprintf(
+            'ALTER TABLE %s ADD COLUMN %s TINYINT AS (IF(%s IS NULL, 1, NULL)) VIRTUAL, ADD %sINDEX %s (%s)',
+            $this->quoteIdentifier($table),
+            $this->quoteIdentifier($live),
+            $this->quoteIdentifier($index->whereNull),
+            $index->unique ? 'UNIQUE ' : '',
+            $this->quoteIdentifier($index->name),
+            $this->quoteIdentifiers([...$index->columns, $live]),
+        );
+    }
+
+    public function getDropIndexDefinitionSql(string $table, Index $index): string
+    {
+        if (null === $index->whereNull) {
+            return parent::getDropIndexDefinitionSql($table, $index);
+        }
+
+        return \sprintf('ALTER TABLE %s DROP INDEX %s, DROP COLUMN %s', $this->quoteIdentifier($table), $this->quoteIdentifier($index->name), $this->quoteIdentifier(self::liveColumn($index->name)));
+    }
+
+    /**
+     * La colonne virtuelle d'un index partiel, déduite de son nom ; masquée par l'introspection.
+     */
+    public static function liveColumn(string $index): string
+    {
+        return self::LIVE_PREFIX . substr(hash('sha256', strtolower($index)), 0, 16);
+    }
+
     public function getListTablesSql(): string
     {
         return "SELECT TABLE_NAME AS name FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_TYPE = 'BASE TABLE' ORDER BY TABLE_NAME";
@@ -89,7 +132,7 @@ abstract class AbstractMySqlPlatform extends AbstractPlatform
     {
         return 'SELECT c.COLUMN_NAME AS name, c.DATA_TYPE AS data_type, c.COLUMN_TYPE AS column_type, c.IS_NULLABLE AS nullable,'
             . ' c.COLUMN_DEFAULT AS default_value, c.CHARACTER_MAXIMUM_LENGTH AS length, c.NUMERIC_PRECISION AS `precision`,'
-            . ' c.NUMERIC_SCALE AS scale, c.EXTRA AS extra, k.ORDINAL_POSITION AS primary_position'
+            . ' c.NUMERIC_SCALE AS scale, c.EXTRA AS extra, c.GENERATION_EXPRESSION AS generation, k.ORDINAL_POSITION AS primary_position'
             . ' FROM information_schema.COLUMNS c'
             . " LEFT JOIN information_schema.KEY_COLUMN_USAGE k ON k.TABLE_SCHEMA = c.TABLE_SCHEMA AND k.TABLE_NAME = c.TABLE_NAME AND k.COLUMN_NAME = c.COLUMN_NAME AND k.CONSTRAINT_NAME = 'PRIMARY'"
             . ' WHERE c.TABLE_SCHEMA = DATABASE() AND c.TABLE_NAME = ? ORDER BY c.ORDINAL_POSITION';
@@ -97,7 +140,7 @@ abstract class AbstractMySqlPlatform extends AbstractPlatform
 
     public function getListIndexesSql(): string
     {
-        return 'SELECT INDEX_NAME AS name, COLUMN_NAME AS column_name, NON_UNIQUE AS non_unique FROM information_schema.STATISTICS'
+        return 'SELECT INDEX_NAME AS name, COLUMN_NAME AS column_name, NON_UNIQUE AS non_unique, NULL AS predicate FROM information_schema.STATISTICS'
             . " WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND INDEX_NAME <> 'PRIMARY' ORDER BY INDEX_NAME, SEQ_IN_INDEX";
     }
 

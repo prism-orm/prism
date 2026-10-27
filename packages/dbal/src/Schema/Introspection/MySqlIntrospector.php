@@ -9,6 +9,7 @@ use Prism\Dbal\Exception\InvalidSchemaException;
 use Prism\Dbal\Platform\AbstractMySqlPlatform;
 use Prism\Dbal\Platform\MariaDbPlatform;
 use Prism\Dbal\Schema\Column;
+use Prism\Dbal\Schema\Index;
 use Prism\Dbal\Schema\Sequence;
 use Prism\Dbal\Schema\Table;
 
@@ -21,6 +22,9 @@ final class MySqlIntrospector extends AbstractIntrospector
 {
     /** @var array<string, true> colonnes LONGTEXT porteuses d'un CHECK (json_valid(…)) */
     private array $jsonColumns = [];
+
+    /** @var array<string, string> colonne testée, par colonne virtuelle d'index partiel (en minuscules) */
+    private array $liveColumns = [];
 
     public function __construct(Connection $connection, AbstractMySqlPlatform $platform, private readonly bool $mariaDb)
     {
@@ -45,6 +49,7 @@ final class MySqlIntrospector extends AbstractIntrospector
     protected function prepare(string $table): void
     {
         $this->jsonColumns = [];
+        $this->liveColumns = [];
         if (!$this->platform instanceof MariaDbPlatform) {
             return;
         }
@@ -110,6 +115,33 @@ final class MySqlIntrospector extends AbstractIntrospector
             str_contains(strtolower(self::string($row['extra'])), 'auto_increment'),
             $fixed && 'uuid' !== $type,
         );
+    }
+
+    // un index qui finit par la colonne virtuelle d'un index partiel redevient partiel
+    protected function indexes(string $table): array
+    {
+        return array_map(function (Index $index): Index {
+            $last = strtolower($index->columns[\count($index->columns) - 1]);
+
+            return \count($index->columns) > 1 && isset($this->liveColumns[$last])
+                ? new Index($index->name, \array_slice($index->columns, 0, -1), $index->unique, $this->liveColumns[$last])
+                : $index;
+        }, parent::indexes($table));
+    }
+
+    // la colonne virtuelle d'un index partiel (ADR 0015) : masquée, sa condition est relue
+    protected function hidden(array $row): bool
+    {
+        $name = self::string($row['name']);
+        if (!str_starts_with(strtolower($name), AbstractMySqlPlatform::LIVE_PREFIX)) {
+            return false;
+        }
+        $column = 1 === preg_match('/`((?:[^`]|``)+)`\s+is\s+null/i', self::nullableString($row['generation'] ?? null) ?? '', $m) ? str_replace('``', '`', $m[1]) : null;
+        if (null !== $column) {
+            $this->liveColumns[strtolower($name)] = $column;
+        }
+
+        return true;
     }
 
     // MySQL crée un index portant le nom de la clé étrangère quand aucun index ne la couvre :

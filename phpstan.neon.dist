@@ -21,6 +21,7 @@ parameters:
         - packages/test-pack/src
         - packages/test-pack/tests
         - benchmarks
+        - website/tests
     # cas de la suite de l'extension : du code volontairement faux, analysé par RuleTestCase
     excludePaths:
         - packages/phpstan/tests/data
@@ -30,5 +31,6 @@ parameters:
     additionalConstructors:
         - Prism\Benchmarks\HydrationBench::setUp
         - Prism\Benchmarks\FlushBench::setUp
+        - Prism\Benchmarks\TenancyBench::setUp
     checkImplicitMixed: true
     reportUnmatchedIgnoredErrors: true

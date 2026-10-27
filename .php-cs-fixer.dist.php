@@ -3,7 +3,7 @@
 declare(strict_types=1);
 
 $finder = new PhpCsFixer\Finder()
-    ->in([__DIR__ . '/packages', __DIR__ . '/benchmarks'])
+    ->in([__DIR__ . '/packages', __DIR__ . '/benchmarks', __DIR__ . '/website/tests'])
     // metamodel généré (ADR 0009) : gardé tel que le générateur l'écrit
     ->notName('*_.php')
     ->append([__FILE__]);

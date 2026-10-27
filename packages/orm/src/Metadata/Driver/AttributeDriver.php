@@ -10,6 +10,7 @@ use Prism\Orm\Mapping\LifecycleCallbackAttribute;
 use Prism\Orm\Mapping\MappingAttribute;
 use Prism\Orm\Metadata\AssociationMapping;
 use Prism\Orm\Metadata\AssociationType;
+use Prism\Orm\Metadata\BehaviorMapping;
 use Prism\Orm\Metadata\ClassMetadata;
 use Prism\Orm\Metadata\EmbeddedMapping;
 use Prism\Orm\Metadata\FieldMapping;
@@ -18,6 +19,7 @@ use Prism\Orm\Metadata\IndexMapping;
 use Prism\Orm\Metadata\JoinTableMapping;
 use Prism\Orm\Metadata\Naming\NamingStrategy;
 use Prism\Orm\Metadata\Naming\UnderscoreNamingStrategy;
+use Prism\Orm\Metadata\TenancyMapping;
 
 /**
  * Construit les ClassMetadata à partir des attributs PHP (ADR 0002).
@@ -36,10 +38,12 @@ final class AttributeDriver implements MetadataDriver
 
     /**
      * @param list<string> $directories dossiers où chercher les entités (getAllClassNames)
+     * @param string       $tenantType  type DBAL de la colonne du tenant (TenancyMapping::TYPES)
      */
     public function __construct(
         private readonly array $directories = [],
         private readonly NamingStrategy $naming = new UnderscoreNamingStrategy(),
+        private readonly string $tenantType = 'integer',
     ) {
     }
 
@@ -118,7 +122,59 @@ final class AttributeDriver implements MetadataDriver
             self::classString($class, $entity->repositoryClass),
             $table->options ?? [],
             self::listenerCallbacks($listeners),
+            $this->tenancy($reflection, $fields),
+            self::behaviors($reflection),
         );
+    }
+
+    /**
+     * ADR 0015 : #[Timestampable], #[Blameable], #[SoftDeletable], #[Auditable] ; leurs champs
+     * sont vérifiés par le MetadataValidator.
+     *
+     * @param \ReflectionClass<object> $class
+     */
+    private static function behaviors(\ReflectionClass $class): ?BehaviorMapping
+    {
+        $timestampable = self::attribute($class, Attr\Timestampable::class);
+        $blameable = self::attribute($class, Attr\Blameable::class);
+        $softDeletable = self::attribute($class, Attr\SoftDeletable::class);
+        $auditable = self::attribute($class, Attr\Auditable::class);
+        if (null === $timestampable && null === $blameable && null === $softDeletable && null === $auditable) {
+            return null;
+        }
+
+        return new BehaviorMapping(
+            $timestampable?->createdAt,
+            $timestampable?->updatedAt,
+            $blameable?->createdBy,
+            $blameable?->updatedBy,
+            $softDeletable?->field,
+            null !== $auditable,
+            $auditable->exclude ?? [],
+            $auditable?->retention,
+        );
+    }
+
+    /**
+     * RG-08.1 : une propriété mappée sur la colonne du tenant la rend lisible ; sinon la colonne
+     * n'appartient qu'à l'ORM (ADR 0014).
+     *
+     * @param \ReflectionClass<object> $class
+     * @param list<FieldMapping>       $fields
+     */
+    private function tenancy(\ReflectionClass $class, array $fields): ?TenancyMapping
+    {
+        $tenanted = self::attribute($class, Attr\Tenanted::class);
+        if (null === $tenanted) {
+            return null;
+        }
+        if ($tenanted->strictForeignKeys) {
+            throw MappingException::invalidMetadata($class->getName(), '#[Tenanted(strictForeignKeys: true)] is not supported in 1.0: it needs composite foreign keys on (tenant_id, id). Remove it; relations between tenants are refused at flush (RG-08.6).');
+        }
+        $column = $tenanted->column ?? $this->naming->propertyToColumnName('tenantId');
+        $field = array_find($fields, static fn (FieldMapping $f): bool => 0 === strcasecmp($f->columnName, $column));
+
+        return new TenancyMapping($column, $this->tenantType, $tenanted->global, $field?->fieldName);
     }
 
     private function isField(\ReflectionProperty $property): bool

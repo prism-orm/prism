@@ -8,8 +8,13 @@ use Prism\Dbal\LockMode;
 use Prism\Dbal\Query\Order;
 use Prism\Dbal\Type\ConversionContext;
 use Prism\Dbal\Type\TypeRegistry;
+use Prism\Orm\Audit\AuditLog;
+use Prism\Orm\Audit\AuditWriter;
+use Prism\Orm\Behavior\ActorProvider;
+use Prism\Orm\Behavior\SystemClock;
 use Prism\Orm\Collection\Collection;
 use Prism\Orm\Collection\PersistentCollection;
+use Prism\Orm\Event\AuditRecordedEvent;
 use Prism\Orm\Event\BatchLoadedEvent;
 use Prism\Orm\Event\DefaultEntityListenerResolver;
 use Prism\Orm\Event\EntityListenerResolver;
@@ -26,16 +31,21 @@ use Prism\Orm\Event\PreFlushEvent;
 use Prism\Orm\Event\PrePersistEvent;
 use Prism\Orm\Event\PreRemoveEvent;
 use Prism\Orm\Event\PreUpdateEvent;
+use Prism\Orm\Exception\CrossTenantRelationException;
 use Prism\Orm\Exception\CyclicDependencyException;
 use Prism\Orm\Exception\EntityNotFoundException;
 use Prism\Orm\Exception\InvalidArgumentException;
 use Prism\Orm\Exception\InvalidEntityStateException;
 use Prism\Orm\Exception\MappingException;
+use Prism\Orm\Exception\MissingTenantException;
 use Prism\Orm\Exception\OptimisticLockException;
 use Prism\Orm\Exception\OrphanReattachedException;
 use Prism\Orm\Exception\ReentrantFlushException;
+use Prism\Orm\Exception\TenantMismatchException;
+use Prism\Orm\Exception\TenantSwitchException;
 use Prism\Orm\Exception\TransactionRequiredException;
 use Prism\Orm\Exception\UnpersistedRelationException;
+use Prism\Orm\Filter\FilterOperation;
 use Prism\Orm\Hydrator\ObjectHydrator;
 use Prism\Orm\Lazy\LazyFactory;
 use Prism\Orm\Mapping\Cascade;
@@ -49,6 +59,11 @@ use Prism\Orm\Metadata\ClassMetadata;
 use Prism\Orm\Metadata\FieldMapping;
 use Prism\Orm\Metadata\MetadataFactory;
 use Prism\Orm\Persister\PersisterProvider;
+use Prism\Orm\Tenancy\StackTenantContext;
+use Prism\Orm\Tenancy\TenantContext;
+use Prism\Orm\Tenancy\TenantScope;
+use Prism\Orm\Tenancy\TenantSwitchListener;
+use Psr\Clock\ClockInterface;
 use Psr\EventDispatcher\EventDispatcherInterface;
 
 /**
@@ -82,7 +97,7 @@ use Psr\EventDispatcher\EventDispatcherInterface;
  *
  * @api
  */
-final class UnitOfWork
+final class UnitOfWork implements TenantSwitchListener
 {
     /** @var array<int, EntityState> */
     private array $states = [];
@@ -154,6 +169,25 @@ final class UnitOfWork
     /** @var array<class-string, array<string, array{array<string, mixed>, Cohort}>> lignes chargées par lot, en attente de leur ghost */
     private array $prefetched = [];
 
+    private readonly TenantContext $tenants;
+
+    private readonly ClockInterface $clock;
+
+    /** @var array<class-string, FieldMapping> colonne du tenant de chaque entité #[Tenanted], typée */
+    private array $tenantFields = [];
+
+    /** @var array<int, mixed> tenant écrit à l'INSERT, que ne porte aucun champ, en attente du snapshot */
+    private array $insertedTenants = [];
+
+    /** @var array<int, true> entités supprimées logiquement depuis le dernier flush (audit : soft-delete) */
+    private array $softDeleted = [];
+
+    /** @var array<int, true> entités restaurées depuis le dernier flush (audit : restore) */
+    private array $restored = [];
+
+    /** @var list<array{class-string, string, ?string, string, array<string, array{mixed, mixed}>, bool}> lignes d'audit du flush en cours */
+    private array $auditRecords = [];
+
     public function __construct(
         private readonly MetadataFactory $metadata,
         private readonly PersisterProvider $persisters,
@@ -162,7 +196,15 @@ final class UnitOfWork
         ?EventDispatcherInterface $events = null,
         ?EntityListenerResolver $listeners = null,
         int $batchSize = 100,
+        ?TenantContext $tenants = null,
+        ?ClockInterface $clock = null,
+        private readonly ?ActorProvider $actors = null,
+        private readonly ?AuditWriter $audit = null,
     ) {
+        $this->clock = $clock ?? new SystemClock();
+        // sans contexte, une entité #[Tenanted] n'a jamais de tenant (RG-08.4)
+        $this->tenants = $tenants ?? new StackTenantContext();
+        $this->tenants->addSwitchListener($this);
         $this->batch = new BatchLoader($batchSize);
         $this->detached = new \WeakMap();
         $this->hydrator = new ObjectHydrator($conversion, $types);
@@ -203,7 +245,7 @@ final class UnitOfWork
      *
      * @throws InvalidEntityStateException entité NEW ou DETACHED
      */
-    public function remove(object $entity): void
+    public function remove(object $entity, bool $hardDelete = false): void
     {
         $oid = spl_object_id($entity);
 
@@ -224,11 +266,62 @@ final class UnitOfWork
                 }
                 // la version et les listeners lisent l'entité : une référence est chargée d'abord
                 $this->lazy->initialize($entity);
-                $this->lifecycle->lifecycle($this->metadataOf($entity), LifecycleEvent::PreRemove, $entity, fn (): PreRemoveEvent => new PreRemoveEvent($entity, $this));
+                $metadata = $this->metadataOf($entity);
+                if (!$hardDelete && null !== $field = $metadata->behaviors->deletedAt) {
+                    $this->softRemove($metadata, $entity, $field);
+
+                    return;
+                }
+                $this->lifecycle->lifecycle($metadata, LifecycleEvent::PreRemove, $entity, fn (): PreRemoveEvent => new PreRemoveEvent($entity, $this));
                 $this->states[$oid] = EntityState::Removed;
                 $this->deletions[$oid] = $entity;
                 $this->cascadeRemove($entity);
         }
+    }
+
+    /**
+     * RG-08.14 : la suppression d'une entité #[SoftDeletable] est l'UPDATE de son champ de
+     * suppression au flush (PreRemove ici, PostUpdate après le flush) ; une entité déjà supprimée
+     * reste telle quelle. Les cascades s'appliquent comme à une suppression (ADR 0015).
+     *
+     * @param ClassMetadata<object> $metadata
+     */
+    private function softRemove(ClassMetadata $metadata, object $entity, string $field): void
+    {
+        if (null !== $this->read($entity, $metadata->className, $field)) {
+            return;
+        }
+        $oid = spl_object_id($entity);
+        $this->lifecycle->lifecycle($metadata, LifecycleEvent::PreRemove, $entity, fn (): PreRemoveEvent => new PreRemoveEvent($entity, $this));
+        $this->property($metadata->className, $field)->setValue($entity, $this->now());
+        $this->softDeleted[$oid] = true;
+        unset($this->restored[$oid]);
+        $this->cascadeRemove($entity);
+    }
+
+    /**
+     * RG-08.14 : une entité supprimée logiquement redevient visible, par l'UPDATE de son champ de
+     * suppression au flush ; sans effet sur une entité qui ne l'est pas (ADR 0015).
+     *
+     * @throws InvalidArgumentException    entité sans #[SoftDeletable]
+     * @throws InvalidEntityStateException entité qui n'est pas MANAGED
+     */
+    public function restore(object $entity): void
+    {
+        $metadata = $this->metadataOf($entity);
+        $field = $metadata->behaviors->deletedAt ?? throw InvalidArgumentException::notSoftDeletable($metadata->className);
+        $state = $this->getEntityState($entity);
+        if (EntityState::Managed !== $state) {
+            throw InvalidEntityStateException::transition($entity, $state, 'restore', 'only a managed entity can be restored; load it with withDeleted().');
+        }
+        $this->lazy->initialize($entity);
+        if (null === $this->read($entity, $metadata->className, $field)) {
+            return;
+        }
+        $oid = spl_object_id($entity);
+        $this->property($metadata->className, $field)->setValue($entity, null);
+        $this->restored[$oid] = true;
+        unset($this->softDeleted[$oid]);
     }
 
     /**
@@ -323,6 +416,9 @@ final class UnitOfWork
         $this->states = [];
         $this->entities = [];
         $this->snapshots = [];
+        $this->insertedTenants = [];
+        $this->softDeleted = [];
+        $this->restored = [];
         $this->identityMap = [];
         $this->keys = [];
         $this->collectionSnapshots = [];
@@ -612,7 +708,8 @@ final class UnitOfWork
         }
 
         $metadata = $this->metadataOf($entity);
-        $row = $this->persisters->getPersister($metadata)->loadById($this->idOf($metadata, $oid));
+        // une référence : la ligne supprimée logiquement se relit (ADR 0015)
+        $row = $this->persisters->getPersister($metadata)->loadById($this->idOf($metadata, $oid), FilterOperation::Load);
         if (null === $row) {
             throw EntityNotFoundException::forId($metadata->className, $this->property($metadata->className, $metadata->id->fieldName)->getValue($entity));
         }
@@ -620,7 +717,7 @@ final class UnitOfWork
         $this->hydrateRelations($metadata, $entity, $row, refresh: true);
         $this->hydrateCollections($metadata, $entity, refresh: true);
         $this->completeCohort($metadata, [$entity], refresh: true);
-        $this->snapshots[$oid] = $this->databaseRow($metadata, $entity);
+        $this->snapshots[$oid] = $this->databaseRow($metadata, $entity) + $this->tenantColumn($metadata, $row);
         $this->postLoad($metadata, $entity);
     }
 
@@ -672,6 +769,9 @@ final class UnitOfWork
      * @throws UnpersistedRelationException entité NEW atteinte sans cascade: persist (RG-04.2)
      * @throws CyclicDependencyException    cycle de FK obligatoires (RG-04.4)
      * @throws OrphanReattachedException    orphelin rattaché à un autre parent (RG-04.5)
+     * @throws MissingTenantException       entité #[Tenanted] à écrire sans tenant (RG-08.4)
+     * @throws TenantMismatchException      tenant d'un autre, ou changé (RG-08.3)
+     * @throws CrossTenantRelationException relation entre deux tenants (RG-08.6)
      */
     public function commit(): void
     {
@@ -692,6 +792,7 @@ final class UnitOfWork
             $updates = $this->pendingUpdates();
             $collections = $this->pendingCollections();
             $this->reportInverseChanges($collections);
+            $this->assertSameTenants($updates, $collections);
             if ([] !== $this->insertions || [] !== $this->deletions || [] !== $updates || [] !== $collections) {
                 $this->executeFlush($updates, $collections, $this->insertionOrder(), $this->deletionOrder());
             }
@@ -700,6 +801,37 @@ final class UnitOfWork
         } finally {
             $this->flushing = false;
         }
+    }
+
+    /**
+     * RG-08.8 : aucune entité ne passe d'un tenant à l'autre. Sans changement en attente,
+     * l'identity map est vidée ; avec, le changement est refusé à l'entrée, et les changements
+     * abandonnés à la sortie d'un runAs() (ADR 0014).
+     *
+     * @throws TenantSwitchException
+     */
+    public function switching(TenantScope $from, TenantScope $to, bool $leaving): void
+    {
+        if ([] === $this->entities && [] === $this->insertions) {
+            return;
+        }
+        if ($this->hasPendingChanges()) {
+            if (!$leaving) {
+                throw TenantSwitchException::pendingChanges($from, $to);
+            }
+            $this->clear();
+
+            throw TenantSwitchException::discarded($from, $to);
+        }
+        $this->clear();
+    }
+
+    /**
+     * Vrai si un flush écrirait quelque chose (calculé à l'appel, comme un flush).
+     */
+    public function hasPendingChanges(): bool
+    {
+        return [] !== $this->insertions || [] !== $this->deletions || [] !== $this->pendingUpdates() || [] !== $this->pendingCollections();
     }
 
     /**
@@ -743,23 +875,35 @@ final class UnitOfWork
         /** @var list<array{object, \ReflectionProperty, mixed}> valeurs écrites sur les entités, à rétablir si rollback */
         $written = [];
 
+        $this->auditRecords = [];
         try {
             $done = $this->persisters->transactional(function () use ($updates, $collections, $insertions, $deletions, &$written): array {
                 $inserted = $this->executeInsertions($insertions, $written);
                 $updated = $this->executeUpdates($updates, $written);
                 $this->executeCollections($collections);
+                $deleted = $this->executeDeletions($deletions);
+                // RG-08.10 : dans la transaction du flush, après les écritures des entités
+                $entries = null === $this->audit ? [] : $this->audit->write($this->auditRecords);
 
-                return [$inserted, $updated, $this->executeDeletions($deletions)];
+                return [$inserted, $updated, $deleted, $entries];
             });
         } catch (\Throwable $e) {
             foreach (array_reverse($written) as [$entity, $property, $value]) {
+                // une propriété non initialisée et non nullable ne peut pas le redevenir
+                if (null === $value && false === $property->getType()?->allowsNull()) {
+                    continue;
+                }
                 $property->setValue($entity, $value);
             }
 
             throw $e;
         }
 
-        $this->afterCommit(...$done);
+        [$inserted, $updated, $deleted, $entries] = $done;
+        $this->afterCommit($inserted, $updated, $deleted);
+        if ([] !== $entries) {
+            $this->lifecycle->dispatch(new AuditRecordedEvent($entries));
+        }
         foreach ($collections as [$oid, $association]) {
             $collection = $this->read($this->entities[$oid] ?? throw new \LogicException('Unknown owner.'), $this->metadataOf($this->entities[$oid])->className, $association->fieldName);
             if ($collection instanceof Collection) {
@@ -789,6 +933,7 @@ final class UnitOfWork
             $entity = $this->insertions[$oid];
             $metadata = $this->metadataOf($entity);
             $this->lifecycle->lifecycle($metadata, LifecycleEvent::PrePersist, $entity, fn (): PrePersistEvent => new PrePersistEvent($entity, $this));
+            $this->stampInsert($metadata, $entity, $written);
             $idField = $metadata->getIdField();
 
             if (null !== $generated = $this->persisters->nextId($metadata)) {
@@ -799,6 +944,7 @@ final class UnitOfWork
             foreach ($nulled[$oid] ?? [] as $column) {
                 $row[$column] = null;
             }
+            $row = $this->withTenant($metadata, $entity, $row, $written);
             $identity = $this->persisters->getPersister($metadata)->insert($row);
             if (null !== $identity) {
                 $this->write($entity, $idField->fieldName, $this->toPhp($idField, $identity), $written);
@@ -812,6 +958,16 @@ final class UnitOfWork
             $metadata = $this->metadataOf($entity);
             $column = (string) $metadata->getAssociation($dependency->field)->joinColumn;
             $this->persisters->getPersister($metadata)->update($this->currentId($metadata, $entity), [$column => $this->databaseRow($metadata, $entity)[$column]]);
+        }
+
+        foreach ($inserted as $entity) {
+            $metadata = $this->metadataOf($entity);
+            if ($metadata->behaviors->auditable) {
+                $oid = spl_object_id($entity);
+                $row = $this->databaseRow($metadata, $entity);
+                $tenant = null === $metadata->tenancy ? null : ($row[$metadata->tenancy->column] ?? $this->insertedTenants[$oid] ?? null);
+                $this->audit($metadata, AuditLog::INSERT, $this->currentId($metadata, $entity), $tenant, [], $row);
+            }
         }
 
         return $inserted;
@@ -836,6 +992,10 @@ final class UnitOfWork
             if ([] === $changes) {
                 continue;
             }
+            if ($this->stampUpdate($metadata, $entity, $changes, $written)) {
+                $changes = $this->changes($metadata, $entity);
+            }
+            $this->assertTenantUnchanged($metadata, $oid, $changes);
 
             $version = null;
             if (null !== $metadata->versionField) {
@@ -850,6 +1010,10 @@ final class UnitOfWork
             $affected = $this->persisters->getPersister($metadata)->update($this->idOf($metadata, $oid), $changes, $version);
             if (0 === $affected && null !== $version) {
                 throw OptimisticLockException::versionMismatch($entity, $this->toPhp($metadata->getField($metadata->versionField), $version[1]));
+            }
+            if ($metadata->behaviors->auditable && 0 !== $affected) {
+                $action = isset($this->softDeleted[$oid]) ? AuditLog::SOFT_DELETE : (isset($this->restored[$oid]) ? AuditLog::RESTORE : AuditLog::UPDATE);
+                $this->audit($metadata, $action, $this->idOf($metadata, $oid), $this->snapshotTenant($metadata, $oid), array_intersect_key($this->snapshots[$oid] ?? [], $changes), $changes);
             }
             $updated[] = [$entity, $changes];
         }
@@ -894,6 +1058,9 @@ final class UnitOfWork
             if (0 === $affected && null !== $version) {
                 throw OptimisticLockException::versionMismatch($entity, $this->toPhp($metadata->getField($metadata->versionField), $version[1]));
             }
+            if ($metadata->behaviors->auditable && 0 !== $affected) {
+                $this->audit($metadata, AuditLog::DELETE, $this->idOf($metadata, $oid), $this->snapshotTenant($metadata, $oid), $this->snapshots[$oid] ?? [], []);
+            }
             $deleted[] = $entity;
         }
 
@@ -914,6 +1081,10 @@ final class UnitOfWork
             $metadata = $this->metadataOf($entity);
             $oid = spl_object_id($entity);
             $this->snapshots[$oid] = $this->databaseRow($metadata, $entity);
+            if (\array_key_exists($oid, $this->insertedTenants) && null !== $metadata->tenancy) {
+                $this->snapshots[$oid][$metadata->tenancy->column] = $this->insertedTenants[$oid];
+            }
+            unset($this->insertedTenants[$oid]);
             $key = self::key($this->property($metadata->className, $metadata->id->fieldName)->getValue($entity));
             $this->identityMap[$metadata->className][$key] = $entity;
             $this->keys[$oid] = $key;
@@ -922,6 +1093,8 @@ final class UnitOfWork
             $oid = spl_object_id($entity);
             $this->snapshots[$oid] = $changes + $this->snapshots[$oid];
         }
+        $this->softDeleted = [];
+        $this->restored = [];
         foreach ($deleted as $entity) {
             $this->forget($entity);
         }
@@ -1105,6 +1278,353 @@ final class UnitOfWork
     }
 
     /**
+     * RG-08.10, RG-08.11 : une ligne d'audit de ce flush ; un champ par colonne changée (la
+     * relation ToOne par sa clé étrangère), sans les champs exclus, « *** » pour un champ
+     * sensible ; la colonne du tenant que ne porte aucun champ donne le tenant, pas un changement.
+     *
+     * @param ClassMetadata<object> $metadata
+     * @param array<string, mixed>  $old      valeurs de la base avant, par colonne
+     * @param array<string, mixed>  $new      valeurs de la base après, par colonne
+     */
+    private function audit(ClassMetadata $metadata, string $action, mixed $id, mixed $tenant, array $old, array $new): void
+    {
+        if (null === $this->audit) {
+            return;
+        }
+        $changes = [];
+        foreach (array_unique([...array_keys($old), ...array_keys($new)]) as $column) {
+            $field = $metadata->getFieldPathByColumn($column) ?? $this->joinFieldOf($metadata, $column);
+            if (null === $field || \in_array($field, $metadata->behaviors->auditExclude, true)) {
+                continue;
+            }
+            $before = \array_key_exists($column, $old) ? self::auditValue($old[$column]) : null;
+            $after = \array_key_exists($column, $new) ? self::auditValue($new[$column]) : null;
+            if ($metadata->hasField($field) && $metadata->getField($field)->sensitive) {
+                [$before, $after] = [\array_key_exists($column, $old) ? AuditLog::MASK : null, \array_key_exists($column, $new) ? AuditLog::MASK : null];
+            }
+            $changes[$field] = [$before, $after];
+        }
+        // une mise à jour des seuls champs exclus n'a rien à journaliser
+        if ([] === $changes && AuditLog::UPDATE === $action) {
+            return;
+        }
+        $this->auditRecords[] = [$metadata->className, self::auditKey($id), null === $tenant ? null : self::auditKey($tenant), $action, $changes, $this->tenants->isSystem()];
+    }
+
+    /**
+     * @param ClassMetadata<object> $metadata
+     */
+    private function joinFieldOf(ClassMetadata $metadata, string $column): ?string
+    {
+        foreach ($metadata->getAssociations() as $association) {
+            if (null !== $association->joinColumn && 0 === strcasecmp($association->joinColumn, $column)) {
+                return $association->fieldName;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @param ClassMetadata<object> $metadata
+     */
+    private function snapshotTenant(ClassMetadata $metadata, int $oid): mixed
+    {
+        return null === $metadata->tenancy ? null : ($this->snapshots[$oid][$metadata->tenancy->column] ?? null);
+    }
+
+    // une valeur de la base, encodable en JSON : un binaire passe en base64
+    private static function auditValue(mixed $value): mixed
+    {
+        return \is_string($value) && !mb_check_encoding($value, 'UTF-8') ? 'base64:' . base64_encode($value) : $value;
+    }
+
+    private static function auditKey(mixed $value): string
+    {
+        return \is_scalar($value) ? (string) $value : get_debug_type($value);
+    }
+
+    /**
+     * RG-08.13, RG-08.16 : à l'INSERT, l'heure et l'auteur des champs encore vides ; une valeur
+     * posée par l'application (reprise de données) est gardée (ADR 0015).
+     *
+     * @param ClassMetadata<object>                           $metadata
+     * @param list<array{object, \ReflectionProperty, mixed}> $written
+     */
+    private function stampInsert(ClassMetadata $metadata, object $entity, array &$written): void
+    {
+        $behaviors = $metadata->behaviors;
+        if (!$behaviors->isTimestampable() && !$behaviors->isBlameable()) {
+            return;
+        }
+        $now = $this->now();
+        $actor = $this->actors?->getActor();
+        foreach ([[$behaviors->createdAt, $now], [$behaviors->updatedAt, $now], [$behaviors->createdBy, $actor], [$behaviors->updatedBy, $actor]] as [$field, $value]) {
+            if (null !== $field && null === $this->read($entity, $metadata->className, $field)) {
+                $this->write($entity, $field, $value, $written);
+            }
+        }
+    }
+
+    /**
+     * RG-08.13 : updatedAt et updatedBy ne changent que si un autre champ a changé.
+     *
+     * @param ClassMetadata<object>                           $metadata
+     * @param array<string, mixed>                            $changes
+     * @param list<array{object, \ReflectionProperty, mixed}> $written
+     *
+     * @return bool vrai si l'entité a été modifiée : le changeset est à recalculer
+     */
+    private function stampUpdate(ClassMetadata $metadata, object $entity, array $changes, array &$written): bool
+    {
+        $fields = $metadata->behaviors->updateFields();
+        if ([] === $fields) {
+            return false;
+        }
+        $own = array_map(static fn (string $field): string => $metadata->getField($field)->columnName, $fields);
+        if ([] === array_diff(array_keys($changes), $own)) {
+            return false;
+        }
+        if (null !== $metadata->behaviors->updatedAt) {
+            $this->write($entity, $metadata->behaviors->updatedAt, $this->now(), $written);
+        }
+        if (null !== $metadata->behaviors->updatedBy) {
+            $this->write($entity, $metadata->behaviors->updatedBy, $this->actors?->getActor(), $written);
+        }
+
+        return true;
+    }
+
+    // RG-08.13 : en UTC, quelle que soit l'horloge fournie
+    private function now(): \DateTimeImmutable
+    {
+        return $this->clock->now()->setTimezone(new \DateTimeZone('UTC'));
+    }
+
+    /**
+     * RG-08.3, RG-08.4 : la colonne du tenant d'une ligne à insérer, depuis le TenantContext ;
+     * une propriété du tenant est remplie. En mode système, seule une propriété remplie, ou une
+     * entité global (ligne partagée, NULL), donne le tenant (ADR 0014).
+     *
+     * @param ClassMetadata<object>                           $metadata
+     * @param array<string, mixed>                            $row
+     * @param list<array{object, \ReflectionProperty, mixed}> $written
+     *
+     * @return array<string, mixed>
+     *
+     * @throws MissingTenantException
+     * @throws TenantMismatchException
+     */
+    private function withTenant(ClassMetadata $metadata, object $entity, array $row, array &$written): array
+    {
+        $tenancy = $metadata->tenancy;
+        if (null === $tenancy) {
+            return $row;
+        }
+        $field = $this->tenantField($metadata);
+        $given = $row[$tenancy->column] ?? null;
+
+        if ($this->tenants->isSystem()) {
+            if (null === $given && !$tenancy->global) {
+                throw MissingTenantException::inSystemMode($metadata->className);
+            }
+            $value = $given;
+        } else {
+            $current = $this->tenants->getTenantId() ?? throw MissingTenantException::forEntity($metadata->className);
+            $value = $this->toDatabase($field, $current);
+            if (null !== $given && $given !== $value) {
+                throw TenantMismatchException::forEntity($entity, (string) $tenancy->field, $current, $this->toPhp($field, $given));
+            }
+        }
+
+        if (null !== $tenancy->field) {
+            $this->write($entity, $tenancy->field, $this->toPhp($field, $value), $written);
+        } else {
+            $this->insertedTenants[spl_object_id($entity)] = $value;
+        }
+        $row[$tenancy->column] = $value;
+
+        return $row;
+    }
+
+    /**
+     * Le tenant d'une ligne ne change jamais par l'ORM, même en mode système (ADR 0014).
+     *
+     * @param ClassMetadata<object> $metadata
+     * @param array<string, mixed>  $changes
+     *
+     * @throws TenantMismatchException
+     */
+    private function assertTenantUnchanged(ClassMetadata $metadata, int $oid, array $changes): void
+    {
+        $tenancy = $metadata->tenancy;
+        if (null === $tenancy?->field || !\array_key_exists($tenancy->column, $changes)) {
+            return;
+        }
+        $field = $this->tenantField($metadata);
+
+        throw TenantMismatchException::changed($this->entities[$oid] ?? throw new \LogicException('Unknown entity.'), $tenancy->field, $this->toPhp($field, $this->snapshots[$oid][$tenancy->column] ?? null), $this->toPhp($field, $changes[$tenancy->column]));
+    }
+
+    /**
+     * La colonne du tenant que ne porte aucun champ, telle que lue, pour le snapshot : l'UoW
+     * connaît ainsi le tenant de chaque entité chargée, même en mode système (RG-08.6). Gardée
+     * brute : elle n'est normalisée qu'à la comparaison (tenantOf), bien plus rare qu'une lecture.
+     *
+     * @param ClassMetadata<object> $metadata
+     * @param array<string, mixed>  $row      ligne de la base
+     *
+     * @return array<string, mixed>
+     */
+    private function tenantColumn(ClassMetadata $metadata, array $row): array
+    {
+        $tenancy = $metadata->tenancy;
+        if (null === $tenancy || null !== $tenancy->field || !\array_key_exists($tenancy->column, $row)) {
+            return [];
+        }
+
+        return [$tenancy->column => $row[$tenancy->column]];
+    }
+
+    /**
+     * Tenant d'une entité #[Tenanted], en valeur de la base : celui qu'elle aura à l'INSERT, ou
+     * celui de son snapshot ; inconnu (false) sans tenant à poser, ou pour une entité non suivie.
+     *
+     * @param ClassMetadata<object> $metadata
+     *
+     * @return array{bool, mixed}
+     */
+    private function tenantOf(ClassMetadata $metadata, object $entity): array
+    {
+        $tenancy = $metadata->tenancy ?? throw new \LogicException(\sprintf('%s is not #[Tenanted].', $metadata->className));
+        $field = $this->tenantField($metadata);
+        $oid = spl_object_id($entity);
+        if (isset($this->insertions[$oid])) {
+            $given = null === $tenancy->field ? null : $this->read($entity, $metadata->className, $tenancy->field);
+            if (null !== $given) {
+                return [true, $this->toDatabase($field, $given)];
+            }
+            if ($this->tenants->isSystem()) {
+                return [$tenancy->global, null];
+            }
+            $current = $this->tenants->getTenantId();
+
+            return null === $current ? [false, null] : [true, $this->toDatabase($field, $current)];
+        }
+        if (isset($this->snapshots[$oid]) && \array_key_exists($tenancy->column, $this->snapshots[$oid])) {
+            $raw = $this->snapshots[$oid][$tenancy->column];
+
+            // la colonne que ne porte aucun champ est gardée brute (tenantColumn)
+            return [true, null === $raw || null !== $tenancy->field ? $raw : $this->toDatabase($field, $this->toPhp($field, $raw))];
+        }
+
+        return [false, null];
+    }
+
+    /**
+     * RG-08.6 : une relation entre deux entités #[Tenanted] de tenants différents est refusée,
+     * avant la transaction : relations ToOne et ManyToMany possédées des entités à insérer,
+     * clés étrangères modifiées, éléments ajoutés à une collection (ADR 0014).
+     *
+     * @param array<int, array<string, mixed>>                                       $updates
+     * @param list<array{int, AssociationMapping, list<object>, list<object>, bool}> $collections
+     *
+     * @throws CrossTenantRelationException
+     * @throws EntityNotFoundException      cible référencée par getReference() hors du tenant
+     */
+    private function assertSameTenants(array $updates, array $collections): void
+    {
+        foreach ($this->insertions as $entity) {
+            $metadata = $this->metadataOf($entity);
+            if (null === $metadata->tenancy) {
+                continue;
+            }
+            foreach ($metadata->getAssociations() as $association) {
+                if (!$association->isOwningSide()) {
+                    continue;
+                }
+                $value = $this->read($entity, $metadata->className, $association->fieldName);
+                $targets = $association->isToOne() ? [$value] : ($value instanceof Collection ? $value->toArray() : []);
+                foreach ($targets as $target) {
+                    $this->assertSameTenant($metadata, $entity, $association, $target);
+                }
+            }
+        }
+        foreach ($updates as $oid => $changes) {
+            $entity = $this->entities[$oid] ?? null;
+            $metadata = null === $entity ? null : $this->metadataOf($entity);
+            if (null === $entity || null === $metadata?->tenancy) {
+                continue;
+            }
+            foreach ($metadata->getAssociations() as $association) {
+                if ($association->isToOne() && $association->isOwningSide() && \array_key_exists((string) $association->joinColumn, $changes)) {
+                    $this->assertSameTenant($metadata, $entity, $association, $this->read($entity, $metadata->className, $association->fieldName));
+                }
+            }
+        }
+        foreach ($collections as [$oid, $association, $added]) {
+            $owner = $this->entities[$oid] ?? null;
+            if (null === $owner || AssociationType::ManyToMany !== $association->type || !$association->isOwningSide() || isset($this->insertions[$oid])) {
+                continue;
+            }
+            $metadata = $this->metadataOf($owner);
+            if (null === $metadata->tenancy) {
+                continue;
+            }
+            foreach ($added as $target) {
+                $this->assertSameTenant($metadata, $owner, $association, $target);
+            }
+        }
+    }
+
+    /**
+     * @param ClassMetadata<object> $metadata
+     *
+     * @throws CrossTenantRelationException
+     * @throws EntityNotFoundException
+     */
+    private function assertSameTenant(ClassMetadata $metadata, object $entity, AssociationMapping $association, mixed $target): void
+    {
+        if (!\is_object($target)) {
+            return;
+        }
+        $targetMetadata = $this->metadataOf($target);
+        $targetTenancy = $targetMetadata->tenancy;
+        if (null === $targetTenancy) {
+            return;
+        }
+        // une référence jamais chargée : chargée ici, filtrée par le tenant courant (RG-04.8)
+        if ($this->lazy->isUninitialized($target)) {
+            $this->lazy->initialize($target);
+        }
+        [$known, $targetTenant] = $this->tenantOf($targetMetadata, $target);
+        if (!$known || (null === $targetTenant && $targetTenancy->global)) {
+            return;
+        }
+        [$known, $entityTenant] = $this->tenantOf($metadata, $entity);
+        if ($known && $entityTenant !== $targetTenant) {
+            throw CrossTenantRelationException::between($entity, $association->fieldName, $target, self::tenantValue($this->toPhp($this->tenantField($metadata), $entityTenant)), self::tenantValue($this->toPhp($this->tenantField($targetMetadata), $targetTenant)));
+        }
+    }
+
+    private static function tenantValue(mixed $tenant): int|string|null
+    {
+        return \is_int($tenant) || \is_string($tenant) ? $tenant : null;
+    }
+
+    /**
+     * @param ClassMetadata<object> $metadata
+     */
+    private function tenantField(ClassMetadata $metadata): FieldMapping
+    {
+        $tenancy = $metadata->tenancy ?? throw new \LogicException(\sprintf('%s is not #[Tenanted].', $metadata->className));
+
+        return $this->tenantFields[$metadata->className] ??= null !== $tenancy->field
+            ? $metadata->getField($tenancy->field)
+            : new FieldMapping('tenant', $tenancy->column, $tenancy->type, $tenancy->global);
+    }
+
+    /**
      * @param list<array{object, \ReflectionProperty, mixed}> $written
      */
     private function write(object $entity, string $field, mixed $value, array &$written): void
@@ -1161,9 +1681,9 @@ final class UnitOfWork
             }
             $this->hydrateRelations($metadata, $entity, $row, refresh: false);
             $this->hydrateCollections($metadata, $entity, refresh: false);
-            $this->snapshots[$oid] = $this->snapshotOf($metadata, $entity, $values) + $this->foreignKeys($metadata, $entity);
+            $this->snapshots[$oid] = $this->snapshotOf($metadata, $entity, $values) + $this->foreignKeys($metadata, $entity) + $this->tenantColumn($metadata, $row);
         } else {
-            $this->snapshots[$oid] = $this->snapshotOf($metadata, $entity, $values);
+            $this->snapshots[$oid] = $this->snapshotOf($metadata, $entity, $values) + $this->tenantColumn($metadata, $row);
         }
         $this->postLoad($metadata, $entity);
 
@@ -1243,11 +1763,11 @@ final class UnitOfWork
             ), 1);
             $cohort = new Cohort();
             if ([] === $batch) {
-                $row = $this->persisters->getPersister($metadata)->loadById($this->toDatabase($idField, $id));
+                $row = $this->persisters->getPersister($metadata)->loadById($this->toDatabase($idField, $id), FilterOperation::Load);
             } else {
                 $ids = [$id, ...array_map(fn (object $other): mixed => $this->property($metadata->className, $metadata->id->fieldName)->getValue($other), $batch)];
                 $this->lifecycle->dispatch(new BatchLoadedEvent($metadata->className, null, \count($ids), $this));
-                foreach ($this->persisters->getPersister($metadata)->loadBy([$idField->fieldName => $ids]) as $loaded) {
+                foreach ($this->persisters->getPersister($metadata)->loadBy([$idField->fieldName => $ids], operation: FilterOperation::Load) as $loaded) {
                     $this->prefetched[$metadata->className][self::key($this->toPhp($idField, $loaded[$idField->columnName] ?? null))] = [$loaded, $cohort];
                 }
                 [$row] = $this->prefetched[$metadata->className][$key] ?? [null];
@@ -1270,7 +1790,7 @@ final class UnitOfWork
 
         if (!$leader) {
             // hydraté avec son lot : celui qui l'a chargé complète la cohorte
-            $this->finishGhost($metadata, $ghost, $tracked);
+            $this->finishGhost($metadata, $ghost, $tracked, $row);
 
             return;
         }
@@ -1281,16 +1801,17 @@ final class UnitOfWork
             }
         }
         $this->completeCohort($metadata, null === $cohort || [] === $batch ? [$ghost] : $cohort->members(), refresh: true);
-        $this->finishGhost($metadata, $ghost, $tracked);
+        $this->finishGhost($metadata, $ghost, $tracked, $row);
     }
 
     /**
      * @param ClassMetadata<object> $metadata
+     * @param array<string, mixed>  $row      ligne lue du ghost
      */
-    private function finishGhost(ClassMetadata $metadata, object $ghost, bool $tracked): void
+    private function finishGhost(ClassMetadata $metadata, object $ghost, bool $tracked, array $row): void
     {
         if ($tracked) {
-            $this->snapshots[spl_object_id($ghost)] = $this->databaseRow($metadata, $ghost);
+            $this->snapshots[spl_object_id($ghost)] = $this->databaseRow($metadata, $ghost) + $this->tenantColumn($metadata, $row);
         }
         $this->postLoad($metadata, $ghost);
     }
@@ -1588,9 +2109,10 @@ final class UnitOfWork
         if (AssociationType::OneToMany === $association->type) {
             return $this->count($association->targetEntity, [(string) $association->mappedBy => $owner]);
         }
-        [$table, $ownerColumn] = $this->joinTableOf($association);
+        [$table, $ownerColumn, $targetColumn] = $this->joinTableOf($association);
 
-        return $this->persisters->getPersister($metadata)->countJoinTable($table, $ownerColumn, $this->currentId($metadata, $owner), $metadata->getIdField()->type);
+        // compté par la cible : ses filtres s'appliquent (RG-08.2)
+        return $this->persisters->getPersister($this->metadata->getMetadataFor($association->targetEntity))->countJoinTable($table, $ownerColumn, $targetColumn, $this->currentId($metadata, $owner), $metadata->getIdField()->type);
     }
 
     /**
@@ -1978,7 +2500,7 @@ final class UnitOfWork
         }
         unset($this->collectionSnapshots[$oid], $this->collectionInstances[$oid], $this->inverseSnapshots[$oid], $this->fetchedInverse[$oid], $this->prefetched[$entity::class][$this->keys[$oid] ?? '']);
         $this->batch->forget($entity);
-        unset($this->keys[$oid], $this->states[$oid], $this->entities[$oid], $this->snapshots[$oid], $this->insertions[$oid], $this->deletions[$oid], $this->persisted[$oid]);
+        unset($this->keys[$oid], $this->states[$oid], $this->entities[$oid], $this->snapshots[$oid], $this->insertions[$oid], $this->deletions[$oid], $this->persisted[$oid], $this->softDeleted[$oid], $this->restored[$oid]);
 
         if ($detach) {
             $this->detached[$entity] = true;

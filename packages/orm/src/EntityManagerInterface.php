@@ -6,11 +6,15 @@ namespace Prism\Orm;
 
 use Prism\Dbal\Connection;
 use Prism\Dbal\LockMode;
+use Prism\Orm\Exception\CrossTenantRelationException;
 use Prism\Orm\Exception\EntityNotFoundException;
+use Prism\Orm\Exception\InvalidArgumentException;
 use Prism\Orm\Exception\InvalidEntityStateException;
 use Prism\Orm\Exception\MappingException;
+use Prism\Orm\Exception\MissingTenantException;
 use Prism\Orm\Exception\OptimisticLockException;
 use Prism\Orm\Exception\ReentrantFlushException;
+use Prism\Orm\Exception\TenantMismatchException;
 use Prism\Orm\Exception\TransactionRequiredException;
 use Prism\Orm\Query\EntityQueryBuilder;
 use Prism\Orm\Query\Metamodel\Metamodel;
@@ -33,17 +37,29 @@ interface EntityManagerInterface
     public function persist(object $entity): void;
 
     /**
-     * MANAGED → REMOVED ; le DELETE a lieu au flush.
+     * MANAGED → REMOVED ; le DELETE a lieu au flush. Une entité #[SoftDeletable] reste MANAGED :
+     * son champ de suppression est écrit au flush, sauf avec $hardDelete (RG-08.14, ADR 0015).
      *
      * @throws InvalidEntityStateException entité NEW ou DETACHED
      */
-    public function remove(object $entity): void;
+    public function remove(object $entity, bool $hardDelete = false): void;
+
+    /**
+     * RG-08.14 : une entité #[SoftDeletable] supprimée redevient visible au flush.
+     *
+     * @throws InvalidArgumentException    entité sans #[SoftDeletable]
+     * @throws InvalidEntityStateException entité qui n'est pas MANAGED
+     */
+    public function restore(object $entity): void;
 
     /**
      * Écrit toutes les modifications en une transaction (RG-03.6).
      *
-     * @throws ReentrantFlushException appelé depuis un listener (RG-03.7)
-     * @throws OptimisticLockException version périmée (RG-03.9)
+     * @throws ReentrantFlushException      appelé depuis un listener (RG-03.7)
+     * @throws OptimisticLockException      version périmée (RG-03.9)
+     * @throws MissingTenantException       entité #[Tenanted] à écrire sans tenant (RG-08.4)
+     * @throws TenantMismatchException      tenant d'un autre, ou changé (RG-08.3)
+     * @throws CrossTenantRelationException relation entre deux tenants (RG-08.6)
      */
     public function flush(): void;
 
