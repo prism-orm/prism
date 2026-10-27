@@ -43,6 +43,8 @@ final class BasicEntityPersister implements EntityPersister
 
     private const string VECTOR_PARAMETER = 'nearest_vector';
 
+    private const string SCORE_ALIAS = 'prism_score';
+
     private readonly string $idColumn;
 
     /** @var array<string, ParameterType> type de liaison par colonne */
@@ -208,10 +210,43 @@ final class BasicEntityPersister implements EntityPersister
 
     public function loadNearest(string $column, array $vector, VectorDistance $distance, int $limit, array $criteria = []): array
     {
-        $rows = $this->nearest($column, $vector, $distance, $limit, $criteria, exact: false);
+        return $this->nearestOrExact($column, $vector, $distance, $limit, $criteria, idsOnly: false);
+    }
+
+    public function loadNearestIds(string $column, array $vector, VectorDistance $distance, int $limit, array $criteria = []): array
+    {
+        return array_map(fn (array $row): mixed => $row[$this->idColumn], $this->nearestOrExact($column, $vector, $distance, $limit, $criteria, idsOnly: true));
+    }
+
+    public function loadFullTextIds(array $columns, ?string $language, string $query, int $limit, array $criteria = []): array
+    {
+        $platform = $this->connection->getPlatform();
+        $qb = $this->connection->createQueryBuilder();
+        $quoted = array_map(static fn (string $column): string => $qb->column($column), $columns);
+        // deux noms : un paramètre nommé ne se répète pas sous les requêtes préparées natives de MySQL
+        $qb = $qb->select($qb->column($this->idColumn), $platform->getFullTextScoreSql($quoted, $language, ':fulltext_score') . ' AS ' . $platform->quoteIdentifier(self::SCORE_ALIAS))
+            ->from($this->metadata->tableName)
+            ->where($platform->getFullTextConditionSql($quoted, $language, ':fulltext_match'))
+            ->setParameter('fulltext_score', $query)
+            ->setParameter('fulltext_match', $query);
+        $qb = $this->filtered($this->where($qb, $criteria));
+        $qb = $qb->orderBy($platform->quoteIdentifier(self::SCORE_ALIAS), Order::Desc)->addOrderBy($qb->column($this->idColumn));
+
+        return array_map(fn (array $row): mixed => $row[$this->idColumn], $qb->limit($limit)->executeQuery()->fetchAllAssociative());
+    }
+
+    /**
+     * @param list<float>          $vector
+     * @param array<string, mixed> $criteria
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function nearestOrExact(string $column, array $vector, VectorDistance $distance, int $limit, array $criteria, bool $idsOnly): array
+    {
+        $rows = $this->nearest($column, $vector, $distance, $limit, $criteria, exact: false, idsOnly: $idsOnly);
         // ADR 0017 : sous un filtre sélectif, l'index de MariaDB peut rendre moins que la limite
         if (\count($rows) < $limit && $this->connection->getPlatform()->vectorIndexMayMissRows()) {
-            $rows = $this->nearest($column, $vector, $distance, $limit, $criteria, exact: true);
+            $rows = $this->nearest($column, $vector, $distance, $limit, $criteria, exact: true, idsOnly: $idsOnly);
         }
 
         return $rows;
@@ -223,7 +258,7 @@ final class BasicEntityPersister implements EntityPersister
      *
      * @return list<array<string, mixed>>
      */
-    private function nearest(string $column, array $vector, VectorDistance $distance, int $limit, array $criteria, bool $exact): array
+    private function nearest(string $column, array $vector, VectorDistance $distance, int $limit, array $criteria, bool $exact, bool $idsOnly): array
     {
         $platform = $this->connection->getPlatform();
         $qb = $this->connection->createQueryBuilder();
@@ -232,7 +267,8 @@ final class BasicEntityPersister implements EntityPersister
             ? $platform->getExactVectorDistanceSql($distance, $qb->column($column), $parameter)
             : $platform->getVectorDistanceSql($distance, $qb->column($column), $parameter);
         // la distance nue, triée par son alias : la seule forme qui garde l'index sous MariaDB
-        $qb = $qb->select(...$this->selection($qb, null, lazy: false), ...[$sql . ' AS ' . $platform->quoteIdentifier(self::DISTANCE_ALIAS)])
+        $selection = $idsOnly ? [$qb->column($this->idColumn)] : $this->selection($qb, null, lazy: false);
+        $qb = $qb->select(...$selection, ...[$sql . ' AS ' . $platform->quoteIdentifier(self::DISTANCE_ALIAS)])
             ->from($this->metadata->tableName)
             ->setParameter(self::VECTOR_PARAMETER, $vector, 'vector');
         $qb = $this->filtered($this->where($qb, $criteria));

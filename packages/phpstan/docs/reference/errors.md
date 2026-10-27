@@ -4,7 +4,7 @@ The errors reported by Prism's [PHPStan extension](/guide/phpstan), by identifie
 
 ## Repository calls
 
-These rules check the criteria and order arguments of `findBy()`, `findOneBy()`, `count()`, `iterate()` and `nearest()` on a Prism repository, and the field that `nearest()` searches.
+These rules check the criteria and order arguments of `findBy()`, `findOneBy()`, `count()`, `iterate()`, `nearest()` and `hybridSearch()` on a Prism repository, and the field that `nearest()` searches.
 
 ### `prism.findBy.unknownField`
 

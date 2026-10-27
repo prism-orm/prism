@@ -178,6 +178,25 @@ final class PostgreSqlPlatform extends AbstractPlatform
         );
     }
 
+    // ts_rank_cd sur le document de l'index GIN (même expression : l'index sert la condition)
+    public function getFullTextScoreSql(array $columns, ?string $language, string $query): string
+    {
+        return \sprintf('ts_rank_cd(%s, %s)', $this->getFullTextDocumentSql($columns, $language), $this->getTsQuerySql($language, $query));
+    }
+
+    public function getFullTextConditionSql(array $columns, ?string $language, string $query): string
+    {
+        return \sprintf('%s @@ %s', $this->getFullTextDocumentSql($columns, $language), $this->getTsQuerySql($language, $query));
+    }
+
+    // plainto_tsquery neutralise la syntaxe du texte (&, |, !, :*) et rend un ET ; ses « & » deviennent des OU
+    private function getTsQuerySql(?string $language, string $query): string
+    {
+        $config = $this->quoteStringLiteral($language ?? self::DEFAULT_LANGUAGE);
+
+        return \sprintf("to_tsquery(%s, replace(plainto_tsquery(%s, %s)::text, ' & ', ' | '))", $config, $config, $query);
+    }
+
     // défauts de pgvector (m = 16, ef_construction = 64, au moins 2 × m) et configuration « simple »
     public function getCanonicalIndex(Index $index): Index
     {

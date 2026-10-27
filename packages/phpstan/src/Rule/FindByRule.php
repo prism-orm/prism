@@ -30,7 +30,7 @@ use Prism\PHPStan\MetadataProvider;
 final class FindByRule implements Rule
 {
     /** @var array<string, array{int, bool}> méthode → position des critères, a un tri */
-    private const array METHODS = ['findby' => [0, true], 'findoneby' => [0, true], 'count' => [0, false], 'iterate' => [0, false], 'nearest' => [3, false]];
+    private const array METHODS = ['findby' => [0, true], 'findoneby' => [0, true], 'count' => [0, false], 'iterate' => [0, false], 'nearest' => [3, false], 'hybridsearch' => [3, false]];
 
     public function __construct(private readonly MetadataProvider $metadata)
     {

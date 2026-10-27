@@ -55,6 +55,8 @@ final class FindByRuleTest extends RuleTestCase
             ["{$doc}::\$embeding is not a vector field: nearest() searches a field of type \"vector\" (embedding, draft, raw).", 67],
             ["Unknown field {$doc}::\$titel in the criteria of nearest(). Did you mean \"title\"?", 68],
             ["{$invoice}::\$total is not a vector field: nearest() searches a field of type \"vector\", and the entity has none.", 70],
+            // RG-09.5
+            ['Unknown field ' . \Prism\Orm\Tests\Functional\VectorFixtures\Article::class . '::$topik in the criteria of hybridSearch(). Did you mean "topic"?', 75],
         ]);
     }
 }

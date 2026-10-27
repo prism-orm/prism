@@ -106,6 +106,32 @@ interface EntityPersister
      */
     public function loadNearest(string $column, array $vector, VectorDistance $distance, int $limit, array $criteria = []): array;
 
+    /**
+     * Les identifiants les plus proches d'un vecteur, du plus proche au plus lointain, filtrés
+     * comme loadNearest() : les candidats vectoriels de hybridSearch() (RG-09.5).
+     *
+     * @param list<float>          $vector
+     * @param array<string, mixed> $criteria
+     *
+     * @return list<mixed> identifiants, valeurs de la base
+     *
+     * @throws MappingException champ inconnu
+     */
+    public function loadNearestIds(string $column, array $vector, VectorDistance $distance, int $limit, array $criteria = []): array;
+
+    /**
+     * Les identifiants des lignes qui contiennent au moins un mot cherché, du plus pertinent au
+     * moins pertinent, filtrés : les candidats plein texte de hybridSearch() (RG-09.5).
+     *
+     * @param list<string>         $columns  colonnes de l'index plein texte
+     * @param array<string, mixed> $criteria
+     *
+     * @return list<mixed> identifiants, valeurs de la base
+     *
+     * @throws MappingException champ inconnu
+     */
+    public function loadFullTextIds(array $columns, ?string $language, string $query, int $limit, array $criteria = []): array;
+
     public function lock(mixed $id, LockMode $mode): bool;
 
     /**

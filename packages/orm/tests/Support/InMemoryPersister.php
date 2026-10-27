@@ -59,6 +59,16 @@ final class InMemoryPersister implements EntityPersister
         throw new \LogicException('nearest() needs a database: see the functional tests.');
     }
 
+    public function loadNearestIds(string $column, array $vector, VectorDistance $distance, int $limit, array $criteria = []): array
+    {
+        throw new \LogicException('hybridSearch() needs a database: see the functional tests.');
+    }
+
+    public function loadFullTextIds(array $columns, ?string $language, string $query, int $limit, array $criteria = []): array
+    {
+        throw new \LogicException('hybridSearch() needs a database: see the functional tests.');
+    }
+
     public function loadColumn(string $column, array $ids): array
     {
         $this->storage->log[] = ['SELECT', $this->table, [$column]];

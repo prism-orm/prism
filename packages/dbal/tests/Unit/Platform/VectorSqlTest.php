@@ -160,7 +160,7 @@ final class VectorSqlTest extends TestCase
     {
         $functions = SqliteVectorFunctions::all();
 
-        self::assertSame(['prism_vec_cosine', 'prism_vec_euclidean', 'prism_vec_inner'], array_keys($functions));
+        self::assertSame(['prism_vec_cosine', 'prism_vec_euclidean', 'prism_vec_inner', 'prism_fts_score'], array_keys($functions));
         self::assertEqualsWithDelta(0.0, SqliteVectorFunctions::cosine('[1.0,2.0]', '[2.0,4.0]'), 1e-12);
         self::assertEqualsWithDelta(1.0, SqliteVectorFunctions::cosine('[1.0,0.0]', '[0.0,1.0]'), 1e-12);
         self::assertEqualsWithDelta(2.0, SqliteVectorFunctions::cosine('[1.0,0.0]', '[-1.0,0.0]'), 1e-12);

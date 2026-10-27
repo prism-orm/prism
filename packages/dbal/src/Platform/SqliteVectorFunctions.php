@@ -7,9 +7,10 @@ namespace Prism\Dbal\Platform;
 use Prism\Dbal\Exception\ConversionException;
 
 /**
- * Les distances vectorielles de SQLite, calculées en PHP (ADR 0017) : SQLite n'a ni type ni
- * index vectoriel, il sert aux tests et au développement. Enregistrées par la Connection sur
- * chaque connexion SQLite ; NULL si un vecteur est NULL ou nul (cosinus indéfini).
+ * Les distances vectorielles et le score plein texte de SQLite, calculés en PHP (ADR 0017) :
+ * SQLite n'a ni type ni index vectoriel, il sert aux tests et au développement. Enregistrées
+ * par la Connection sur chaque connexion SQLite ; NULL si un vecteur est NULL ou nul (cosinus
+ * indéfini).
  *
  * @internal
  */
@@ -24,7 +25,38 @@ final class SqliteVectorFunctions
             'prism_vec_cosine' => self::cosine(...),
             'prism_vec_euclidean' => self::euclidean(...),
             'prism_vec_inner' => self::inner(...),
+            'prism_fts_score' => self::fullTextScore(...),
         ];
+    }
+
+    /**
+     * Score par termes, comme un OU pondéré : pour chaque mot distinct cherché, tf / (tf + 1,2),
+     * tf étant son nombre d'occurrences dans le document (saturation à la BM25, sans longueur).
+     * Mots en minuscules, lettres et chiffres Unicode ; 0 sans mot commun.
+     */
+    public static function fullTextScore(mixed $document, mixed $query): float
+    {
+        if (!\is_string($document) || !\is_string($query)) {
+            return 0.0;
+        }
+        $counts = array_count_values(self::words($document));
+        $score = 0.0;
+        foreach (array_unique(self::words($query)) as $word) {
+            $tf = $counts[$word] ?? 0;
+            $score += $tf / ($tf + 1.2);
+        }
+
+        return $score;
+    }
+
+    /**
+     * @return list<string>
+     */
+    private static function words(string $text): array
+    {
+        $words = preg_split('/[^\p{L}\p{N}]+/u', mb_strtolower($text), -1, \PREG_SPLIT_NO_EMPTY);
+
+        return false === $words ? [] : $words;
     }
 
     public static function cosine(mixed $a, mixed $b): ?float

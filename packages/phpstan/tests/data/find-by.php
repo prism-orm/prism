@@ -69,3 +69,8 @@ function nearest(EntityManagerInterface $em, string $field): void
     $docs->nearest($field, [1.0]);                                    // champ dynamique : rien à dire
     $em->getRepository(Invoice::class)->nearest('total', [1.0]);      // entité sans vecteur
 }
+
+function hybridSearch(EntityManagerInterface $em): void
+{
+    $em->getRepository(\Prism\Orm\Tests\Functional\VectorFixtures\Article::class)->hybridSearch('x', [1.0, 0.0, 0.0], 5, ['topik' => 'stock']);
+}

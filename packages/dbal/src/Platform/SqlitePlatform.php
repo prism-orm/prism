@@ -68,6 +68,17 @@ final class SqlitePlatform extends AbstractPlatform
         return $placeholder;
     }
 
+    // sans index : un score par termes calculé en PHP sur chaque ligne (SqliteVectorFunctions)
+    public function getFullTextScoreSql(array $columns, ?string $language, string $query): string
+    {
+        return \sprintf('prism_fts_score(%s, %s)', implode(" || ' ' || ", array_map(static fn (string $c): string => \sprintf("coalesce(%s, '')", $c), $columns)), $query);
+    }
+
+    public function getFullTextConditionSql(array $columns, ?string $language, string $query): string
+    {
+        return $this->getFullTextScoreSql($columns, $language, $query) . ' > 0';
+    }
+
     /**
      * Fonctions de SqliteVectorFunctions, enregistrées par la Connection.
      */

@@ -153,6 +153,32 @@ abstract class AbstractPlatform
     }
 
     /**
+     * Score plein texte d'une ligne pour une recherche (plus grand = plus pertinent), sur les
+     * colonnes d'un index plein texte. Une recherche de plusieurs mots est un OU : un document
+     * qui en contient un seul est trouvé (ADR 0017). Le texte cherché est un paramètre lié.
+     *
+     * @param list<string> $columns colonnes déjà citées, celles de l'index
+     *
+     * @throws InvalidSchemaException plateforme sans recherche plein texte
+     */
+    public function getFullTextScoreSql(array $columns, ?string $language, string $query): string
+    {
+        throw InvalidSchemaException::unsupportedFeature($this->getName(), 'full-text search');
+    }
+
+    /**
+     * La condition « la ligne correspond au texte cherché », servie par l'index plein texte.
+     *
+     * @param list<string> $columns
+     *
+     * @throws InvalidSchemaException plateforme sans recherche plein texte
+     */
+    public function getFullTextConditionSql(array $columns, ?string $language, string $query): string
+    {
+        throw InvalidSchemaException::unsupportedFeature($this->getName(), 'full-text search');
+    }
+
+    /**
      * Vrai si un index vectoriel peut rendre moins de lignes que la limite sous un filtre, sans
      * réglage qui l'empêche : la recherche relance alors le calcul exact (MariaDB, ADR 0017).
      */

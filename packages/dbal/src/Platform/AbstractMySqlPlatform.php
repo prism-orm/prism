@@ -190,6 +190,17 @@ abstract class AbstractMySqlPlatform extends AbstractPlatform
         };
     }
 
+    // mode langage naturel : un OU pondéré, servi par l'index FULLTEXT de ces colonnes (InnoDB)
+    public function getFullTextScoreSql(array $columns, ?string $language, string $query): string
+    {
+        return \sprintf('MATCH (%s) AGAINST (%s IN NATURAL LANGUAGE MODE)', implode(', ', $columns), $query);
+    }
+
+    public function getFullTextConditionSql(array $columns, ?string $language, string $query): string
+    {
+        return $this->getFullTextScoreSql($columns, $language, $query);
+    }
+
     // FULLTEXT n'a pas de configuration de langue ; MariaDB ne garde pas efConstruction
     public function getCanonicalIndex(Index $index): ?Index
     {

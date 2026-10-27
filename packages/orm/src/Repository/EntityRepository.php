@@ -10,6 +10,8 @@ use Prism\Orm\Exception\InvalidArgumentException;
 use Prism\Orm\Exception\MappingException;
 use Prism\Orm\Exception\VectorDimensionMismatchException;
 use Prism\Orm\Metadata\ClassMetadata;
+use Prism\Orm\Vector\HybridOptions;
+use Prism\Orm\Vector\HybridResult;
 use Prism\Orm\Vector\ScoredResult;
 use Prism\Orm\Vector\Vector;
 
@@ -108,6 +110,28 @@ class EntityRepository
     public function nearest(string $field, array|Vector $vector, int $limit = 10, array $criteria = []): array
     {
         return $this->entityManager->getUnitOfWork()->nearest($this->metadata->className, $field, $vector, $limit, $criteria);
+    }
+
+    /**
+     * Recherche hybride (RG-09.5) : les entités qui contiennent les mots de $query et celles dont
+     * le vecteur est proche de $vector, fusionnées par Reciprocal Rank Fusion. Chaque résultat
+     * porte son score et ses deux rangs. L'entité a un #[FullTextIndex] et un champ vecteur.
+     *
+     *     foreach ($docs->hybridSearch('partial payment', $embedding, limit: 5) as $hit) {
+     *         echo $hit->entity->title, ' ', $hit->textRank ?? '-', ' ', $hit->vectorRank ?? '-';
+     *     }
+     *
+     * @param list<float>|Vector   $vector
+     * @param array<string, mixed> $criteria
+     *
+     * @return list<HybridResult<T>>
+     *
+     * @throws MappingException                 entité sans champ vecteur ou sans #[FullTextIndex]
+     * @throws VectorDimensionMismatchException vecteur d'une autre dimension que le champ (RG-09.1)
+     */
+    public function hybridSearch(string $query, array|Vector $vector, int $limit = 10, array $criteria = [], HybridOptions $options = new HybridOptions()): array
+    {
+        return $this->entityManager->getUnitOfWork()->hybridSearch($this->metadata->className, $query, $vector, $limit, $criteria, $options);
     }
 
     /**

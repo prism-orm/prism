@@ -124,6 +124,32 @@ final class SearchIndexSqlTest extends TestCase
         self::assertSame("to_tsvector('simple', coalesce(d.title, ''))", $platform->getFullTextDocumentSql(['d.title'], null));
     }
 
+    // un OU sur les mots, sur les colonnes de l'index ; le texte cherché est un paramètre
+    public function testFullTextSearchSql(): void
+    {
+        $mariaDb = new MariaDbPlatform('11.8');
+        $postgreSql = new PostgreSqlPlatform('16');
+        $sqlite = new SqlitePlatform('3.46');
+        $tsQuery = "to_tsquery('english', replace(plainto_tsquery('english', :q)::text, ' & ', ' | '))";
+
+        self::assertSame('MATCH (t, b) AGAINST (:q IN NATURAL LANGUAGE MODE)', $mariaDb->getFullTextScoreSql(['t', 'b'], 'english', ':q'));
+        self::assertSame('MATCH (t, b) AGAINST (:q IN NATURAL LANGUAGE MODE)', $mariaDb->getFullTextConditionSql(['t', 'b'], 'english', ':q'));
+        self::assertSame("ts_rank_cd(to_tsvector('english', coalesce(t, '') || ' ' || coalesce(b, '')), {$tsQuery})", $postgreSql->getFullTextScoreSql(['t', 'b'], 'english', ':q'));
+        self::assertSame("to_tsvector('english', coalesce(t, '') || ' ' || coalesce(b, '')) @@ {$tsQuery}", $postgreSql->getFullTextConditionSql(['t', 'b'], 'english', ':q'));
+        self::assertSame("prism_fts_score(coalesce(t, '') || ' ' || coalesce(b, ''), :q) > 0", $sqlite->getFullTextConditionSql(['t', 'b'], null, ':q'));
+    }
+
+    public function testSqliteFullTextScoreIsAnOrOfTheWords(): void
+    {
+        $both = \Prism\Dbal\Platform\SqliteVectorFunctions::fullTextScore('Partial payment of an invoice', 'partial PAYMENT');
+        $one = \Prism\Dbal\Platform\SqliteVectorFunctions::fullTextScore('Register a customer payment.', 'partial payment');
+
+        self::assertGreaterThan($one, $both);
+        self::assertGreaterThan(0.0, $one);
+        self::assertSame(0.0, \Prism\Dbal\Platform\SqliteVectorFunctions::fullTextScore('Stock levels', 'partial payment'));
+        self::assertSame(0.0, \Prism\Dbal\Platform\SqliteVectorFunctions::fullTextScore(null, 'x'));
+    }
+
     // SQLite : ni l'un ni l'autre, et le schéma se crée quand même
     public function testSqliteSkipsBoth(): void
     {

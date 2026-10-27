@@ -59,6 +59,7 @@ use Prism\Orm\Metadata\AssociationMapping;
 use Prism\Orm\Metadata\AssociationType;
 use Prism\Orm\Metadata\ClassMetadata;
 use Prism\Orm\Metadata\FieldMapping;
+use Prism\Orm\Metadata\IndexMapping;
 use Prism\Orm\Metadata\MetadataFactory;
 use Prism\Orm\Persister\BasicEntityPersister;
 use Prism\Orm\Persister\PersisterProvider;
@@ -67,6 +68,8 @@ use Prism\Orm\Tenancy\TenantContext;
 use Prism\Orm\Tenancy\TenantScope;
 use Prism\Orm\Tenancy\TenantSwitchListener;
 use Prism\Orm\Vector\Distance;
+use Prism\Orm\Vector\HybridOptions;
+use Prism\Orm\Vector\HybridResult;
 use Prism\Orm\Vector\ScoredResult;
 use Prism\Orm\Vector\Vector;
 use Psr\Clock\ClockInterface;
@@ -638,20 +641,7 @@ final class UnitOfWork implements TenantSwitchListener
             throw InvalidArgumentException::batchSize($limit);
         }
         $metadata = $this->metadata->getMetadataFor($class);
-        if (!$metadata->hasField($field) || 'vector' !== $metadata->getField($field)->type) {
-            throw MappingException::invalidField($class, $field, 'nearest() needs a field of type "vector".');
-        }
-        $mapping = $metadata->getField($field);
-        $values = ($vector instanceof Vector ? $vector : new Vector($vector))->toArray();
-        if (null !== $mapping->length && \count($values) !== $mapping->length) {
-            throw VectorDimensionMismatchException::forField($class, $field, $mapping->length, \count($values));
-        }
-        $distance = Distance::Cosine;
-        foreach ($metadata->indexes as $index) {
-            if (IndexKind::Vector === $index->kind && [$field] === $index->fields) {
-                $distance = $index->distance ?? Distance::Cosine;
-            }
-        }
+        [$mapping, $values, $distance] = $this->vectorSearch($metadata, $field, $vector, 'nearest()');
 
         $rows = $this->persisters->getPersister($metadata)->loadNearest($mapping->columnName, $values, $distance->toDbal(), $limit, $this->criteria($metadata, $criteria));
         $distances = [];
@@ -669,6 +659,112 @@ final class UnitOfWork implements TenantSwitchListener
         }
 
         return $results;
+    }
+
+    /**
+     * Recherche hybride (RG-09.5) : les candidats plein texte (au moins un mot cherché) et les
+     * candidats vectoriels, filtrés de la même façon, fusionnés par Reciprocal Rank Fusion ; les
+     * $limit meilleurs sont chargés en une requête, dans l'ordre fusionné. Le champ vecteur et
+     * l'index plein texte sont ceux de l'entité, ou ceux nommés par les options.
+     *
+     * @template T of object
+     *
+     * @param class-string<T>      $class
+     * @param list<float>|Vector   $vector
+     * @param array<string, mixed> $criteria
+     *
+     * @return list<HybridResult<T>>
+     *
+     * @throws InvalidArgumentException         limite inférieure à 1
+     * @throws MappingException                 entité sans champ vecteur ou sans #[FullTextIndex], ou plusieurs sans option
+     * @throws VectorDimensionMismatchException vecteur d'une autre dimension que le champ (RG-09.1)
+     */
+    public function hybridSearch(string $class, string $query, array|Vector $vector, int $limit = 10, array $criteria = [], HybridOptions $options = new HybridOptions()): array
+    {
+        if ($limit < 1) {
+            throw InvalidArgumentException::batchSize($limit);
+        }
+        $metadata = $this->metadata->getMetadataFor($class);
+        $vectorFields = array_values(array_filter($metadata->getFields(), static fn (FieldMapping $f): bool => 'vector' === $f->type));
+        $field = $options->field ?? (1 === \count($vectorFields) ? $vectorFields[0]->fieldName : null);
+        if (null === $field) {
+            throw MappingException::invalidMetadata($class, [] === $vectorFields ? 'hybridSearch() needs a field of type "vector".' : \sprintf('hybridSearch() needs HybridOptions::$field: the entity has several vector fields (%s).', implode(', ', array_map(static fn (FieldMapping $f): string => $f->fieldName, $vectorFields))));
+        }
+        [$mapping, $values, $distance] = $this->vectorSearch($metadata, $field, $vector, 'hybridSearch()');
+        $fullText = array_values(array_filter($metadata->indexes, static fn (IndexMapping $i): bool => IndexKind::FullText === $i->kind && (null === $options->fullTextIndex || $i->name === $options->fullTextIndex)));
+        if (1 !== \count($fullText)) {
+            throw MappingException::invalidMetadata($class, match (true) {
+                null !== $options->fullTextIndex => \sprintf('hybridSearch() found no #[FullTextIndex] named "%s".', $options->fullTextIndex), [] === $fullText => 'hybridSearch() needs a #[FullTextIndex].', default => 'hybridSearch() needs HybridOptions::$fullTextIndex: the entity has several #[FullTextIndex]; name the one to search.',
+            });
+        }
+        $columns = array_map(static fn (string $f): string => $metadata->getField($f)->columnName, $fullText[0]->fields);
+
+        $persister = $this->persisters->getPersister($metadata);
+        $idField = $metadata->getIdField();
+        $candidates = $options->candidatesFor($limit);
+        $filters = $this->criteria($metadata, $criteria);
+        $ranks = [];
+        foreach (['text' => $persister->loadFullTextIds($columns, $fullText[0]->language, $query, $candidates, $filters), 'vector' => $persister->loadNearestIds($mapping->columnName, $values, $distance->toDbal(), $candidates, $filters)] as $list => $ids) {
+            foreach ($ids as $rank => $id) {
+                $phpId = $this->toPhp($idField, $id);
+                $ranks[self::key($phpId)][$list] = $rank + 1;
+                $ranks[self::key($phpId)]['id'] = $phpId;
+            }
+        }
+        $scores = [];
+        foreach ($ranks as $key => $rank) {
+            $scores[$key] = (isset($rank['text']) ? $options->textWeight / ($options->k + $rank['text']) : 0.0)
+                + (isset($rank['vector']) ? $options->vectorWeight / ($options->k + $rank['vector']) : 0.0);
+        }
+        // à score égal, l'ordre des clés : un résultat stable d'un appel à l'autre
+        uksort($scores, static fn (string $a, string $b): int => [$scores[$b], $a] <=> [$scores[$a], $b]);
+        $best = \array_slice($scores, 0, $limit, true);
+
+        $entities = [];
+        $ids = array_map(static fn (string $key): mixed => $ranks[$key]['id'], array_keys($best));
+        foreach ([] === $ids ? [] : $this->findBy($class, [$idField->fieldName => $ids]) as $entity) {
+            $entities[self::key($this->property($class, $idField->fieldName)->getValue($entity))] = $entity;
+        }
+        $results = [];
+        foreach ($best as $key => $score) {
+            // une ligne supprimée entre les deux requêtes n'est pas rendue
+            if (isset($entities[$key])) {
+                $results[] = new HybridResult($entities[$key], $score, $ranks[$key]['text'] ?? null, $ranks[$key]['vector'] ?? null);
+            }
+        }
+
+        return $results;
+    }
+
+    /**
+     * Le champ vecteur cherché, le vecteur vérifié (RG-09.1) et la distance de son index.
+     *
+     * @param ClassMetadata<object> $metadata
+     * @param list<float>|Vector    $vector
+     *
+     * @return array{FieldMapping, list<float>, Distance}
+     *
+     * @throws MappingException                 champ inconnu, ou qui n'est pas un vecteur
+     * @throws VectorDimensionMismatchException
+     */
+    private function vectorSearch(ClassMetadata $metadata, string $field, array|Vector $vector, string $method): array
+    {
+        if (!$metadata->hasField($field) || 'vector' !== $metadata->getField($field)->type) {
+            throw MappingException::invalidField($metadata->className, $field, $method . ' needs a field of type "vector".');
+        }
+        $mapping = $metadata->getField($field);
+        $values = ($vector instanceof Vector ? $vector : new Vector($vector))->toArray();
+        if (null !== $mapping->length && \count($values) !== $mapping->length) {
+            throw VectorDimensionMismatchException::forField($metadata->className, $field, $mapping->length, \count($values));
+        }
+        $distance = Distance::Cosine;
+        foreach ($metadata->indexes as $index) {
+            if (IndexKind::Vector === $index->kind && [$field] === $index->fields) {
+                $distance = $index->distance ?? Distance::Cosine;
+            }
+        }
+
+        return [$mapping, $values, $distance];
     }
 
     /**
