@@ -55,6 +55,9 @@ export default defineConfig({
                     { text: 'Mapping entities', link: '/guide/mapping' },
                     { text: 'Working with entities', link: '/guide/entity-manager' },
                     { text: 'Relations', link: '/guide/relations' },
+                    { text: 'Typed queries', link: '/guide/query-builder' },
+                    { text: 'PHPStan', link: '/guide/phpstan' },
+                    { text: 'Migrations', link: '/guide/migrations' },
                 ],
             },
             {
