@@ -132,7 +132,7 @@ The other options of `#[Prism\Column]`:
 | `default` | The default value of the column in the database |
 | `enumType` | The backed enum of the property, when it cannot be read from the PHP type |
 | `insertable`, `updatable` | `false` leaves the column out of `INSERT` or `UPDATE` statements: for columns computed by the database |
-| `sensitive` | The value is masked in the [audit log](/bundle/symfony#audit-et-comportements) |
+| `sensitive` | The value is masked in the [audit log](/guide/audit) |
 
 Custom types extend `Prism\Dbal\Type\Type` and are registered in the `TypeRegistry` of the connection; in Symfony, a service tagged `prism.type` is registered for you.
 

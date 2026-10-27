@@ -61,6 +61,14 @@ export default defineConfig({
                 ],
             },
             {
+                text: 'Pillars',
+                items: [
+                    { text: 'Avoiding N+1 queries', link: '/guide/n-plus-one' },
+                    { text: 'Multi-tenancy', link: '/guide/multi-tenancy' },
+                    { text: 'Audit and behaviors', link: '/guide/audit' },
+                ],
+            },
+            {
                 text: 'Symfony',
                 items: [
                     { text: 'Prism in Symfony', link: '/bundle/symfony' },

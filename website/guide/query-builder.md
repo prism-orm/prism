@@ -187,4 +187,4 @@ Pagination needs a sort: the identifier is appended as the last sort key, so tha
 | `paginate($page, $perPage)` | `Paginator<T>` |
 | `selectInto(Dto::class, ...)->getResult()` | `list<Dto>` |
 
-Soft-deleted entities are left out; `withDeleted()` includes them. When a query needs SQL that the builder does not cover, `toSql()` and `getParameters()` show what it generates, and `getConnection()` gives the DBAL connection to run your own. Raw SQL on a tenanted table still has to filter on the tenant: see [multi-tenancy](/bundle/symfony#multi-tenancy).
+Soft-deleted entities are left out; `withDeleted()` includes them. When a query needs SQL that the builder does not cover, `toSql()` and `getParameters()` show what it generates, and `getConnection()` gives the DBAL connection to run your own. Raw SQL on a tenanted table still has to filter on the tenant: see [multi-tenancy](/guide/multi-tenancy#raw-sql).

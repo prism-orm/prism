@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Prism\Website\Tests\Functional;
 
 use App\Command\SeedCommand;
+use App\Entity\Company;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Prism\Dbal\Connection;
@@ -43,6 +44,8 @@ final class ExamplesTest extends TestCase
 
     private static Schema $target;
 
+    private static int $acme;
+
     public static function setUpBeforeClass(): void
     {
         $url = TestDatabase::url();
@@ -74,6 +77,7 @@ final class ExamplesTest extends TestCase
         $tenants = new StackTenantContext();
         $em = new EntityManager($connection, new MetadataFactory($driver, types: $connection->getTypeRegistry()), tenantContext: $tenants);
         new SeedCommand($em, $tenants)(new SymfonyStyle(new ArrayInput([]), new NullOutput()), customers: 5, orders: 30);
+        self::$acme = (int) $em->getRepository(Company::class)->findOneBy(['slug' => 'acme'])?->id;
         $connection->close();
     }
 
@@ -121,7 +125,7 @@ final class ExamplesTest extends TestCase
             [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
             $pipes,
             null,
-            [...getenv(), 'DATABASE_URL' => self::$url, ExampleRuntime::METAMODEL_ENV => self::$workDir . '/metamodel'],
+            [...getenv(), 'DATABASE_URL' => self::$url, ExampleRuntime::METAMODEL_ENV => self::$workDir . '/metamodel', ExampleRuntime::TENANT_ENV => (string) self::$acme],
         );
         self::assertIsResource($process);
         $stdout = (string) stream_get_contents($pipes[1]);

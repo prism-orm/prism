@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Prism\Website\Tests\Support;
 
-use App\Entity\Company;
+use Prism\Dbal\Configuration;
 use Prism\Dbal\Connection;
 use Prism\Dbal\DriverManager;
 use Prism\Orm\EntityManager;
@@ -15,17 +15,21 @@ use Prism\Orm\Metadata\MetadataFactory;
 use Prism\Orm\Metadata\MetadataValidator;
 use Prism\Orm\Query\Metamodel\MetamodelAutoloader;
 use Prism\Orm\Tenancy\StackTenantContext;
+use Prism\Orm\Tenancy\TenantGuard;
 
 /**
  * Le contexte d'un exemple de la documentation, dans son propre processus (Examples/prelude.php) :
- * la base de la démo remplie par ExamplesTest, le tenant de la société « acme », une transaction
- * annulée à la fin ; les entités déclarées par l'exemple sont validées avec celles de la démo.
+ * la base de la démo remplie par ExamplesTest, le tenant de la société « acme », la garde du SQL
+ * brut, une transaction annulée à la fin ; les entités déclarées par l'exemple sont validées avec
+ * celles de la démo.
  *
  * @internal
  */
 final class ExampleRuntime
 {
     public const string METAMODEL_ENV = 'PRISM_DOCS_METAMODEL';
+
+    public const string TENANT_ENV = 'PRISM_DOCS_TENANT';
 
     public static function entityDir(): string
     {
@@ -48,17 +52,19 @@ final class ExampleRuntime
 
         $metamodel = getenv(self::METAMODEL_ENV);
         $url = getenv('DATABASE_URL');
-        if (!\is_string($metamodel) || !\is_string($url)) {
-            throw new \LogicException(\sprintf('DATABASE_URL and %s are set by ExamplesTest.', self::METAMODEL_ENV));
+        $tenant = getenv(self::TENANT_ENV);
+        if (!\is_string($metamodel) || !\is_string($url) || !\is_string($tenant)) {
+            throw new \LogicException(\sprintf('DATABASE_URL, %s and %s are set by ExamplesTest.', self::METAMODEL_ENV, self::TENANT_ENV));
         }
         MetamodelAutoloader::register($metamodel);
 
-        $connection = DriverManager::fromUrl($url);
+        // comme dans une application : la garde du SQL brut sur la connexion (RG-08.7), en mode exception
         $tenants = new StackTenantContext();
-        $em = new EntityManager($connection, new MetadataFactory(new AttributeDriver([self::entityDir()]), types: $connection->getTypeRegistry()), tenantContext: $tenants);
-        $acme = $em->getRepository(Company::class)->findOneBy(['slug' => 'acme']) ?? throw new \LogicException('The demo data is missing: run the examples through ExamplesTest.');
-        $tenants->setTenantId((int) $acme->id);
-        $em->clear();
+        $metadata = new MetadataFactory(new AttributeDriver([self::entityDir()]));
+        $connection = DriverManager::fromUrl($url, new Configuration(guards: [new TenantGuard($metadata, $tenants)]));
+        $em = new EntityManager($connection, $metadata, tenantContext: $tenants);
+        // aucune requête avant l'exemple : la garde chargerait les entités de la démo avant celles qu'il redéclare
+        $tenants->setTenantId((int) $tenant);
 
         $connection->beginTransaction();
         $before = get_declared_classes();
