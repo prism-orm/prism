@@ -2,7 +2,7 @@
 
 Toutes les évolutions notables de Prism, par version. Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) ; versions [SemVer](https://semver.org/lang/fr/), en `0.x` jusqu'à la 1.0 (RT-16). Les règles citées (RG-xx, RT-xx) sont décrites dans `docs/ROADMAP.md` et `docs/roadmap/`, les décisions (ADR) dans `docs/adr/`.
 
-## [0.9.0] — à publier
+## [0.9.0] — 2026-10-28
 
 Phase 9 : pilier 4, vector et recherche hybride. Stocker des embeddings à côté des données métier, les indexer, chercher par le sens et par les mots depuis le repository, et garder chaque vecteur à jour de son texte ; guide : [Vector search](website/guide/vector-search.md).
 
