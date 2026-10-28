@@ -116,8 +116,16 @@ final class UnitOfWork implements TenantSwitchListener, FlushContext
     /** @var array<int, object> références gardées tant que l'entité est suivie */
     private array $entities = [];
 
-    /** @var array<int, array<string, mixed>> valeurs de la base au dernier chargement ou flush */
+    /**
+     * @var array<int, array<string, mixed>> au dernier chargement ou flush, en valeurs de la base :
+     *                                       colonnes de structure (identifiant, version, tenant, FK),
+     *                                       et celles qu'un objet mutable ou un tableau peut changer sur
+     *                                       place (ADR 0022)
+     */
     private array $snapshots = [];
+
+    /** @var array<int, array<string, mixed>> au dernier chargement ou flush, les autres colonnes, en valeurs PHP (ADR 0022) */
+    private array $originals = [];
 
     /** @var array<class-string, array<string, object>> identity map (RG-03.3) */
     private array $identityMap = [];
@@ -160,6 +168,12 @@ final class UnitOfWork implements TenantSwitchListener, FlushContext
     /** @var array<class-string, bool> la classe a-t-elle des relations ? (évite leur traitement à chaque hydratation) */
     private array $hasRelations = [];
 
+    /** @var array<class-string, array<string, FieldMapping>> colonnes de champ gardées aussi au snapshot : identifiant, version, tenant */
+    private array $structuralColumns = [];
+
+    /** @var array<class-string, array<string, FieldMapping>> colonnes dont la valeur PHP peut changer sur place : type personnalisé, json, binary */
+    private array $checkedColumns = [];
+
     /** @var array<int, array<string, list<object>>> éléments de chaque collection au chargement ou au dernier flush */
     private array $collectionSnapshots = [];
 
@@ -183,7 +197,7 @@ final class UnitOfWork implements TenantSwitchListener, FlushContext
     /** @var array<string, array<int, array{object, Vector}>> vecteurs paresseux à charger, par « classe::champ » puis entité (RG-09.6) */
     private array $lazyPending = [];
 
-    /** @var array<string, array<int, array{bool, mixed, mixed}>> vecteurs chargés par lot, en attente de leur ghost : [trouvé, valeur PHP, valeur lue en base] */
+    /** @var array<string, array<int, array{bool, mixed}>> vecteurs chargés par lot, en attente de leur ghost : [trouvé, valeur PHP] */
     private array $lazyLoaded = [];
 
     private readonly TenantContext $tenants;
@@ -444,6 +458,7 @@ final class UnitOfWork implements TenantSwitchListener, FlushContext
         $this->states = [];
         $this->entities = [];
         $this->snapshots = [];
+        $this->originals = [];
         $this->insertedTenants = [];
         $this->softDeleted = [];
         $this->restored = [];
@@ -923,7 +938,7 @@ final class UnitOfWork implements TenantSwitchListener, FlushContext
         $this->hydrateRelations($metadata, $entity, $row, refresh: true);
         $this->hydrateCollections($metadata, $entity, refresh: true);
         $this->completeCohort($metadata, [$entity], refresh: true);
-        $this->snapshots[$oid] = $this->databaseRow($metadata, $entity) + $this->tenantColumn($metadata, $row);
+        $this->remember($metadata, $oid, $metadata->extractRow($entity), $this->foreignKeysOf($metadata, $entity) + $this->tenantColumn($metadata, $row));
         $this->postLoad($metadata, $entity);
     }
 
@@ -1229,7 +1244,7 @@ final class UnitOfWork implements TenantSwitchListener, FlushContext
             }
             if ($metadata->behaviors->auditable && 0 !== $affected) {
                 $action = isset($this->softDeleted[$oid]) ? AuditLog::SOFT_DELETE : (isset($this->restored[$oid]) ? AuditLog::RESTORE : AuditLog::UPDATE);
-                $this->audit($metadata, $action, $this->idOf($metadata, $oid), $this->snapshotTenant($metadata, $oid), array_intersect_key($this->snapshots[$oid] ?? [], $changes) + $unread, $changes);
+                $this->audit($metadata, $action, $this->idOf($metadata, $oid), $this->snapshotTenant($metadata, $oid), array_intersect_key($this->oldRow($metadata, $oid), $changes) + $unread, $changes);
             }
             $updated[] = [$entity, $changes];
         }
@@ -1275,7 +1290,7 @@ final class UnitOfWork implements TenantSwitchListener, FlushContext
                 throw OptimisticLockException::versionMismatch($entity, $this->toPhp($metadata->getField($metadata->versionField), $version[1]));
             }
             if ($metadata->behaviors->auditable && 0 !== $affected) {
-                $this->audit($metadata, AuditLog::DELETE, $this->idOf($metadata, $oid), $this->snapshotTenant($metadata, $oid), $this->snapshots[$oid] ?? [], []);
+                $this->audit($metadata, AuditLog::DELETE, $this->idOf($metadata, $oid), $this->snapshotTenant($metadata, $oid), $this->oldRow($metadata, $oid), []);
             }
             $deleted[] = $entity;
         }
@@ -1296,7 +1311,7 @@ final class UnitOfWork implements TenantSwitchListener, FlushContext
         foreach ($inserted as $entity) {
             $metadata = $this->metadataOf($entity);
             $oid = spl_object_id($entity);
-            $this->snapshots[$oid] = $this->databaseRow($metadata, $entity);
+            $this->remember($metadata, $oid, $metadata->extractRow($entity), $this->foreignKeysOf($metadata, $entity));
             if (\array_key_exists($oid, $this->insertedTenants) && null !== $metadata->tenancy) {
                 $this->snapshots[$oid][$metadata->tenancy->column] = $this->insertedTenants[$oid];
             }
@@ -1306,8 +1321,19 @@ final class UnitOfWork implements TenantSwitchListener, FlushContext
             $this->keys[$oid] = $key;
         }
         foreach ($updated as [$entity, $changes]) {
+            $metadata = $this->metadataOf($entity);
             $oid = spl_object_id($entity);
-            $this->snapshots[$oid] = $changes + $this->snapshots[$oid];
+            $values = $metadata->extractRow($entity);
+            $structural = $this->structuralColumns($metadata);
+            foreach ($changes as $column => $value) {
+                if (\array_key_exists($column, $values) && !isset($structural[$column]) && self::keepsPhpValue($this->field($metadata, $column), $values[$column])) {
+                    $this->originals[$oid][$column] = $values[$column];
+                    unset($this->snapshots[$oid][$column]);
+                } else {
+                    $this->snapshots[$oid][$column] = $value;
+                    unset($this->originals[$oid][$column]);
+                }
+            }
         }
         $this->softDeleted = [];
         $this->restored = [];
@@ -1364,18 +1390,43 @@ final class UnitOfWork implements TenantSwitchListener, FlushContext
      */
     private function changes(ClassMetadata $metadata, object $entity): array
     {
-        $snapshot = $this->snapshots[spl_object_id($entity)] ?? [];
+        $oid = spl_object_id($entity);
+        $snapshot = $this->snapshots[$oid] ?? [];
+        $originals = $this->originals[$oid] ?? [];
         $idColumn = $metadata->getIdField()->columnName;
         $versionColumn = null === $metadata->versionField ? null : $metadata->getField($metadata->versionField)->columnName;
         $topLevel = array_map(static fn (FieldMapping $f): string => $f->columnName, $metadata->getFields());
 
         $changes = [];
-        foreach ($this->databaseRow($metadata, $entity, $snapshot) as $column => $value) {
+        foreach ($metadata->extractRow($entity) as $column => $value) {
             $field = $this->field($metadata, $column);
             $readonly = $field->readonly && \in_array($column, $topLevel, true);
             if ($column === $idColumn || $column === $versionColumn || $readonly || !$field->updatable) {
                 continue;
             }
+            if (\array_key_exists($column, $originals)) {
+                $old = $originals[$column];
+                // ADR 0022 : la même valeur scalaire, ou la même instance immuable, n'a pas changé
+                if ($old === $value) {
+                    continue;
+                }
+                if ('vector' === $field->type && \is_array($old) && \is_array($value) && self::floats($old) === self::floats($value)) {
+                    continue;
+                }
+                $this->assertDimensions($metadata, $field, $column, $value);
+                $new = $this->toDatabase($field, $value);
+                if ('vector' === $field->type || $this->toDatabase($field, $old) !== $new) {
+                    $changes[$column] = $new;
+                }
+                continue;
+            }
+            $this->assertDimensions($metadata, $field, $column, $value);
+            $new = $this->toDatabase($field, $value);
+            if (!\array_key_exists($column, $snapshot) || $snapshot[$column] !== $new) {
+                $changes[$column] = $new;
+            }
+        }
+        foreach ($this->foreignKeysOf($metadata, $entity) as $column => $value) {
             if (!\array_key_exists($column, $snapshot) || $snapshot[$column] !== $value) {
                 $changes[$column] = $value;
             }
@@ -1411,8 +1462,9 @@ final class UnitOfWork implements TenantSwitchListener, FlushContext
                 continue;
             }
             $field = $this->field($metadata, $column);
+            $old = \array_key_exists($column, $this->originals[$oid] ?? []) ? $this->originals[$oid][$column] : $this->toPhp($field, $this->snapshots[$oid][$column] ?? null);
             $set[$metadata->getFieldPathByColumn($column) ?? $column] = [
-                $metadata->toFieldValue($field, $this->toPhp($field, $this->snapshots[$oid][$column] ?? null)),
+                $metadata->toFieldValue($field, $old),
                 $metadata->toFieldValue($field, $this->toPhp($field, $value)),
             ];
         }
@@ -1422,31 +1474,150 @@ final class UnitOfWork implements TenantSwitchListener, FlushContext
 
     /**
      * Valeurs de la base des colonnes de l'entité ; un decimal est complété à l'échelle de sa
-     * colonne, pour que '12.5' et '12.50' ne soient pas vus comme un changement. Avec le snapshot,
-     * un vecteur égal à sa valeur relue reprend celle du snapshot, sans être réencodé.
+     * colonne, pour que '12.5' et '12.50' ne soient pas vus comme un changement.
      *
-     * @param ClassMetadata<object>     $metadata
-     * @param array<string, mixed>|null $snapshot
+     * @param ClassMetadata<object> $metadata
      *
      * @return array<string, mixed>
      */
-    private function databaseRow(ClassMetadata $metadata, object $entity, ?array $snapshot = null): array
+    private function databaseRow(ClassMetadata $metadata, object $entity): array
     {
         $row = [];
         foreach ($metadata->extractRow($entity) as $column => $value) {
             $field = $this->field($metadata, $column);
-            if (null !== $snapshot && 'vector' === $field->type && \is_array($value) && \is_string($snapshot[$column] ?? null) && $this->isStoredVector($field, $snapshot[$column], $value)) {
-                $row[$column] = $snapshot[$column];
-                continue;
-            }
-            // RG-09.1 : avant l'envoi, avec la classe et le champ
-            if ('vector' === $field->type && \is_array($value) && null !== $field->length && \count($value) !== $field->length) {
-                throw VectorDimensionMismatchException::forField($metadata->className, $metadata->getFieldPathByColumn($column) ?? $field->fieldName, $field->length, \count($value));
-            }
+            $this->assertDimensions($metadata, $field, $column, $value);
             $row[$column] = $this->toDatabase($field, $value);
         }
 
-        return $this->hasRelations($metadata) ? $row + $this->foreignKeys($metadata, $entity) : $row;
+        return $row + $this->foreignKeysOf($metadata, $entity);
+    }
+
+    /**
+     * RG-09.1 : un vecteur de la mauvaise dimension est refusé avant l'envoi, avec la classe et le champ.
+     *
+     * @param ClassMetadata<object> $metadata
+     */
+    private function assertDimensions(ClassMetadata $metadata, FieldMapping $field, string $column, mixed $value): void
+    {
+        if ('vector' === $field->type && \is_array($value) && null !== $field->length && \count($value) !== $field->length) {
+            throw VectorDimensionMismatchException::forField($metadata->className, $metadata->getFieldPathByColumn($column) ?? $field->fieldName, $field->length, \count($value));
+        }
+    }
+
+    /**
+     * Garde l'état lu d'une entité (ADR 0022) : ses valeurs PHP dans originals, sans conversion ni
+     * copie ; les colonnes de structure, et celles dont la valeur (objet mutable, tableau) peut
+     * changer sur place, vont aussi au snapshot, en valeurs de la base, qui fait foi pour elles.
+     *
+     * @param ClassMetadata<object> $metadata
+     * @param array<string, mixed>  $values    valeurs PHP par colonne, de la forme d'extractRow()
+     * @param array<string, mixed>  $structure FK et tenant, déjà en valeurs de la base
+     */
+    private function remember(ClassMetadata $metadata, int $oid, array $values, array $structure): void
+    {
+        foreach ($this->structuralColumns($metadata) as $column => $field) {
+            if (\array_key_exists($column, $values)) {
+                $structure[$column] = $this->toDatabase($field, $values[$column]);
+            }
+        }
+        // seules les colonnes d'un type personnalisé, json ou binary sont vérifiées une à une
+        foreach ($this->checkedColumns[$metadata->className] as $column => $field) {
+            if (\array_key_exists($column, $values) && !self::keepsPhpValue($field, $values[$column])) {
+                $structure[$column] = $this->toDatabase($field, $values[$column]);
+                unset($values[$column]);
+            }
+        }
+        $this->originals[$oid] = $values;
+        $this->snapshots[$oid] = $structure;
+    }
+
+    /**
+     * Une valeur que rien ne peut changer sur place : la comparer à elle-même suffit (ADR 0022).
+     */
+    private static function keepsPhpValue(FieldMapping $field, mixed $value): bool
+    {
+        return null === $value || \is_scalar($value) || $value instanceof \DateTimeImmutable || $value instanceof \UnitEnum
+            || ('vector' === $field->type && \is_array($value));
+    }
+
+    /**
+     * Colonnes de champ de structure (identifiant, version, tenant), gardées aussi au snapshot.
+     *
+     * @param ClassMetadata<object> $metadata
+     *
+     * @return array<string, FieldMapping>
+     */
+    private function structuralColumns(ClassMetadata $metadata): array
+    {
+        if (!isset($this->structuralColumns[$metadata->className])) {
+            $names = [$metadata->getIdField()->columnName, $metadata->tenancy?->column];
+            if (null !== $metadata->versionField) {
+                $names[] = $metadata->getField($metadata->versionField)->columnName;
+            }
+            $structural = [];
+            $checked = [];
+            foreach (array_keys($metadata->getColumnTypes()) as $column) {
+                $field = $this->field($metadata, $column);
+                if (\in_array($column, $names, true)) {
+                    $structural[$column] = $field;
+                }
+                $type = $this->types->get($field->type);
+                // les types natifs rendent un scalaire, une DateTimeImmutable ou une liste de flottants
+                if (!str_starts_with($type::class, 'Prism\\Dbal\\Type\\') || \in_array($field->type, ['json', 'binary'], true)) {
+                    $checked[$column] = $field;
+                }
+            }
+            $this->structuralColumns[$metadata->className] = $structural;
+            $this->checkedColumns[$metadata->className] = $checked;
+        }
+
+        return $this->structuralColumns[$metadata->className];
+    }
+
+    /**
+     * Les valeurs de la base au dernier chargement ou flush : celles du snapshot, et celles
+     * d'originals, converties à la demande (audit).
+     *
+     * @param ClassMetadata<object> $metadata
+     *
+     * @return array<string, mixed>
+     */
+    private function oldRow(ClassMetadata $metadata, int $oid): array
+    {
+        $snapshot = $this->snapshots[$oid] ?? [];
+        $originals = $this->originals[$oid] ?? [];
+        $row = [];
+        foreach (array_keys($metadata->getColumnTypes()) as $column) {
+            if (\array_key_exists($column, $originals)) {
+                $row[$column] = $this->toDatabase($this->field($metadata, $column), $originals[$column]);
+            } elseif (\array_key_exists($column, $snapshot)) {
+                $row[$column] = $snapshot[$column];
+            }
+        }
+
+        return $row + $snapshot;
+    }
+
+    /**
+     * Une liste de composantes en flottants : une liste d'entiers égale n'est pas un changement.
+     *
+     * @param array<mixed> $value
+     *
+     * @return array<mixed>
+     */
+    private static function floats(array $value): array
+    {
+        return array_map(static fn (mixed $x): mixed => \is_int($x) ? (float) $x : $x, $value);
+    }
+
+    /**
+     * @param ClassMetadata<object> $metadata
+     *
+     * @return array<string, mixed>
+     */
+    private function foreignKeysOf(ClassMetadata $metadata, object $entity): array
+    {
+        return $this->hasRelations($metadata) ? $this->foreignKeys($metadata, $entity) : [];
     }
 
     /**
@@ -1479,17 +1650,6 @@ final class UnitOfWork implements TenantSwitchListener, FlushContext
         }
 
         return $keys;
-    }
-
-    /**
-     * Le vecteur PHP a-t-il les composantes de la valeur lue en base ? Comparées en flottants : une
-     * liste d'entiers égale n'est pas un changement.
-     *
-     * @param array<mixed> $value
-     */
-    private function isStoredVector(FieldMapping $field, string $stored, array $value): bool
-    {
-        return $this->toPhp($field, $stored) === array_map(static fn (mixed $x): mixed => \is_int($x) ? (float) $x : $x, $value);
     }
 
     private function toDatabase(FieldMapping $field, mixed $value): mixed
@@ -1601,7 +1761,7 @@ final class UnitOfWork implements TenantSwitchListener, FlushContext
     {
         $old = [];
         foreach ($metadata->getLazyFields() as $field) {
-            if (!\array_key_exists($field->columnName, $changes) || \array_key_exists($field->columnName, $this->snapshots[$oid] ?? [])) {
+            if (!\array_key_exists($field->columnName, $changes) || \array_key_exists($field->columnName, $this->originals[$oid] ?? [])) {
                 continue;
             }
             foreach ($this->persisters->getPersister($metadata)->loadColumn($field->columnName, [$this->idOf($metadata, $oid)]) as [, $value]) {
@@ -2028,9 +2188,9 @@ final class UnitOfWork implements TenantSwitchListener, FlushContext
             }
             $this->hydrateRelations($metadata, $entity, $row, refresh: false);
             $this->hydrateCollections($metadata, $entity, refresh: false);
-            $this->snapshots[$oid] = $this->snapshotOf($metadata, $entity, $values, $row) + $this->foreignKeys($metadata, $entity) + $this->tenantColumn($metadata, $row);
+            $this->remember($metadata, $oid, $this->readValues($metadata, $entity, $values), $this->foreignKeys($metadata, $entity) + $this->tenantColumn($metadata, $row));
         } else {
-            $this->snapshots[$oid] = $this->snapshotOf($metadata, $entity, $values, $row) + $this->tenantColumn($metadata, $row);
+            $this->remember($metadata, $oid, $this->readValues($metadata, $entity, $values), $this->tenantColumn($metadata, $row));
         }
         $this->postLoad($metadata, $entity);
 
@@ -2038,33 +2198,18 @@ final class UnitOfWork implements TenantSwitchListener, FlushContext
     }
 
     /**
-     * Snapshot d'une entité qu'on vient d'hydrater : ses valeurs PHP par colonne sont celles que
-     * databaseRow() relirait, sans relire les propriétés. Une ligne incomplète (colonne absente,
-     * propriété laissée à sa valeur par défaut) passe par databaseRow().
-     *
-     * Un vecteur garde la valeur que la base a rendue (binaire de MariaDB, texte ailleurs) : la
-     * réencoder coûterait un json_encode de chaque composante par entité hydratée.
-     * databaseRow() la reprend tant que le vecteur PHP n'a pas changé.
+     * Valeurs PHP par colonne d'une entité qu'on vient d'hydrater : celles de la ligne lue, que
+     * extractRow() relirait, sans relire les propriétés. Une ligne incomplète (colonne absente,
+     * vecteur paresseux, propriété laissée à sa valeur par défaut) passe par extractRow().
      *
      * @param ClassMetadata<object> $metadata
      * @param array<string, mixed>  $values   valeurs PHP, par colonne
-     * @param array<string, mixed>  $row      la ligne lue
      *
      * @return array<string, mixed>
      */
-    private function snapshotOf(ClassMetadata $metadata, object $entity, array $values, array $row = []): array
+    private function readValues(ClassMetadata $metadata, object $entity, array $values): array
     {
-        if (\count($values) !== \count($metadata->getColumnTypes())) {
-            return $this->databaseRow($metadata, $entity);
-        }
-
-        $snapshot = [];
-        foreach ($values as $column => $value) {
-            $field = $this->field($metadata, $column);
-            $snapshot[$column] = 'vector' === $field->type && \is_string($row[$column] ?? null) ? $row[$column] : $this->toDatabase($field, $value);
-        }
-
-        return $snapshot;
+        return \count($values) === \count($metadata->getColumnTypes()) ? $values : $metadata->extractRow($entity);
     }
 
     /**
@@ -2177,16 +2322,16 @@ final class UnitOfWork implements TenantSwitchListener, FlushContext
             }
             $values = [];
             foreach ($this->persisters->getPersister($metadata)->loadColumn($field->columnName, $ids) as [$rowId, $value]) {
-                $values[self::key($this->toPhp($idField, $rowId))] = [$this->toPhp($field, $value), $value];
+                $values[self::key($this->toPhp($idField, $rowId))] = $this->toPhp($field, $value);
             }
             foreach ($batch as $other => $member) {
                 $memberKey = self::key($this->property($metadata->className, $idField->fieldName)->getValue($member));
-                $this->lazyLoaded[$lazyKey][$other] = [\array_key_exists($memberKey, $values), ...$values[$memberKey] ?? [null, null]];
+                $this->lazyLoaded[$lazyKey][$other] = [\array_key_exists($memberKey, $values), $values[$memberKey] ?? null];
                 unset($this->lazyPending[$lazyKey][$other]);
             }
         }
 
-        [$found, $value, $stored] = $this->lazyLoaded[$lazyKey][$oid];
+        [$found, $value] = $this->lazyLoaded[$lazyKey][$oid];
         unset($this->lazyLoaded[$lazyKey][$oid], $this->lazyPending[$lazyKey][$oid]);
         if (!$found) {
             throw EntityNotFoundException::forId($metadata->className, $id);
@@ -2197,8 +2342,8 @@ final class UnitOfWork implements TenantSwitchListener, FlushContext
         // le constructeur sur le ghost : la forme d'initialisation des objets paresseux de PHP
         new \ReflectionMethod(Vector::class, '__construct')->invoke($ghost, $value);
         if (($this->entities[$oid] ?? null) === $entity && isset($this->snapshots[$oid])) {
-            // la valeur lue, comme à l'hydratation (snapshotOf)
-            $this->snapshots[$oid][$field->columnName] = \is_string($stored) ? $stored : $this->toDatabase($field, $value);
+            // la valeur lue, comme à l'hydratation
+            $this->originals[$oid][$field->columnName] = $value;
         }
     }
 
@@ -2301,7 +2446,7 @@ final class UnitOfWork implements TenantSwitchListener, FlushContext
     private function finishGhost(ClassMetadata $metadata, object $ghost, bool $tracked, array $row): void
     {
         if ($tracked) {
-            $this->snapshots[spl_object_id($ghost)] = $this->databaseRow($metadata, $ghost) + $this->tenantColumn($metadata, $row);
+            $this->remember($metadata, spl_object_id($ghost), $metadata->extractRow($ghost), $this->foreignKeysOf($metadata, $ghost) + $this->tenantColumn($metadata, $row));
         }
         $this->postLoad($metadata, $ghost);
     }
@@ -2993,7 +3138,7 @@ final class UnitOfWork implements TenantSwitchListener, FlushContext
         foreach (array_keys($this->lazyPending) as $lazyKey) {
             unset($this->lazyPending[$lazyKey][$oid], $this->lazyLoaded[$lazyKey][$oid]);
         }
-        unset($this->keys[$oid], $this->states[$oid], $this->entities[$oid], $this->snapshots[$oid], $this->insertions[$oid], $this->deletions[$oid], $this->persisted[$oid], $this->softDeleted[$oid], $this->restored[$oid]);
+        unset($this->keys[$oid], $this->states[$oid], $this->entities[$oid], $this->snapshots[$oid], $this->originals[$oid], $this->insertions[$oid], $this->deletions[$oid], $this->persisted[$oid], $this->softDeleted[$oid], $this->restored[$oid]);
 
         if ($detach) {
             $this->detached[$entity] = true;
