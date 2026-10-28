@@ -97,8 +97,8 @@ embeddings-snapshot: ## Les vecteurs de la démo RAG (demo/data), par un Ollama 
 	@test -n "$(OLLAMA_URL)" || { echo 'OLLAMA_URL est requis : make embeddings-snapshot OLLAMA_URL=http://<hôte>:11434/v1'; exit 2; }
 	$(DC) run --rm -e EMBEDDING_BASE_URL=$(OLLAMA_URL) php sh -c 'cd demo && bin/console app:docs:snapshot'
 
-split: ## Publie packages/* vers les dépôts prism-orm/* depuis ce poste, sans GitHub Actions (ADR 0004) ; à blanc sans PUSH=1 : make split [TAG=v0.9.0] [PUSH=1]
-	TAG='$(TAG)' PUSH='$(PUSH)' $(if $(REMOTE),REMOTE='$(REMOTE)') tools/split/split.sh
+split: ## Publie packages/* vers les dépôts prism-orm/* depuis ce poste, sans GitHub Actions (ADR 0004) ; à blanc sans PUSH=1 : make split [TAG="v0.8.0 v0.9.0"] [PUSH=1] [FORCE=1]
+	TAG='$(TAG)' PUSH='$(PUSH)' FORCE='$(FORCE)' $(if $(REMOTE),REMOTE='$(REMOTE)') tools/split/split.sh
 
 worker-test: ## La démo en worker FrankenPHP, 10 000 requêtes, mémoire mesurée : make worker-test [N=10000] (après make demo-install)
 	$(DC) --profile demo up -d --build --wait frankenphp
