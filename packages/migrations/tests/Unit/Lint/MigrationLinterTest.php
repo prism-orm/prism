@@ -33,6 +33,7 @@ final class MigrationLinterTest extends TestCase
     private const array URLS = [
         'postgresql' => 'postgresql://u:p@localhost/db?serverVersion=16',
         'mysql' => 'mysql://u:p@localhost/db?serverVersion=8.4',
+        'mariadb' => 'mysql://u:p@localhost/db?serverVersion=11.8.0-MariaDB',
         'sqlite' => 'sqlite:///:memory:?serverVersion=3.46.0',
     ];
 
@@ -40,8 +41,9 @@ final class MigrationLinterTest extends TestCase
     {
         $customer = new Table('dt_customer', [new Column('id', 'integer'), new Column('full_name', 'string', length: 80), new Column('first_name', 'string', nullable: true, length: 40)], ['id']);
         $invoice = new Table('invoice', [new Column('id', 'integer'), new Column('customer_id', 'integer'), new Column('ref', 'string', length: 20)], ['id']);
+        $passage = new Table('passage', [new Column('id', 'integer'), new Column('tenant_id', 'integer'), new Column('embedding', 'vector', length: 3)], ['id']);
 
-        return new Schema([$customer, $invoice->withForeignKeyTo(['customer_id'], 'dt_customer', ['id'])]);
+        return new Schema([$customer, $invoice->withForeignKeyTo(['customer_id'], 'dt_customer', ['id']), $passage]);
     }
 
     /**
@@ -82,7 +84,9 @@ final class MigrationLinterTest extends TestCase
     private static function lint(array $migrations, FakeInspector $data, string $platform = 'sqlite', bool $mapping = true): LintResult
     {
         $connection = DriverManager::fromUrl(self::URLS[$platform]);
-        $metadata = $mapping ? new MetadataFactory(new AttributeDriver([\dirname(__DIR__, 2) . '/Fixtures/DataEntities'])) : null;
+        // les entités vectorielles, seulement là où le type existe
+        $dirs = [\dirname(__DIR__, 2) . '/Fixtures/DataEntities', ...($connection->getPlatform()->supportsVectors() ? [\dirname(__DIR__, 2) . '/Fixtures/VectorEntities'] : [])];
+        $metadata = $mapping ? new MetadataFactory(new AttributeDriver($dirs)) : null;
 
         return new MigrationLinter($connection, new MigrationFinder('/nonexistent', 'App'), $metadata, 1000, $data)->lintMigrations($migrations, self::schema());
     }
@@ -137,6 +141,12 @@ final class MigrationLinterTest extends TestCase
             $m->addColumn('invoice', new Column('embedding', 'vector', nullable: true, length: 3));
             $m->createVectorIndex('invoice', 'embedding', VectorDistance::Cosine);
         }, [], $rows, 'sqlite'];
+        // RG-09.11 : sous MariaDB, nearest() filtré par un gros tenant retombe sur une recherche exacte
+        $vectorIndex = static fn (MigrationBuilder $m) => $m->createVectorIndex('passage', 'embedding', VectorDistance::Cosine);
+        yield 'L21 large tenant among others, L10 large table' => [$vectorIndex, ['L20', 'L21', 'L10'], new FakeInspector(['passage'], groups: ['passage.tenant_id' => [50_000, 200_000]]), 'mariadb'];
+        yield 'L21 small tenants' => [$vectorIndex, ['L20', 'L10'], new FakeInspector(['passage'], groups: ['passage.tenant_id' => [8_000, 200_000]]), 'mariadb'];
+        yield 'L21 a single tenant, the index finds its rows' => [$vectorIndex, ['L20', 'L10'], new FakeInspector(['passage'], groups: ['passage.tenant_id' => [50_000, 50_000]]), 'mariadb'];
+        yield 'L21 not on PostgreSQL, which scans the index iteratively' => [$vectorIndex, ['L09', 'L20'], new FakeInspector(['passage'], groups: ['passage.tenant_id' => [50_000, 200_000]]), 'postgresql'];
         yield 'L10 large table, once' => [static function (MigrationBuilder $m): void {
             $m->addColumn('invoice', new Column('a', 'integer', nullable: true));
             $m->addColumn('invoice', new Column('b', 'integer', nullable: true));

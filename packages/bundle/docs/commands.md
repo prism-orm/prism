@@ -371,6 +371,7 @@ Analyzes the pending migrations before they run: their operations, applied one b
 | L18 | warning | Table created without a primary key |
 | L19 | warning | Irreversible migration |
 | L20 | warning | Vector index created on a table with rows: the HNSW graph is built over them |
+| L21 | warning | Vector index on a `#[Tenanted]` table where one tenant, among others, has more than 10,000 rows, on MariaDB: a `nearest()` filtered by that tenant often falls back to an exact search over its rows |
 
 ```console
 $ vendor/bin/prism db:migrations:lint

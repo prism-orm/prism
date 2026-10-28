@@ -151,7 +151,7 @@ The demo searches the Prism documentation: 324 sections, `nomic-embed-text:v1.5`
 | --- | --- | --- |
 | `hybridSearch()` | **0.922** | 0.776 |
 | vector only | 0.903 | **0.807** |
-| full text only | 0.719 | 0.531 |
+| full text only | 0.711 | 0.530 |
 
 The hybrid search finds more of the relevant sections in its first ten results; the vector search alone more often puts the best one first. The corpus is small: these figures compare the three rankings with each other, they are not a public benchmark.
 
@@ -165,4 +165,4 @@ The hybrid search finds more of the relevant sections in its first ten results; 
 Measured on 2026-10-28: Intel Xeon Gold 5218, 8 cores, 7.7 GB of RAM shared with the other services, the databases in Docker; HNSW with `m = 16`, cosine distance; 200 searches to warm up, 200 measured, each with a new vector. The script is `tools/bench/vector-nearest.php`.
 
 - **Size the HNSW cache of MariaDB.** MariaDB keeps the graph in `mhnsw_max_cache_size`, 16 MB by default: far too little for 100,000 vectors of 768 dimensions, whose graph is then read again on each search. The benchmark sets it to 1 GB; with the default, the same search takes 65 ms at p95 and the index takes 23 minutes to build instead of 3.
-- **A selective filter costs more on MariaDB.** When a filter keeps few rows, the HNSW index of MariaDB returns too few of them, and Prism falls back to an exact search over the rows the filter keeps, through the index of the filtered column. Its cost grows with those rows and with the InnoDB buffer pool (128 MB here). PostgreSQL scans its index iteratively until it has enough rows. Index the column you filter on, as Prism does for `tenant_id`.
+- **A selective filter costs more on MariaDB.** When a filter keeps few rows, the HNSW index of MariaDB returns too few of them, and Prism falls back to an exact search over the rows the filter keeps, through the index of the filtered column. Its cost grows with those rows and with the InnoDB buffer pool (128 MB here). PostgreSQL scans its index iteratively until it has enough rows. Index the column you filter on, as Prism does for `tenant_id`. The migration linter warns (L21) when a vector index is created on a tenanted table of MariaDB where one tenant, among others, has more than 10,000 rows.

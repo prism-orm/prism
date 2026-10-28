@@ -49,6 +49,7 @@ use Prism\Orm\Tools\SchemaTool;
  * | L18 | avertissement | table créée sans clé primaire |
  * | L19 | avertissement | migration irréversible (RG-06.7) |
  * | L20 | avertissement | index vectoriel créé sur une table non vide (ADR 0017) |
+ * | L21 | avertissement | index vectoriel sur une table #[Tenanted] dont un tenant, parmi d'autres, dépasse le seuil, sous MariaDB (RG-09.11) |
  *
  * @api
  */
@@ -65,9 +66,13 @@ final class MigrationLinter
     /** @var list<Finding> */
     private array $findings = [];
 
+    /** @var array<string, string> table #[Tenanted] → colonne du tenant, d'après le mapping */
+    private array $tenantColumns = [];
+
     /**
-     * @param MetadataFactory|null $mapping    sans lui, L03 à L05 ne sont pas vérifiées
-     * @param int                  $largeTable seuil de L10, en lignes
+     * @param MetadataFactory|null $mapping     sans lui, L03 à L05 ne sont pas vérifiées
+     * @param int                  $largeTable  seuil de L10, en lignes
+     * @param int                  $largeTenant seuil de L21, en lignes d'un tenant
      */
     public function __construct(
         private readonly Connection $connection,
@@ -75,6 +80,7 @@ final class MigrationLinter
         private readonly ?MetadataFactory $mapping = null,
         private readonly int $largeTable = 1_000_000,
         ?DataInspector $inspector = null,
+        private readonly int $largeTenant = 10_000,
     ) {
         $this->inspector = $inspector ?? new DatabaseInspector($connection);
     }
@@ -115,6 +121,12 @@ final class MigrationLinter
             }
         }
         $mapped = null === $this->mapping ? null : new SchemaTool($this->connection->getPlatform(), $this->connection->getTypeRegistry())->fromMetadata($this->mapping->getAllMetadata());
+        $this->tenantColumns = [];
+        foreach (null === $this->mapping ? [] : $this->mapping->getAllMetadata() as $class) {
+            if (null !== $class->tenancy) {
+                $this->tenantColumns[strtolower($class->tableName)] = $class->tenancy->column;
+            }
+        }
 
         foreach ($migrations as $version => $migration) {
             $ignored = self::ignored($migration);
@@ -233,6 +245,9 @@ final class MigrationLinter
             if (IndexKind::Vector === $o->kind && null !== $platform->getCanonicalIndex($o->index()) && $rows($o->table)) {
                 $this->find($version, 'L20', Severity::Warning, \sprintf('The vector index on %s.%s is built over the existing rows on %s: an HNSW graph takes memory and time to build. Plan it, and size the build memory (maintenance_work_mem under PostgreSQL, mhnsw_max_cache_size under MariaDB).', $o->table, $o->columns[0], $platform->getName()));
             }
+            if (IndexKind::Vector === $o->kind && $platform->vectorIndexMayMissRows()) {
+                $this->largeTenant($version, $o->table);
+            }
         }
         if ($o instanceof Operation\AddForeignKey) {
             $real = $this->realTable($o->table);
@@ -255,6 +270,25 @@ final class MigrationLinter
         }
         if ($o instanceof Operation\CreateTable && null === $o->table->primaryKey) {
             $this->find($version, 'L18', Severity::Warning, \sprintf('The table %s has no primary key: an entity cannot map it, and some replicas refuse it.', $o->table->name));
+        }
+    }
+
+    /**
+     * RG-09.11 : sous un filtre sélectif, l'index HNSW de MariaDB rend trop peu de lignes, et
+     * nearest() relance une recherche exacte sur les lignes du tenant (ADR 0017) ; son coût suit
+     * leur nombre. Un tenant seul dans la table n'est pas sélectif : l'index trouve ses lignes.
+     */
+    private function largeTenant(string $version, string $table): void
+    {
+        $real = $this->realTable($table);
+        $column = $this->tenantColumns[strtolower($table)] ?? null;
+        $realColumn = null === $column ? null : $this->realColumn($table, $column);
+        if (null === $real || null === $realColumn) {
+            return;
+        }
+        $largest = $this->inspector->largestGroup($real, $realColumn);
+        if ($largest > $this->largeTenant && $this->inspector->hasMoreRowsThan($real, $largest)) {
+            $this->find($version, 'L21', Severity::Warning, \sprintf('%s is #[Tenanted] and one of its tenants has %d rows among others: on %s, a nearest() filtered by that tenant often falls back to an exact search over its rows, whose cost grows with them (RG-09.11, ADR 0017). Keep tenant_id indexed, size innodb_buffer_pool_size to hold the vectors, or prefer PostgreSQL, whose iterative index scan keeps the index.', $table, $largest, $this->connection->getPlatform()->getName()));
         }
     }
 

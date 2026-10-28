@@ -15,11 +15,12 @@ final class FakeInspector implements DataInspector
     public array $asked = [];
 
     /**
-     * @param list<string> $withRows   tables non vides
-     * @param list<string> $large      tables au-delà du seuil
-     * @param list<string> $nulls      « table.colonne » contenant des NULL
-     * @param list<string> $duplicates « table(col,col) » avec doublons
-     * @param list<string> $orphans    tables aux lignes orphelines
+     * @param list<string>                   $withRows   tables non vides
+     * @param list<string>                   $large      tables au-delà du seuil
+     * @param list<string>                   $nulls      « table.colonne » contenant des NULL
+     * @param list<string>                   $duplicates « table(col,col) » avec doublons
+     * @param list<string>                   $orphans    tables aux lignes orphelines
+     * @param array<string, array{int, int}> $groups     « table.colonne » → lignes du plus gros groupe, lignes de la table
      */
     public function __construct(
         private readonly array $withRows = [],
@@ -27,6 +28,7 @@ final class FakeInspector implements DataInspector
         private readonly array $nulls = [],
         private readonly array $duplicates = [],
         private readonly array $orphans = [],
+        private readonly array $groups = [],
     ) {
     }
 
@@ -40,8 +42,18 @@ final class FakeInspector implements DataInspector
     public function hasMoreRowsThan(string $table, int $rows): bool
     {
         $this->asked[] = $table;
+        foreach ($this->groups as $column => [, $total]) {
+            if (str_starts_with($column, $table . '.')) {
+                return $total > $rows;
+            }
+        }
 
         return \in_array($table, $this->large, true);
+    }
+
+    public function largestGroup(string $table, string $column): int
+    {
+        return $this->groups[$table . '.' . $column][0] ?? 0;
     }
 
     public function hasNulls(string $table, string $column): bool
