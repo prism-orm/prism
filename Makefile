@@ -12,7 +12,7 @@ URL_sqlite  := sqlite:///:memory:
 DATABASES := mysql mariadb pgsql sqlite
 
 .DEFAULT_GOAL := help
-.PHONY: help up down build install shell test test-unit test-db test-all-db stan cs cs-check infection bench bench-tenancy bench-vector bench-baseline bench-compare coverage compat test-symfony demo-install demo-test embeddings-snapshot worker-test docs-install docs-dev docs-build ci
+.PHONY: help up down build install shell test test-unit test-db test-all-db stan cs cs-check infection bench bench-tenancy bench-vector bench-baseline bench-compare coverage compat test-symfony demo-install demo-test embeddings-snapshot split worker-test docs-install docs-dev docs-build ci
 
 help: ## Affiche cette aide
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
@@ -96,6 +96,9 @@ demo-test: ## Les tests de la démo ERP (bases prism_demo_test et prism_demo_doc
 embeddings-snapshot: ## Les vecteurs de la démo RAG (demo/data), par un Ollama avec nomic-embed-text:v1.5 : make embeddings-snapshot OLLAMA_URL=http://<hôte>:11434/v1
 	@test -n "$(OLLAMA_URL)" || { echo 'OLLAMA_URL est requis : make embeddings-snapshot OLLAMA_URL=http://<hôte>:11434/v1'; exit 2; }
 	$(DC) run --rm -e EMBEDDING_BASE_URL=$(OLLAMA_URL) php sh -c 'cd demo && bin/console app:docs:snapshot'
+
+split: ## Publie packages/* vers les dépôts prism-orm/* depuis ce poste, sans GitHub Actions (ADR 0004) ; à blanc sans PUSH=1 : make split [TAG=v0.9.0] [PUSH=1]
+	TAG='$(TAG)' PUSH='$(PUSH)' $(if $(REMOTE),REMOTE='$(REMOTE)') tools/split/split.sh
 
 worker-test: ## La démo en worker FrankenPHP, 10 000 requêtes, mémoire mesurée : make worker-test [N=10000] (après make demo-install)
 	$(DC) --profile demo up -d --build --wait frankenphp
