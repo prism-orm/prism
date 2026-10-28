@@ -7,6 +7,7 @@ namespace Prism\Orm\Tools;
 use Prism\Dbal\Platform\AbstractPlatform;
 use Prism\Dbal\Schema\Column;
 use Prism\Dbal\Schema\ForeignKeyAction;
+use Prism\Dbal\Schema\IndexKind;
 use Prism\Dbal\Schema\Schema;
 use Prism\Dbal\Schema\Sequence;
 use Prism\Dbal\Schema\Table;
@@ -19,8 +20,10 @@ use Prism\Orm\Mapping\OnDelete;
 use Prism\Orm\Metadata\AssociationMapping;
 use Prism\Orm\Metadata\AssociationType;
 use Prism\Orm\Metadata\ClassMetadata;
+use Prism\Orm\Metadata\EmbeddingMapping;
 use Prism\Orm\Metadata\FieldMapping;
 use Prism\Orm\Metadata\MetadataValidator;
+use Prism\Orm\Vector\Distance;
 
 /**
  * Traduit les metadata en Schema DBAL ; le Comparator et SchemaManager::migrate() l'appliquent.
@@ -46,7 +49,8 @@ final class SchemaTool
         private readonly AbstractPlatform $platform,
         ?TypeRegistry $types = null,
     ) {
-        $this->validator = new MetadataValidator($types);
+        // ce que la plateforme ne sait pas faire est refusé ici, pas à l'exécution (RG-09.3)
+        $this->validator = new MetadataValidator($types, $platform);
     }
 
     /**
@@ -119,6 +123,11 @@ final class SchemaTool
         if (null !== $tenancy && null === $tenancy->field) {
             $columns[] = new Column($tenancy->column, $tenancy->type, $tenancy->global);
         }
+        // ADR 0018 : une ligne neuve est périmée tant que son vecteur n'est pas calculé
+        foreach ($class->getEmbeddings() as $embedding) {
+            $columns[] = new Column($embedding->staleColumn, 'boolean', default: true);
+            $columns[] = new Column($embedding->modelColumn, 'string', true, length: EmbeddingMapping::MODEL_LENGTH);
+        }
 
         $table = new Table($class->tableName, $columns, [$class->getIdField()->columnName]);
 
@@ -131,11 +140,20 @@ final class SchemaTool
             }
         }
         foreach ($class->indexes as $index) {
+            $columns = array_map(fn (string $field): string => $this->columnOf($class, $field), $index->fields);
+            if (IndexKind::Vector === $index->kind) {
+                $table = $table->withVectorIndexOn($columns[0], ($index->distance ?? Distance::Cosine)->toDbal(), $index->m, $index->efConstruction, $index->name);
+                continue;
+            }
+            if (IndexKind::FullText === $index->kind) {
+                $table = $table->withFullTextIndexOn($columns, $index->language, $index->name);
+                continue;
+            }
             if ($index->unique && null !== $index->where) {
                 throw MappingException::invalidMetadata($class->className, \sprintf('the unique constraint on "%s" has a "where" condition; partial indexes arrive with phase 8 (RG-08.15). Enforcing it without its condition would reject valid rows.', implode(', ', $index->fields)));
             }
             // un index non unique sans sa condition est plus large, jamais faux
-            $table = $table->withIndexOn(self::tenantFirst($class, array_map(fn (string $field): string => $this->columnOf($class, $field), $index->fields)), $index->unique, $index->name, $index->unique ? $live : null);
+            $table = $table->withIndexOn(self::tenantFirst($class, $columns), $index->unique, $index->name, $index->unique ? $live : null);
         }
         if (null !== $tenancy && !self::isCovered($table, $tenancy->column)) {
             $table = $table->withIndexOn([$tenancy->column]);

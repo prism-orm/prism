@@ -117,12 +117,26 @@ abstract class AbstractIntrospector implements Introspector
      */
     protected function indexes(string $table): array
     {
+        return $this->indexesFromRows($table, $this->connection->executeQuery($this->platform->getListIndexesSql(), [$table])->fetchAllAssociative());
+    }
+
+    /**
+     * Les index lus, une ligne par colonne : name, column_name, non_unique, predicate, et
+     * index_type (FULLTEXT, VECTOR) quand la plateforme le donne.
+     *
+     * @param list<array<string, mixed>> $rows
+     *
+     * @return list<Index>
+     */
+    protected function indexesFromRows(string $table, array $rows): array
+    {
         $grouped = [];
-        foreach ($this->connection->executeQuery($this->platform->getListIndexesSql(), [$table])->fetchAllAssociative() as $row) {
+        foreach ($rows as $row) {
             $name = self::string($row['name']);
             $grouped[$name]['columns'][] = self::string($row['column_name']);
             $grouped[$name]['unique'] = 0 === self::nullableInt($row['non_unique']);
             $grouped[$name]['predicate'] = self::nullableString($row['predicate'] ?? null);
+            $grouped[$name]['type'] = self::nullableString($row['index_type'] ?? null);
         }
 
         $indexes = [];
@@ -132,10 +146,18 @@ abstract class AbstractIntrospector implements Introspector
                 // une autre condition : l'index est lu comme complet, plus large que dans la base
                 $this->note($table, $name, \sprintf('The partial index %s (%s) is read as a full index: Prism only manages "column IS NULL" conditions.', $name, $index['predicate']));
             }
-            $indexes[] = new Index($name, $index['columns'], $index['unique'], $whereNull);
+            $indexes[] = $this->refineIndex($table, new Index($name, $index['columns'], $index['unique'], $whereNull), $index['type']);
         }
 
         return $indexes;
+    }
+
+    /**
+     * Un index lu, complété selon son type propre à la plateforme (vectoriel, plein texte).
+     */
+    protected function refineIndex(string $table, Index $index, ?string $type): Index
+    {
+        return $index;
     }
 
     /**

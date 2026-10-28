@@ -1,6 +1,37 @@
 # Changelog
 
-Toutes les évolutions notables de Prism, par version. Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) ; versions [SemVer](https://semver.org/lang/fr/), en `0.x` jusqu'à la 1.0 (RT-16). Les règles citées (RG-xx, RT-xx) sont décrites dans `docs/ROADMAP.md`, les décisions (ADR) dans `docs/adr/`.
+Toutes les évolutions notables de Prism, par version. Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) ; versions [SemVer](https://semver.org/lang/fr/), en `0.x` jusqu'à la 1.0 (RT-16). Les règles citées (RG-xx, RT-xx) sont décrites dans `docs/ROADMAP.md` et `docs/roadmap/`, les décisions (ADR) dans `docs/adr/`.
+
+## [0.9.0] — 2026-10-28
+
+Phase 9 : pilier 4, vector et recherche hybride. Stocker des embeddings à côté des données métier, les indexer, chercher par le sens et par les mots depuis le repository, et garder chaque vecteur à jour de son texte ; guide : [Vector search](website/guide/vector-search.md).
+
+### Ajouté
+
+- Type DBAL `vector` (ADR 0017) : MariaDB `VECTOR(n)`, PostgreSQL `vector(n)` (pgvector 0.8 exigé, extension créée avec le schéma), SQLite en texte avec distances calculées en PHP pour les tests ; refusé sous MySQL, qui n'a ni distance ni index vectoriel en Community. `Type::getParameterSql()` : MariaDB ne lit un vecteur lié qu'à travers `VEC_FromText()`.
+- Index HNSW et plein texte : `#[VectorIndex(distance:, m:, efConstruction:)]`, `#[FullTextIndex(fields:, language:)]` (`FULLTEXT` sous MySQL et MariaDB, index GIN sur `to_tsvector()` sous PostgreSQL) ; introspection et aller-retour RG-01.8 sur les 4 bases ; `createVectorIndex()`, `createFullTextIndex()` et `db:migrations:diff` ; règle L20 du linter ; ce qu'une plateforme ne sait pas faire est refusé à la validation du mapping (RG-09.3).
+- Value object `Vector` (`normalize()`, `cosine()`, `distance()`) ; dimension vérifiée avant l'envoi en base, `VectorDimensionMismatchException` (RG-09.1, RG-09.2) ; un champ `Vector` est paresseux, chargé par lot au premier accès, ou avec `->withVectors()` (RG-09.6).
+- `nearest()` sur le repository : `list<ScoredResult>` (entité, distance, score), filtres et critères appliqués avant le classement ; `hnsw.iterative_scan` sous PostgreSQL et relance exacte sous MariaDB quand un filtre sélectif laisse l'index rendre trop peu de lignes (RG-09.4, RG-09.11). `VectorField::distanceTo()` en tri et en projection dans le QueryBuilder typé ; règle PHPStan `prism.nearest.notVector`.
+- `hybridSearch()` : plein texte (un OU sur les mots, sur les 4 plateformes) et vecteurs fusionnés par Reciprocal Rank Fusion, `HybridOptions` (k, poids, candidats, champ, index), `HybridResult` avec ses deux rangs (RG-09.5).
+- `#[EmbeddedVector(source:, model:)]` (ADR 0018) : colonnes `<colonne>_stale` et `<colonne>_model` ; vecteur périmé à l'INSERT et quand une source change, remis à un `EmbeddingScheduler` après le commit, jamais pendant la transaction ni après un rollback (RG-09.7) ; vecteur périmé exclu de `nearest()` sauf `includeStale` (RG-09.8) ; `EmbeddingUpdater` : calcul hors transaction, écriture seulement si les sources n'ont pas changé entre-temps, filtre du tenant ; `markEmbeddingsStale()` pour changer de modèle (RG-09.10).
+- `EmbeddingProvider` (RG-09.9), `EmbeddingProviderRegistry`, `HashingEmbeddingProvider` (déterministe, sans réseau), planificateurs différé et synchrone, `EmbeddingException` ; `db:embeddings:compute` et `db:embeddings:status`.
+- Paquet `prism-orm/embedding-openai` : `OpenAiCompatibleProvider` pour l'API `/v1/embeddings` (OpenAI, Mistral, Ollama, vLLM, LocalAI, Text Embeddings Inference), par lots, réponses vérifiées, préfixe par texte (`search_document: ` de nomic-embed-text).
+- Bundle : configuration `prism.embeddings` (scheduler `auto`, `messenger`, `synchronous` ou `deferred`, taille de lot, fournisseurs `service` ou `openai`), tag `prism.embedding_provider` et `#[AsEmbeddingProvider]`, fournisseurs vérifiés au `cache:warmup` ; message `ComputeEmbedding` et son handler par lots de messages (`BatchHandlerInterface`), dans le tenant des lignes.
+- Démo : recherche dans la documentation de Prism (page `/docs`), second EntityManager `docs` sur PostgreSQL avec pgvector, 324 sections, vecteurs `nomic-embed-text:v1.5` précalculés dans `demo/data` (`make embeddings-snapshot`), jeu de 60 questions annotées, `app:docs:evaluate`. Rappel@10 : `hybridSearch()` 0,922, vectoriel seul 0,903, plein texte seul 0,711.
+- Linter de migrations, règle L21 : index vectoriel sur une table `#[Tenanted]` de MariaDB dont un tenant, parmi d'autres, dépasse 10 000 lignes ; `nearest()` filtré par ce tenant y retombe sur une recherche exacte (RG-09.11).
+- `make bench-vector` : `nearest()` sur 100 000 vecteurs de 768 dimensions, p95 de 22 ms sous MariaDB (cache du graphe dimensionné) et de 31 ms sous PostgreSQL.
+
+### Modifié
+
+- `EntityManager` accepte en fin de constructeur un `EmbeddingScheduler` ; `MetadataFactory` et `MetadataValidator` un `EmbeddingProviderRegistry`.
+- Dépendances : `symfony/http-client-contracts`, déclarée par `prism-orm/embedding-openai` seulement.
+
+### Corrigé
+
+- SQLite : une table créée par une migration avait perdu ses index vectoriels et plein texte.
+- MariaDB : un vecteur dont le premier octet float32 vaut `0x5B` (« [ ») était lu comme du texte et refusé ; trouvé par `make bench-vector`.
+- `nearest()` et `withVectors()` : l'UnitOfWork ne réencode plus chaque vecteur hydraté pour son snapshot (environ 2 ms par vecteur de 768 dimensions) ; un vecteur égal à sa relecture n'est plus réencodé au flush. `nearest()` passe de 42 à 22 ms au p95 sur 100 000 lignes MariaDB.
+- L'`EmbeddingScheduler` est appelé à la fin de `flush()`, après `PostFlush` : un message traité en synchrone ne peut plus vider l'EntityManager au milieu du flush.
 
 ## [0.8.0] — 2026-10-27
 

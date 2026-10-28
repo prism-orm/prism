@@ -12,7 +12,7 @@ It is built for business applications: ERPs, B2B software, back offices. These a
 
 **3. Multi-tenancy and audit.** An entity marked `#[Tenanted]` gets a `tenant_id` column that Prism fills, filters and checks in every query, including lazy loading, batch fetching and raw SQL. `#[Auditable]`, `#[Timestampable]`, `#[Blameable]` and `#[SoftDeletable]` cover the rest of what business data needs.
 
-**4. Vector and hybrid search.** Coming in Prism 0.9.
+**4. Vector and hybrid search.** A `vector` type for MariaDB and PostgreSQL (pgvector), HNSW and full-text indexes, `nearest()` and `hybridSearch()` on every repository, with the usual filters applied before the ranking. `#[EmbeddedVector]` keeps a vector in step with its text: stale at flush, recomputed after the commit by a provider you choose. See [Vector search](/guide/vector-search).
 
 ## Design choices
 

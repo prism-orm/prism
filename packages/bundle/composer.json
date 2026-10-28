@@ -10,6 +10,7 @@
         "symfony/framework-bundle": "^7.4 || ^8.0"
     },
     "suggest": {
+        "prism-orm/embedding-openai": "Embedding provider for the OpenAI-compatible API (prism.embeddings.providers.*.openai)",
         "symfony/maker-bundle": "make:entity and make:migration",
         "symfony/messenger": "Clears the entity managers between two messages",
         "symfony/security-bundle": "User provider backed by an entity",

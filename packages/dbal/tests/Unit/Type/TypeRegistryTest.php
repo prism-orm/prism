@@ -14,10 +14,10 @@ use Prism\Dbal\Type\TypeRegistry;
 
 final class TypeRegistryTest extends TestCase
 {
-    public function testDefaultsContainTheFourteenNativeTypes(): void
+    public function testDefaultsContainTheFifteenNativeTypes(): void
     {
         self::assertSame(
-            ['string', 'text', 'integer', 'smallint', 'bigint', 'boolean', 'decimal', 'float', 'datetime_immutable', 'date_immutable', 'time_immutable', 'json', 'uuid', 'binary'],
+            ['string', 'text', 'integer', 'smallint', 'bigint', 'boolean', 'decimal', 'float', 'datetime_immutable', 'date_immutable', 'time_immutable', 'json', 'uuid', 'binary', 'vector'],
             TypeRegistry::withDefaults()->getNames(),
         );
     }

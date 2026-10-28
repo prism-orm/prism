@@ -20,6 +20,7 @@ use Prism\Orm\Filter\FilterTarget;
 use Prism\Orm\Mapping\Order as MappingOrder;
 use Prism\Orm\Metadata\AssociationMapping;
 use Prism\Orm\Metadata\ClassMetadata;
+use Prism\Orm\Metadata\FieldMapping;
 use Prism\Orm\Metadata\MetadataFactory;
 use Prism\Orm\Query\Metamodel\Field;
 use Prism\Orm\Query\Metamodel\Metamodel;
@@ -72,6 +73,8 @@ final class EntityQueryBuilder
     private array $joins = [];
 
     private bool $batch = true;
+
+    private bool $vectors = false;
 
     private bool $withDeleted = false;
 
@@ -167,6 +170,19 @@ final class EntityQueryBuilder
     {
         return $this->with(static function (self $qb): void {
             $qb->batch = false;
+        });
+    }
+
+    /**
+     * Lit les vecteurs paresseux avec les entités (RG-09.6) : sans cette option, un champ Vector
+     * reçoit un ghost, chargé au premier accès avec ceux du même lot.
+     *
+     * @return static<T>
+     */
+    public function withVectors(): static
+    {
+        return $this->with(static function (self $qb): void {
+            $qb->vectors = true;
         });
     }
 
@@ -316,7 +332,7 @@ final class EntityQueryBuilder
             $qb = $qb->addOrderBy($sql, $ordering->order);
         }
 
-        return [$qb->limit($one ? min(2, $this->limit ?? 2) : $this->limit)->offset($this->offset), $context, $aliases];
+        return [$context->withParameters($qb)->limit($one ? min(2, $this->limit ?? 2) : $this->limit)->offset($this->offset), $context, $aliases];
     }
 
     /**
@@ -467,7 +483,7 @@ final class EntityQueryBuilder
         foreach ($ordered->orderBy as $i => $ordering) {
             $qb = $qb->addOrderBy($orderings[$i], $ordering->order);
         }
-        $ids = $qb->limit($perPage)->offset($offset)->executeQuery()->fetchFirstColumn();
+        $ids = $context->withParameters($qb)->limit($perPage)->offset($offset)->executeQuery()->fetchFirstColumn();
         if ([] === $ids) {
             return new Paginator([], $page, $perPage, $count);
         }
@@ -609,15 +625,20 @@ final class EntityQueryBuilder
             // la colonne du tenant que ne porte aucun champ est lue aussi : l'UoW garde le tenant de chaque entité
             $tenancy = $node->metadata->tenancy;
             $tenant = null === $tenancy || null !== $tenancy->field ? [] : [$tenancy->column];
+            // RG-09.6 : d'un vecteur paresseux, seulement sa nullité (1 : NULL), sauf withVectors()
+            $lazy = $this->vectors ? [] : array_map(static fn (FieldMapping $f): string => $f->columnName, $node->metadata->getLazyFields());
             foreach ([...$node->metadata->getColumnNames(), ...$tenant] as $column) {
+                $read = \in_array($column, $lazy, true)
+                    ? \sprintf('CASE WHEN %s IS NULL THEN 1 ELSE 0 END', $qb->column($column, $alias))
+                    : $qb->column($column, $alias);
                 if (1 === \count($nodes)) {
-                    $select[] = $qb->column($column, $alias);
+                    $select[] = $read === $qb->column($column, $alias) ? $read : $read . ' AS ' . $qb->column($column);
                     continue;
                 }
                 // PostgreSQL tronque un identifiant au-delà de 63 octets
                 $name = \strlen($alias . '__' . $column) <= 63 ? $alias . '__' . $column : 'prism_' . \count($select);
                 $node->columns[$name] = $column;
-                $select[] = $qb->column($column, $alias) . ' AS ' . $qb->column($name);
+                $select[] = $read . ' AS ' . $qb->column($name);
             }
         }
         $qb = $qb->select(...$select);
@@ -633,7 +654,7 @@ final class EntityQueryBuilder
             $qb = $qb->addOrderBy($column, $order);
         }
 
-        return [$qb->limit($limit)->offset($offset), $nodes];
+        return [$context->withParameters($qb)->limit($limit)->offset($offset), $nodes];
     }
 
     /**
@@ -708,7 +729,7 @@ final class EntityQueryBuilder
         $root = $nodes[$this->root->alias];
         if (1 === \count($nodes)) {
             $unique = [];
-            foreach ($uow->hydrate($root->metadata, $rows, $this->batch) as $entity) {
+            foreach ($uow->hydrate($root->metadata, $rows, $this->batch, vectors: $this->vectors) as $entity) {
                 $unique[spl_object_id($entity)] ??= $entity;
             }
 
@@ -751,7 +772,7 @@ final class EntityQueryBuilder
         }
 
         $fetched = array_values(array_map(static fn (Node $child): string => (string) $child->association?->fieldName, $after));
-        $entities = $uow->hydrate($node->metadata, array_values($node->rows), $this->batch, $fetched);
+        $entities = $uow->hydrate($node->metadata, array_values($node->rows), $this->batch, $fetched, $this->vectors);
         $node->entities = array_combine(array_keys($node->rows), $entities);
 
         foreach ($after as $childAlias => $child) {

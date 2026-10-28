@@ -6,10 +6,12 @@ namespace Prism\Dbal\Query;
 
 use Prism\Dbal\ParameterType;
 use Prism\Dbal\Platform\AbstractPlatform;
+use Prism\Dbal\Type\TypeRegistry;
 
 /**
  * État d'une génération de SQL : nomme les valeurs liées :prism_1, :prism_2… dans l'ordre
- * d'apparition, pour que deux requêtes identiques produisent le même SQL.
+ * d'apparition, pour que deux requêtes identiques produisent le même SQL. Une valeur typée par
+ * son nom reçoit le SQL de paramètre de son type (Type::getParameterSql()).
  *
  * @internal
  */
@@ -23,8 +25,10 @@ final class QueryCompiler
 
     private int $counter = 0;
 
-    public function __construct(public readonly AbstractPlatform $platform)
-    {
+    public function __construct(
+        public readonly AbstractPlatform $platform,
+        private readonly TypeRegistry $typeRegistry,
+    ) {
     }
 
     public function table(string $table, ?string $alias): string
@@ -59,7 +63,7 @@ final class QueryCompiler
         $name = 'prism_' . ++$this->counter;
         $this->add($name, $value);
 
-        return ':' . $name;
+        return \is_string($value->type) ? $this->typeRegistry->get($value->type)->getParameterSql(':' . $name, $this->platform) : ':' . $name;
     }
 
     private function add(string $name, BoundValue $value): void

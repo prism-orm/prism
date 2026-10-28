@@ -25,7 +25,8 @@ final class PropertyAttributesTest extends TestCase
         self::assertNull($column->nullable);
         self::assertNull($column->length);
         self::assertFalse($column->sensitive);
-        self::assertFalse($column->lazy);
+        // null : décidé par le type de la propriété (un Vector est paresseux, RG-09.6)
+        self::assertNull($column->lazy);
         self::assertTrue($column->insertable);
         self::assertTrue($column->updatable);
     }

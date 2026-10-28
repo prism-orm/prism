@@ -20,6 +20,8 @@ parameters:
         - packages/phpstan/tests
         - packages/test-pack/src
         - packages/test-pack/tests
+        - packages/embedding-openai/src
+        - packages/embedding-openai/tests
         - benchmarks
         - website/tests
     # cas de la suite de l'extension : du code volontairement faux, analysé par RuleTestCase

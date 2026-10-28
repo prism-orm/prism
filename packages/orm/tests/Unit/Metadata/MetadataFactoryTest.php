@@ -11,7 +11,6 @@ use Prism\Orm\Metadata\Driver\AttributeDriver;
 use Prism\Orm\Metadata\MetadataFactory;
 use Prism\Orm\Tests\Support\InMemoryCachePool;
 use Prism\Orm\Tests\Support\SpyDriver;
-use Prism\Orm\Tests\Support\StubVectorType;
 use Prism\Orm\Tests\Unit\Mapping\Fixtures\Address;
 use Prism\Orm\Tests\Unit\Mapping\Fixtures\Client;
 use Prism\Orm\Tests\Unit\Mapping\Fixtures\Invoice;
@@ -29,7 +28,7 @@ final class MetadataFactoryTest extends TestCase
 
     private static function factory(SpyDriver $driver, ?InMemoryCachePool $cache = null): MetadataFactory
     {
-        return new MetadataFactory($driver, $cache, StubVectorType::registry());
+        return new MetadataFactory($driver, $cache);
     }
 
     // critère de sortie : zéro lecture d'attributs après échauffement
@@ -95,14 +94,14 @@ final class MetadataFactoryTest extends TestCase
     public function testWarmUpRefusesAnInvalidMappingAndWritesNothing(): void
     {
         $cache = new InMemoryCachePool();
-        // sans le type vector, la fixture Invoice est invalide
-        $factory = new MetadataFactory(self::spy(), $cache);
+        // le type de UnknownTypeEntity n'est pas enregistré
+        $factory = new MetadataFactory(new SpyDriver(new AttributeDriver([__DIR__ . '/../Mapping/InvalidFixtures'])), $cache);
 
         try {
             $factory->warmUp();
             self::fail('Expected MappingException.');
         } catch (MappingException $e) {
-            self::assertStringContainsString('unknown type "vector"', $e->getMessage());
+            self::assertStringContainsString('unknown type "money"', $e->getMessage());
         }
 
         self::assertSame(0, $cache->writes);

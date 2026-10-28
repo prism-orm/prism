@@ -7,7 +7,7 @@ ORM PHP moderne pour les applications métier et l'IA.
 - Multi-tenancy et audit natifs
 - Type `vector` et recherche hybride
 
-> Statut : `0.8.0`, phases 0 à 8 livrées (DBAL, mapping, EntityManager, relations et anti-N+1, QueryBuilder typé et PHPStan, migrations et console, bundle Symfony, multi-tenancy et audit). Documentation : le site de [`website/`](website) (`make docs-install && make docs-dev`), en anglais, dont chaque exemple est exécuté en CI ; démonstration : [demo/](demo). Versions `0.x` : l'API peut encore changer. Voir [CHANGELOG.md](CHANGELOG.md).
+> Statut : `0.9.0`, phases 0 à 9 livrées (DBAL, mapping, EntityManager, relations et anti-N+1, QueryBuilder typé et PHPStan, migrations et console, bundle Symfony, multi-tenancy et audit, vector et recherche hybride). Documentation : le site de [`website/`](website) (`make docs-install && make docs-dev`), en anglais, dont chaque exemple est exécuté en CI ; démonstration : [demo/](demo). Versions `0.x` : l'API peut encore changer. Voir [CHANGELOG.md](CHANGELOG.md).
 
 ## Démarrer
 
@@ -32,6 +32,7 @@ make ci         # style + PHPStan + tests sur les 4 bases
 | `packages/bundle` | `Prism\Bundle` | Intégration Symfony |
 | `packages/phpstan` | `Prism\PHPStan` | Extension PHPStan |
 | `packages/test-pack` | `Prism\TestPack` | Tests des applications : factories, `ResetDatabase`, `assertQueryCount()` |
+| `packages/embedding-openai` | `Prism\Embedding\OpenAi` | Fournisseur d'embeddings pour l'API `/v1/embeddings` (OpenAI, Mistral, Ollama…) |
 | `website` | `Prism\Website\Tests` | Site de documentation (VitePress) et ses tests : exemples exécutés, complétude de la référence, liens |
 
 Roadmap : [docs/ROADMAP.md](docs/ROADMAP.md) · Commandes `db:*` : [packages/bundle/docs/commands.md](packages/bundle/docs/commands.md) · Décisions : [docs/adr](docs/adr)

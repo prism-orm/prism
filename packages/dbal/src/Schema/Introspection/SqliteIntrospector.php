@@ -33,6 +33,7 @@ final class SqliteIntrospector extends AbstractIntrospector
         'CHAR' => 'uuid',
         'CHARACTER' => 'string',
         'BLOB' => 'binary',
+        'VECTOR_TEXT' => 'vector',
     ];
 
     private string $definition = '';
@@ -65,7 +66,7 @@ final class SqliteIntrospector extends AbstractIntrospector
             $type,
             0 === self::nullableInt($row['not_null']),
             self::typedDefault($type, self::defaultValue(self::nullableString($row['default_value']))),
-            'string' === $type ? $size : null,
+            'string' === $type || 'vector' === $type ? $size : null,
             'decimal' === $type ? $size : null,
             'decimal' === $type ? (isset($m[3]) ? (int) $m[3] : null) : null,
             // seule une colonne INTEGER PRIMARY KEY peut porter AUTOINCREMENT

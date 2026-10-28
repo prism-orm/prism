@@ -203,6 +203,25 @@ final class Table
         return $this->withIndex(new Index($name ?? NameGenerator::index($this->name, $columns, $unique, $whereNull), $columns, $unique, $whereNull));
     }
 
+    /**
+     * Index vectoriel HNSW (ADR 0017), nommé automatiquement quand $name est null ; m et
+     * efConstruction null : défauts de la plateforme.
+     */
+    public function withVectorIndexOn(string $column, VectorDistance $distance, ?int $m = null, ?int $efConstruction = null, ?string $name = null): self
+    {
+        return $this->withIndex(new Index($name ?? NameGenerator::index($this->name, [$column], false, kind: IndexKind::Vector), [$column], kind: IndexKind::Vector, distance: $distance, m: $m, efConstruction: $efConstruction));
+    }
+
+    /**
+     * Index plein texte (ADR 0017) ; $language : configuration de PostgreSQL (null : simple).
+     *
+     * @param list<string> $columns
+     */
+    public function withFullTextIndexOn(array $columns, ?string $language = null, ?string $name = null): self
+    {
+        return $this->withIndex(new Index($name ?? NameGenerator::index($this->name, $columns, false, kind: IndexKind::FullText), $columns, kind: IndexKind::FullText, language: $language));
+    }
+
     public function withoutIndex(string $name): self
     {
         $indexes = $this->indexes;

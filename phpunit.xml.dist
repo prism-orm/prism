@@ -16,6 +16,7 @@
             <directory>packages/bundle/tests/Unit</directory>
             <directory>packages/phpstan/tests/Unit</directory>
             <directory>packages/test-pack/tests/Unit</directory>
+            <directory>packages/embedding-openai/tests/Unit</directory>
             <directory>website/tests/Unit</directory>
         </testsuite>
         <testsuite name="functional">
@@ -39,6 +40,7 @@
             <directory>packages/bundle/src</directory>
             <directory>packages/phpstan/src</directory>
             <directory>packages/test-pack/src</directory>
+            <directory>packages/embedding-openai/src</directory>
         </include>
     </source>
     <php>

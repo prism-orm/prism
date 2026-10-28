@@ -32,6 +32,7 @@ use Prism\Orm\Tests\Unit\Metadata\Fixtures\Inferred;
 use Prism\Orm\Tests\Unit\Metadata\Fixtures\Person;
 use Prism\Orm\Tests\Unit\Metadata\Fixtures\Priority;
 use Prism\Orm\Tests\Unit\Tools\Fixtures\Ledger;
+use Prism\Orm\Vector\Distance;
 
 final class AttributeDriverTest extends TestCase
 {
@@ -181,8 +182,22 @@ final class AttributeDriverTest extends TestCase
         self::assertTrue($metadata->getField('billingAddress.city')->nullable);
         self::assertSame(['vector', true], [$metadata->getField('embedding')->type, $metadata->getField('embedding')->lazy]);
 
-        $indexes = array_map(static fn ($i): array => [$i->fields, $i->unique, $i->where], $metadata->indexes);
-        self::assertSame([[['issuedAt'], false, null], [['status', 'issuedAt'], false, "status <> 'draft'"], [['number'], true, null]], $indexes);
+        $indexes = array_map(static fn ($i): array => [$i->fields, $i->unique, $i->where, $i->kind->name], $metadata->indexes);
+        self::assertSame([
+            [['issuedAt'], false, null, 'Regular'],
+            [['status', 'issuedAt'], false, "status <> 'draft'", 'Regular'],
+            [['number'], true, null, 'Regular'],
+            [['number', 'notes'], false, null, 'FullText'],
+            [['embedding'], false, null, 'Vector'],
+        ], $indexes);
+        // ADR 0017 : les options des deux sortes du pilier 4
+        self::assertSame('french', $metadata->indexes[3]->language);
+        self::assertSame([Distance::Cosine, 16, 64], [$metadata->indexes[4]->distance, $metadata->indexes[4]->m, $metadata->indexes[4]->efConstruction]);
+        // ADR 0018 : deux colonnes d'état nommées d'après celle du vecteur, le fournisseur par défaut
+        $embedding = $metadata->getEmbedding('embedding');
+        self::assertNotNull($embedding);
+        self::assertSame([['number', 'notes'], 'default', 'embedding_stale', 'embedding_model'], [$embedding->source, $embedding->provider, $embedding->staleColumn, $embedding->modelColumn]);
+        self::assertNull($metadata->getEmbedding('number'));
 
         $client = $metadata->getAssociation('client');
         self::assertSame([AssociationType::ManyToOne, Client::class, 'client_id', false, 'invoices', [Cascade::Persist], 200], [$client->type, $client->targetEntity, $client->joinColumn, $client->nullable, $client->inversedBy, $client->cascade, $client->batchSize]);
@@ -292,6 +307,9 @@ final class AttributeDriverTest extends TestCase
         yield 'not an entity' => [$ns . 'NotAnEntity', 'NotAnEntity is not an entity: add #[Entity] to the class.'];
         yield 'unknown class' => [$ns . 'DoesNotExist', 'DoesNotExist does not exist or cannot be autoloaded.'];
         // ADR 0014 : reporté en 1.x
+        // RG-09.6 : un ghost ne peut être qu'un Vector
+        yield 'lazy list of floats' => [$ns . 'LazyArrayVector', 'LazyArrayVector::$embedding: lazy: true needs a property typed Prism\Orm\Vector\Vector; a "array" property is always loaded.'];
+        yield 'Vector on a text column' => [$ns . 'VectorAsText', 'VectorAsText::$embedding: a Prism\Orm\Vector\Vector property maps a "vector" column, not "text".'];
         yield 'tenant strict foreign keys' => [$ns . 'StrictTenantForeignKeys', 'StrictTenantForeignKeys: #[Tenanted(strictForeignKeys: true)] is not supported in 1.0: it needs composite foreign keys on (tenant_id, id). Remove it; relations between tenants are refused at flush (RG-08.6).'];
     }
 

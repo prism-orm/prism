@@ -34,11 +34,7 @@ final class BenchDatabase
      */
     public static function create(string $name, int $rows, bool $tenanted = false): void
     {
-        $admin = DriverManager::fromUrl(self::serverUrl());
-        $quoted = $admin->getPlatform()->quoteIdentifier($name);
-        $admin->executeStatement('DROP DATABASE IF EXISTS ' . $quoted . self::force());
-        $admin->executeStatement('CREATE DATABASE ' . $quoted);
-        $admin->close();
+        self::createEmpty($name);
 
         $connection = self::connection($name);
         $classes = $tenanted ? [BenchItem::class, TenantBenchItem::class] : [BenchItem::class];
@@ -66,6 +62,18 @@ final class BenchDatabase
             }
         }
         $connection->close();
+    }
+
+    /**
+     * Recrée la base, vide.
+     */
+    public static function createEmpty(string $name): void
+    {
+        $admin = DriverManager::fromUrl(self::serverUrl());
+        $quoted = $admin->getPlatform()->quoteIdentifier($name);
+        $admin->executeStatement('DROP DATABASE IF EXISTS ' . $quoted . self::force());
+        $admin->executeStatement('CREATE DATABASE ' . $quoted);
+        $admin->close();
     }
 
     public static function drop(string $name): void

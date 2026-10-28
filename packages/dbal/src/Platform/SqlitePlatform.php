@@ -9,8 +9,11 @@ use Prism\Dbal\LockMode;
 use Prism\Dbal\Schema\Column;
 use Prism\Dbal\Schema\ColumnDiff;
 use Prism\Dbal\Schema\ForeignKey;
+use Prism\Dbal\Schema\Index;
+use Prism\Dbal\Schema\IndexKind;
 use Prism\Dbal\Schema\Table;
 use Prism\Dbal\Schema\TableDiff;
+use Prism\Dbal\Schema\VectorDistance;
 
 /**
  * Tests et dev uniquement (périmètre 1.0).
@@ -46,6 +49,46 @@ final class SqlitePlatform extends AbstractPlatform
     public function getLockSql(LockMode $mode): string
     {
         return '';
+    }
+
+    // ni index vectoriel ni plein texte : la recherche lit toute la table (tests et développement)
+    public function getCanonicalIndex(Index $index): ?Index
+    {
+        return IndexKind::Regular === $index->kind ? $index : null;
+    }
+
+    // ni type ni index : le texte est stocké tel quel, les distances calculées en PHP (lecture complète)
+    public function supportsVectors(): bool
+    {
+        return true;
+    }
+
+    public function getVectorParameterSql(string $placeholder): string
+    {
+        return $placeholder;
+    }
+
+    // sans index : un score par termes calculé en PHP sur chaque ligne (SqliteVectorFunctions)
+    public function getFullTextScoreSql(array $columns, ?string $language, string $query): string
+    {
+        return \sprintf('prism_fts_score(%s, %s)', implode(" || ' ' || ", array_map(static fn (string $c): string => \sprintf("coalesce(%s, '')", $c), $columns)), $query);
+    }
+
+    public function getFullTextConditionSql(array $columns, ?string $language, string $query): string
+    {
+        return $this->getFullTextScoreSql($columns, $language, $query) . ' > 0';
+    }
+
+    /**
+     * Fonctions de SqliteVectorFunctions, enregistrées par la Connection.
+     */
+    public function getVectorDistanceSql(VectorDistance $distance, string $column, string $vector): string
+    {
+        return \sprintf(match ($distance) {
+            VectorDistance::Cosine => 'prism_vec_cosine(%s, %s)',
+            VectorDistance::Euclidean => 'prism_vec_euclidean(%s, %s)',
+            VectorDistance::InnerProduct => 'prism_vec_inner(%s, %s)',
+        }, $column, $vector);
     }
 
     // SQLite : LIMIT -1 signifie « sans limite »
@@ -122,6 +165,8 @@ final class SqlitePlatform extends AbstractPlatform
             'json' => 'JSON_TEXT',
             'uuid' => 'CHAR(36)',
             'binary' => 'BLOB',
+            // le texte « [0.5,-1.25,3] » (affinité TEXT) ; la dimension n'est pas vérifiée par SQLite
+            'vector' => \sprintf('VECTOR_TEXT(%d)', $column->length),
             default => $this->unsupportedType($table, $column),
         };
     }

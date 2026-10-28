@@ -7,6 +7,7 @@ namespace Prism\Orm\Metadata;
 use Prism\Orm\Exception\MappingException;
 use Prism\Orm\Mapping\LifecycleEvent;
 use Prism\Orm\Mapping\TrackingPolicy;
+use Prism\Orm\Vector\Vector;
 
 /**
  * Description complète d'une entité, déduite de ses attributs. Immuable une fois construite.
@@ -41,6 +42,9 @@ final class ClassMetadata
     /** Comportements déclarés par attributs (ADR 0015) ; aucun par défaut. */
     public readonly BehaviorMapping $behaviors;
 
+    /** @var array<string, EmbeddingMapping> champs #[EmbeddedVector], par nom (ADR 0018) */
+    private readonly array $embeddings;
+
     /**
      * @param class-string<T>                                                    $className
      * @param list<FieldMapping>                                                 $fields
@@ -53,6 +57,7 @@ final class ClassMetadata
      * @param class-string|null                                                  $repositoryClass
      * @param array<class-string, array<value-of<LifecycleEvent>, list<string>>> $entityListenerCallbacks
      *                                                                                                    méthodes de chaque listener d'entité, par événement
+     * @param list<EmbeddingMapping>                                             $embeddings
      */
     public function __construct(
         public readonly string $className,
@@ -72,8 +77,10 @@ final class ClassMetadata
         public readonly array $entityListenerCallbacks = [],
         public readonly ?TenancyMapping $tenancy = null,
         ?BehaviorMapping $behaviors = null,
+        array $embeddings = [],
     ) {
         $this->behaviors = $behaviors ?? new BehaviorMapping();
+        $this->embeddings = self::byName($className, $embeddings, static fn (EmbeddingMapping $e): string => $e->field);
         $this->fields = self::byName($className, $fields, static fn (FieldMapping $f): string => $f->fieldName);
         $this->embedded = self::byName($className, $embedded, static fn (EmbeddedMapping $e): string => $e->fieldName);
         $this->associations = self::byName($className, $associations, static fn (AssociationMapping $a): string => $a->fieldName);
@@ -112,6 +119,24 @@ final class ClassMetadata
         if (null !== $tenancy?->field && !isset($this->fields[$tenancy->field])) {
             throw MappingException::invalidField($className, $tenancy->field, 'the tenant field must be a mapped scalar field.');
         }
+        foreach ($this->embeddings as $name => $embedding) {
+            if (!isset($this->fields[$name])) {
+                throw MappingException::invalidField($className, $name, '#[EmbeddedVector] must be on a mapped scalar field.');
+            }
+        }
+    }
+
+    /**
+     * @return list<EmbeddingMapping> champs #[EmbeddedVector] (ADR 0018)
+     */
+    public function getEmbeddings(): array
+    {
+        return array_values($this->embeddings);
+    }
+
+    public function getEmbedding(string $field): ?EmbeddingMapping
+    {
+        return $this->embeddings[$field] ?? null;
     }
 
     /**
@@ -259,7 +284,12 @@ final class ClassMetadata
     {
         $row = [];
         foreach ($this->fields as $field) {
-            $row[$field->columnName] = self::toColumn($field, $this->read($this->className, $field->fieldName, $entity));
+            $value = $this->read($this->className, $field->fieldName, $entity);
+            // un vecteur paresseux pas encore chargé : sa colonne n'est ni lue ni comparée (RG-09.6)
+            if ($value instanceof Vector && new \ReflectionClass($value)->isUninitializedLazyObject($value)) {
+                continue;
+            }
+            $row[$field->columnName] = self::toColumn($field, $value);
         }
         foreach ($this->embedded as $embedded) {
             $value = $this->read($this->className, $embedded->fieldName, $entity);
@@ -309,7 +339,22 @@ final class ClassMetadata
 
     private static function toColumn(FieldMapping $field, mixed $value): mixed
     {
-        return null !== $field->enumType && $value instanceof \BackedEnum ? $value->value : $value;
+        return match (true) {
+            null !== $field->enumType && $value instanceof \BackedEnum => $value->value,
+            $value instanceof Vector => $value->toArray(),
+            default => $value,
+        };
+    }
+
+    /**
+     * Champs paresseux (RG-09.6) : leur colonne n'est pas lue avec l'entité, seulement si elle est
+     * NULL ; la valeur est chargée au premier accès.
+     *
+     * @return list<FieldMapping>
+     */
+    public function getLazyFields(): array
+    {
+        return array_values(array_filter($this->fields, static fn (FieldMapping $f): bool => $f->lazy));
     }
 
     /**
@@ -322,6 +367,10 @@ final class ClassMetadata
      */
     public function toFieldValue(FieldMapping $field, mixed $value): mixed
     {
+        if ($field->vectorObject && \is_array($value)) {
+            /** @var list<float> $value */
+            return new Vector($value);
+        }
         if (null === $field->enumType || null === $value || $value instanceof \BackedEnum) {
             return $value;
         }

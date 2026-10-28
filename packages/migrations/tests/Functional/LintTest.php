@@ -76,6 +76,9 @@ final class LintTest extends TestCase
         self::assertFalse($data->hasDuplicates('lt_customer', ['id']));
         self::assertFalse($data->hasDuplicates('lt_customer', ['legacy']), 'NULLs do not collide in a unique index');
         self::assertTrue($data->hasOrphans('lt_invoice', ['customer_id'], 'lt_customer', ['id']), 'invoice 11 references customer 99');
+        // L21 : la valeur la plus fréquente, deux « Ada »
+        self::assertSame(2, $data->largestGroup('lt_customer', 'name'));
+        self::assertSame(1, $data->largestGroup('lt_customer', 'id'));
 
         $this->connection->executeStatement('DELETE FROM lt_invoice WHERE id = 11');
         self::assertFalse($data->hasOrphans('lt_invoice', ['customer_id'], 'lt_customer', ['id']), 'a NULL reference is not an orphan');

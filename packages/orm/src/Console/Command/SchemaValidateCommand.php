@@ -47,7 +47,7 @@ final class SchemaValidateCommand extends Command
 
         try {
             $metadata = $this->schema->getMetadataFactory()->getAllMetadata();
-            $found = new MetadataValidator($this->schema->getConnection()->getTypeRegistry())->validate($metadata);
+            $found = new MetadataValidator($this->schema->getConnection()->getTypeRegistry(), $this->schema->getConnection()->getPlatform())->validate($metadata);
             $errors = array_values(array_map(static fn (MappingError $e): string => (string) $e, array_filter($found, static fn (MappingError $e): bool => MappingSeverity::Error === $e->severity)));
             $warnings = array_values(array_map(static fn (MappingError $e): string => (string) $e, array_filter($found, static fn (MappingError $e): bool => MappingSeverity::Warning === $e->severity)));
         } catch (MappingException $e) {

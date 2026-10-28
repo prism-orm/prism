@@ -19,8 +19,9 @@ use Prism\Orm\Repository\EntityRepository;
 use Prism\PHPStan\MetadataProvider;
 
 /**
- * RG-05.8 : les clés des critères et du tri de findBy(), findOneBy(), count() et iterate() sont
- * des champs de l'entité du repository, vérifiés dès l'analyse.
+ * RG-05.8 : les clés des critères et du tri de findBy(), findOneBy(), count(), iterate() et
+ * nearest() sont des champs de l'entité du repository, vérifiés dès l'analyse ; le champ cherché
+ * par nearest() est un vecteur (RG-09.4).
  *
  * @implements Rule<MethodCall>
  *
@@ -28,8 +29,8 @@ use Prism\PHPStan\MetadataProvider;
  */
 final class FindByRule implements Rule
 {
-    /** @var array<string, bool> méthode → a un tri */
-    private const array METHODS = ['findby' => true, 'findoneby' => true, 'count' => false, 'iterate' => false];
+    /** @var array<string, array{int, bool}> méthode → position des critères, a un tri */
+    private const array METHODS = ['findby' => [0, true], 'findoneby' => [0, true], 'count' => [0, false], 'iterate' => [0, false], 'nearest' => [3, false], 'hybridsearch' => [3, false]];
 
     public function __construct(private readonly MetadataProvider $metadata)
     {
@@ -57,13 +58,20 @@ final class FindByRule implements Rule
         $method = $node->name->toString();
         $args = array_values($node->getArgs());
 
+        [$criteria, $ordered] = self::METHODS[$node->name->toLowerString()];
         $errors = [];
-        foreach ($this->keys(self::argument($args, 0, 'criteria'), $scope) as [$key]) {
+        if ('nearest' === $node->name->toLowerString()) {
+            $error = $this->vectorField($metadata, self::argument($args, 0, 'field'), $scope);
+            if (null !== $error) {
+                $errors[$error->getMessage()] = $error;
+            }
+        }
+        foreach ($this->keys(self::argument($args, $criteria, 'criteria'), $scope) as [$key]) {
             if (null !== ($error = $this->check($metadata, $method, 'criteria', $key))) {
                 $errors[$error->getMessage()] = $error;
             }
         }
-        if (self::METHODS[$node->name->toLowerString()]) {
+        if ($ordered) {
             foreach ($this->keys(self::argument($args, 1, 'orderBy'), $scope) as [$key, $value]) {
                 $error = $this->check($metadata, $method, 'order', $key)
                     ?? (new ObjectType(Order::class)->isSuperTypeOf($value)->yes() ? null : RuleErrorBuilder::message(\sprintf('The order of %s::$%s in %s() is %s, not a %s case.', $metadata->className, $key, $method, $value->describe(\PHPStan\Type\VerbosityLevel::typeOnly()), Order::class))->identifier('prism.findBy.invalidOrder')->build());
@@ -74,6 +82,31 @@ final class FindByRule implements Rule
         }
 
         return array_values($errors);
+    }
+
+    /**
+     * Le champ de nearest() : un champ de type vector de l'entité.
+     *
+     * @param ClassMetadata<object> $metadata
+     */
+    private function vectorField(ClassMetadata $metadata, ?Arg $arg, Scope $scope): ?IdentifierRuleError
+    {
+        $names = null === $arg ? [] : $scope->getType($arg->value)->getConstantStrings();
+        if (1 !== \count($names)) {
+            return null;
+        }
+        $field = $names[0]->getValue();
+        if ($metadata->hasField($field) && 'vector' === $metadata->getField($field)->type) {
+            return null;
+        }
+        $vectors = array_values(array_map(static fn ($f): string => $f->fieldName, array_filter($metadata->getFields(), static fn ($f): bool => 'vector' === $f->type)));
+
+        return RuleErrorBuilder::message(\sprintf(
+            '%s::$%s is not a vector field: nearest() searches a field of type "vector"%s.',
+            $metadata->className,
+            $field,
+            [] === $vectors ? ', and the entity has none' : \sprintf(' (%s)', implode(', ', $vectors)),
+        ))->identifier('prism.nearest.notVector')->build();
     }
 
     /**

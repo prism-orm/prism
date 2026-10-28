@@ -7,6 +7,7 @@ namespace Prism\Migrations\Console;
 use Prism\Migrations\MigrationsConfiguration;
 use Prism\Orm\EntityManagerInterface;
 use Prism\Orm\Metadata\MetadataFactory;
+use Prism\Orm\Vector\EmbeddingProviderRegistry;
 
 /**
  * Ce que retourne prism.php pour bin/prism, l'usage hors Symfony. Retourner l'EntityManager
@@ -25,9 +26,10 @@ final class PrismConfig
     public readonly MigrationsConfiguration $migrations;
 
     /**
-     * @param MetadataFactory|null $metadata   celle de l'EntityManager par défaut ; à donner pour
-     *                                         une autre implémentation d'EntityManagerInterface
-     * @param int                  $largeTable seuil d'une grande table pour le linter (L10)
+     * @param MetadataFactory|null      $metadata           celle de l'EntityManager par défaut ; à donner pour
+     *                                                      une autre implémentation d'EntityManagerInterface
+     * @param int                       $largeTable         seuil d'une grande table pour le linter (L10)
+     * @param EmbeddingProviderRegistry $embeddingProviders fournisseurs de db:embeddings:compute (ADR 0018)
      */
     public function __construct(
         public readonly EntityManagerInterface $entityManager,
@@ -35,6 +37,7 @@ final class PrismConfig
         public readonly ?MetadataFactory $metadata = null,
         public readonly string $metamodelDir = 'var/cache/prism/metamodel',
         public readonly int $largeTable = 1_000_000,
+        public readonly EmbeddingProviderRegistry $embeddingProviders = new EmbeddingProviderRegistry(),
     ) {
         $this->migrations = $migrations ?? new MigrationsConfiguration();
     }

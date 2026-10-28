@@ -19,6 +19,16 @@ final class InvalidEntityStateException extends \LogicException implements OrmEx
     }
 
     /**
+     * Un vecteur paresseux lu non NULL est devenu NULL avant d'être chargé (RG-09.6).
+     *
+     * @param class-string $class
+     */
+    public static function lazyValueGone(string $class, string $field, mixed $id): self
+    {
+        return new self(\sprintf('The lazy field %s::$%s of id %s became NULL in the database after the entity was read; refresh() the entity.', $class, $field, \is_scalar($id) ? (string) $id : get_debug_type($id)));
+    }
+
+    /**
      * @param class-string $source
      */
     public static function detachedReference(object $target, string $source, string $field): self

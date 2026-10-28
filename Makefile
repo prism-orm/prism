@@ -12,7 +12,7 @@ URL_sqlite  := sqlite:///:memory:
 DATABASES := mysql mariadb pgsql sqlite
 
 .DEFAULT_GOAL := help
-.PHONY: help up down build install shell test test-unit test-db test-all-db stan cs cs-check infection bench bench-tenancy bench-baseline bench-compare coverage compat test-symfony demo-install demo-test worker-test docs-install docs-dev docs-build ci
+.PHONY: help up down build install shell test test-unit test-db test-all-db stan cs cs-check infection bench bench-tenancy bench-vector bench-baseline bench-compare coverage compat test-symfony demo-install demo-test embeddings-snapshot worker-test docs-install docs-dev docs-build ci
 
 help: ## Affiche cette aide
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
@@ -64,6 +64,12 @@ bench: ## Benchmarks et critères de la phase 3, sur MySQL par défaut : make be
 bench-tenancy: ## Critère de la phase 8 : surcoût du filtre tenant < 5 % sur la lecture, sur MySQL par défaut : make bench-tenancy [DB=mariadb|pgsql]
 	$(RUN) env DATABASE_URL='$(URL_$(DB))' php -d opcache.enable_cli=1 tools/bench/tenancy-overhead.php
 
+bench-vector: ## Critère de la phase 9 : nearest() < 50 ms (p95) sur 100 000 vecteurs de 768 dimensions, sous MariaDB et PostgreSQL : make bench-vector [DB=mariadb|pgsql] [ROWS=100000] [KEEP=1]
+	@for db in $(if $(filter mariadb pgsql,$(DB)),$(DB),mariadb pgsql); do \
+		url=$$( [ $$db = pgsql ] && echo '$(URL_pgsql)' || echo '$(URL_mariadb)' ); \
+		$(RUN) env DATABASE_URL="$$url" ROWS=$(or $(ROWS),100000) KEEP=$(KEEP) php -d memory_limit=1G -d opcache.enable_cli=1 tools/bench/vector-nearest.php || exit 1; \
+	done
+
 bench-baseline: ## Enregistre la référence de bench-compare (avant une modification de l'UoW ou de l'hydratation)
 	$(RUN) env DATABASE_URL='$(URL_$(DB))' vendor/bin/phpbench run --report=aggregate --tag=baseline $(if $(FILTER),--filter=$(FILTER))
 
@@ -78,12 +84,18 @@ test-symfony: ## Tests du bundle et du test-pack sous une autre version de Symfo
 	rsync -a --exclude vendor --exclude var --exclude tmp --exclude .git ./ tmp/symfony-$(SF)/
 	$(DC) run --rm -w /app/tmp/symfony-$(SF) php env DATABASE_URL='$(URL_mysql)' tools/compat/symfony-version.sh $(SF)
 
-demo-install: ## La démo ERP : dépendances, base prism_demo, migrations, jeu de données
+demo-install: ## La démo ERP : dépendances, bases prism_demo (MySQL) et prism_demo_docs (PostgreSQL), migrations, jeu de données, documentation et ses vecteurs
 	$(RUN) sh -c 'cd demo && composer install --quiet && bin/console db:database:create --if-not-exists && bin/console db:migrations:migrate -n && bin/console app:seed'
+	$(RUN) sh -c 'cd demo && bin/console db:database:create --if-not-exists --em=docs && bin/console db:migrations:migrate -n --em=docs && bin/console app:docs:load && bin/console db:embeddings:compute --em=docs'
 
-demo-test: ## Les tests de la démo ERP (base prism_demo_test)
+demo-test: ## Les tests de la démo ERP (bases prism_demo_test et prism_demo_docs_test)
 	$(DC) exec -T mysql mysql -uroot -proot -e 'CREATE DATABASE IF NOT EXISTS prism_demo_test' 2>/dev/null
+	$(DC) exec -T postgres psql -U prism -d prism_test -tc "SELECT 1 FROM pg_database WHERE datname = 'prism_demo_docs_test'" | grep -q 1 || $(DC) exec -T postgres psql -U prism -d prism_test -c 'CREATE DATABASE prism_demo_docs_test'
 	$(RUN) sh -c 'cd demo && vendor/bin/phpunit'
+
+embeddings-snapshot: ## Les vecteurs de la démo RAG (demo/data), par un Ollama avec nomic-embed-text:v1.5 : make embeddings-snapshot OLLAMA_URL=http://<hôte>:11434/v1
+	@test -n "$(OLLAMA_URL)" || { echo 'OLLAMA_URL est requis : make embeddings-snapshot OLLAMA_URL=http://<hôte>:11434/v1'; exit 2; }
+	$(DC) run --rm -e EMBEDDING_BASE_URL=$(OLLAMA_URL) php sh -c 'cd demo && bin/console app:docs:snapshot'
 
 worker-test: ## La démo en worker FrankenPHP, 10 000 requêtes, mémoire mesurée : make worker-test [N=10000] (après make demo-install)
 	$(DC) --profile demo up -d --build --wait frankenphp

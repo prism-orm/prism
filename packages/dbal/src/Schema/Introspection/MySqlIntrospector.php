@@ -10,8 +10,10 @@ use Prism\Dbal\Platform\AbstractMySqlPlatform;
 use Prism\Dbal\Platform\MariaDbPlatform;
 use Prism\Dbal\Schema\Column;
 use Prism\Dbal\Schema\Index;
+use Prism\Dbal\Schema\IndexKind;
 use Prism\Dbal\Schema\Sequence;
 use Prism\Dbal\Schema\Table;
+use Prism\Dbal\Schema\VectorDistance;
 
 /**
  * MySQL et MariaDB (information_schema).
@@ -50,6 +52,7 @@ final class MySqlIntrospector extends AbstractIntrospector
     {
         $this->jsonColumns = [];
         $this->liveColumns = [];
+        $this->vectorIndexes = null;
         if (!$this->platform instanceof MariaDbPlatform) {
             return;
         }
@@ -90,6 +93,8 @@ final class MySqlIntrospector extends AbstractIntrospector
             // la contrainte des valeurs est perdue, la colonne reste telle quelle tant qu'aucun ALTER ne la touche
             'enum' === $dataType => ['string', $length, null, null],
             \in_array($dataType, ['tinyblob', 'blob', 'mediumblob', 'longblob'], true) => ['binary', null, null, null],
+            // MariaDB : la longueur lue est en octets (4 par composante), la dimension est dans « vector(n) »
+            'vector' === $dataType => ['vector', self::vectorDimensions(self::string($row['column_type'])), null, null],
             default => throw InvalidSchemaException::unsupportedDatabaseType($this->platform->getName(), $table, $name, self::string($row['column_type'])),
         };
 
@@ -115,6 +120,32 @@ final class MySqlIntrospector extends AbstractIntrospector
             str_contains(strtolower(self::string($row['extra'])), 'auto_increment'),
             $fixed && 'uuid' !== $type,
         );
+    }
+
+    /** @var array<string, array{?int, VectorDistance}>|null M et distance des index vectoriels, par nom en minuscules */
+    private ?array $vectorIndexes = null;
+
+    // FULLTEXT ; VECTOR (MariaDB) : M et DISTANCE ne se lisent que dans SHOW CREATE TABLE
+    protected function refineIndex(string $table, Index $index, ?string $type): Index
+    {
+        if ('FULLTEXT' === strtoupper($type ?? '')) {
+            return new Index($index->name, $index->columns, kind: IndexKind::FullText);
+        }
+        if ('VECTOR' !== strtoupper($type ?? '') || !$this->platform instanceof MariaDbPlatform) {
+            return $index;
+        }
+        if (null === $this->vectorIndexes) {
+            $this->vectorIndexes = [];
+            $create = self::string($this->connection->executeQuery($this->platform->getShowCreateTableSql($table))->fetchAssociative()['Create Table'] ?? '');
+            preg_match_all('/^\s*VECTOR KEY `((?:[^`]|``)+)` \([^)]*\)(?: `M`=(\d+))?(?: `DISTANCE`=(\w+))?/mi', $create, $matches, \PREG_SET_ORDER | \PREG_UNMATCHED_AS_NULL);
+            foreach ($matches as $m) {
+                // sans DISTANCE, celle par défaut de MariaDB (mhnsw_default_distance)
+                $this->vectorIndexes[strtolower(str_replace('``', '`', $m[1]))] = [null === $m[2] ? null : (int) $m[2], 'cosine' === strtolower($m[3] ?? '') ? VectorDistance::Cosine : VectorDistance::Euclidean];
+            }
+        }
+        [$m, $distance] = $this->vectorIndexes[strtolower($index->name)] ?? [null, VectorDistance::Euclidean];
+
+        return new Index($index->name, $index->columns, kind: IndexKind::Vector, distance: $distance, m: $m);
     }
 
     // un index qui finit par la colonne virtuelle d'un index partiel redevient partiel
@@ -160,6 +191,11 @@ final class MySqlIntrospector extends AbstractIntrospector
     }
 
     // MySQL : valeur brute ; MariaDB : littéral SQL ('draft', NULL), backslashes échappés
+    private static function vectorDimensions(string $columnType): ?int
+    {
+        return 1 === preg_match('/^vector\((\d+)\)$/i', $columnType, $m) ? (int) $m[1] : null;
+    }
+
     private function defaultValue(?string $raw): ?string
     {
         if (null === $raw || !$this->mariaDb) {

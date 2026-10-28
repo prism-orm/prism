@@ -14,8 +14,10 @@ use Prism\Dbal\Schema\Column;
 use Prism\Dbal\Schema\ForeignKey;
 use Prism\Dbal\Schema\ForeignKeyAction;
 use Prism\Dbal\Schema\Index;
+use Prism\Dbal\Schema\IndexKind;
 use Prism\Dbal\Schema\Schema;
 use Prism\Dbal\Schema\Table;
+use Prism\Dbal\Schema\VectorDistance;
 use Prism\Orm\Exception\MappingException;
 use Prism\Orm\Mapping\GenerationStrategy;
 use Prism\Orm\Metadata\ClassMetadata;
@@ -26,11 +28,11 @@ use Prism\Orm\Metadata\IndexMapping;
 use Prism\Orm\Tests\Functional\Fixtures\Author;
 use Prism\Orm\Tests\Functional\Fixtures\Book;
 use Prism\Orm\Tests\Functional\Fixtures\Label;
-use Prism\Orm\Tests\Support\StubVectorType;
 use Prism\Orm\Tests\Unit\Mapping\Fixtures\Client;
 use Prism\Orm\Tests\Unit\Mapping\Fixtures\Invoice;
 use Prism\Orm\Tests\Unit\Mapping\Fixtures\InvoiceLine;
 use Prism\Orm\Tests\Unit\Mapping\Fixtures\Tag;
+use Prism\Orm\Tests\Unit\Mapping\InvalidFixtures\UnknownTypeEntity;
 use Prism\Orm\Tests\Unit\Metadata\Fixtures\Inferred;
 use Prism\Orm\Tests\Unit\Metadata\Fixtures\Person;
 use Prism\Orm\Tests\Unit\Tools\Fixtures\Currency;
@@ -48,7 +50,7 @@ final class SchemaToolTest extends TestCase
     {
         $driver = new AttributeDriver();
 
-        return new SchemaTool($platform, StubVectorType::registry())->fromMetadata(array_map($driver->loadMetadata(...), $classes));
+        return new SchemaTool($platform)->fromMetadata(array_map($driver->loadMetadata(...), $classes));
     }
 
     /**
@@ -158,9 +160,10 @@ final class SchemaToolTest extends TestCase
     public function testSequenceIsRefusedWhereThePlatformHasNone(): void
     {
         $this->expectException(MappingException::class);
-        $this->expectExceptionMessage(Tag::class . '::$id: GenerationStrategy::Sequence is not supported by MySQL; use Auto or Identity.');
+        $this->expectExceptionMessage(Tag::class . '::$id: GenerationStrategy::Sequence is not supported by SQLite; use Auto or Identity.');
 
-        self::schema(new MySqlPlatform('8.4'), [Invoice::class, Client::class, InvoiceLine::class, Tag::class]);
+        // SQLite plutôt que MySQL : la fixture Invoice a un vecteur, que MySQL refuse avant
+        self::schema(new SqlitePlatform('3.46'), [Invoice::class, Client::class, InvoiceLine::class, Tag::class]);
     }
 
     // la fixture aux 33 attributs : embeddable, index partiel non unique, OneToOne, ManyToMany
@@ -171,7 +174,7 @@ final class SchemaToolTest extends TestCase
         self::assertTrue($invoice->getColumn('billing_city')->nullable, 'RG-02.5');
         self::assertSame(80, $invoice->getColumn('billing_city')->length);
         self::assertSame('string', $invoice->getColumn('status')->type, 'a string-backed enum');
-        self::assertSame('vector', $invoice->getColumn('embedding')->type);
+        self::assertSame(['vector', 1024], [$invoice->getColumn('embedding')->type, $invoice->getColumn('embedding')->length]);
 
         $indexes = array_values(self::indexes($invoice));
         // l'index partiel non unique devient complet (plus large, jamais faux) ; décision A
@@ -181,6 +184,12 @@ final class SchemaToolTest extends TestCase
         self::assertContains([['tenant_id', 'number'], true], $indexes);
         self::assertContains([['client_id'], false], $indexes);
         self::assertContains([['credit_note_id'], true], $indexes);
+
+        // ADR 0017 : #[VectorIndex] et #[FullTextIndex], sans le tenant en tête (ni l'un ni l'autre
+        // ne couvre une colonne entière ; le filtre tenant s'applique avant le classement)
+        $search = array_values(array_filter($invoice->getIndexes(), static fn (Index $i): bool => IndexKind::Regular !== $i->kind));
+        self::assertSame([['number', 'notes'], IndexKind::FullText, 'french'], [$search[0]->columns, $search[0]->kind, $search[0]->language]);
+        self::assertSame([['embedding'], IndexKind::Vector, VectorDistance::Cosine, 16, 64], [$search[1]->columns, $search[1]->kind, $search[1]->distance, $search[1]->m, $search[1]->efConstruction]);
     }
 
     // RG-08.1 : colonne du tenant indexée, unicité par tenant
@@ -197,7 +206,7 @@ final class SchemaToolTest extends TestCase
     public function testTenantColumnTypeAndGlobalRows(): void
     {
         $driver = new AttributeDriver(tenantType: 'uuid');
-        $schema = new SchemaTool(new PostgreSqlPlatform('16'), StubVectorType::registry())->fromMetadata(array_map($driver->loadMetadata(...), [Invoice::class, Client::class, InvoiceLine::class, Tag::class]));
+        $schema = new SchemaTool(new PostgreSqlPlatform('16'))->fromMetadata(array_map($driver->loadMetadata(...), [Invoice::class, Client::class, InvoiceLine::class, Tag::class]));
 
         $client = $schema->getTable('client');
         self::assertSame('uuid', $client->getColumn('tenant_id')->type);
@@ -228,9 +237,9 @@ final class SchemaToolTest extends TestCase
     public function testInvalidMappingIsRefusedBeforeBuildingTheSchema(): void
     {
         $this->expectException(MappingException::class);
-        $this->expectExceptionMessage('unknown type "vector"');
+        $this->expectExceptionMessage('unknown type "money"');
 
-        new SchemaTool(new PostgreSqlPlatform('16'))->fromMetadata([new AttributeDriver()->loadMetadata(Invoice::class)]);
+        new SchemaTool(new PostgreSqlPlatform('16'))->fromMetadata([new AttributeDriver()->loadMetadata(UnknownTypeEntity::class)]);
     }
 
     public function testEmbeddableAndScalarColumns(): void

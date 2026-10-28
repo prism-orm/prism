@@ -55,6 +55,16 @@ final class InvalidArgumentException extends \InvalidArgumentException implement
         return new self(\sprintf('Unknown filter "%s"; registered filters: %s.', $name, [] === $known ? 'none' : implode(', ', $known)));
     }
 
+    public static function hybridOptions(int $k, float $textWeight, float $vectorWeight, ?int $candidates): self
+    {
+        return new self(\sprintf('Invalid hybrid search options: k must be at least 1 (got %d), the weights positive and not both zero (got %s and %s), the candidates at least 1 (got %s).', $k, $textWeight, $vectorWeight, null === $candidates ? 'null' : (string) $candidates));
+    }
+
+    public static function invalidVector(string $reason): self
+    {
+        return new self(\sprintf('Invalid vector: %s.', $reason));
+    }
+
     public static function lockedFilter(string $name): self
     {
         return new self(\sprintf('The "%s" filter cannot be disabled; use TenantContext::runAsSystem() for an explicit cross-tenant operation (ADR 0014).', $name));

@@ -8,8 +8,10 @@ use Prism\Dbal\Schema\Column;
 use Prism\Dbal\Schema\ForeignKey;
 use Prism\Dbal\Schema\ForeignKeyAction;
 use Prism\Dbal\Schema\Index;
+use Prism\Dbal\Schema\IndexKind;
 use Prism\Dbal\Schema\Sequence;
 use Prism\Dbal\Schema\Table;
+use Prism\Dbal\Schema\VectorDistance;
 use Prism\Migrations\Operation;
 
 /**
@@ -92,7 +94,7 @@ final class MigrationWriter
             $o instanceof Operation\DropColumn => \sprintf('$m->dropColumn(%s, %s);', $s($o->table), $s($o->column)),
             $o instanceof Operation\RenameColumn => \sprintf('$m->renameColumn(%s, %s, %s);', $s($o->table), $s($o->from), $s($o->to)),
             $o instanceof Operation\ChangePrimaryKey => \sprintf('$m->changePrimaryKey(%s, %s);', $s($o->table), null === $o->columns ? 'null' : self::list($o->columns)),
-            $o instanceof Operation\CreateIndex => \sprintf('$m->createIndex(%s, %s%s%s%s%s);', $s($o->table), self::list($o->columns), $o->unique ? ', unique: true' : '', null === $o->name ? '' : ', name: ' . $s($o->name), $o->concurrently ? ', concurrently: true' : '', null === $o->whereNull ? '' : ', whereNull: ' . $s($o->whereNull)),
+            $o instanceof Operation\CreateIndex => $this->createIndex($o),
             $o instanceof Operation\DropIndex => \sprintf('$m->dropIndex(%s, %s);', $s($o->table), \is_string($o->index) ? $s($o->index) : self::list($o->index)),
             $o instanceof Operation\AddForeignKey => \sprintf('$m->addForeignKey(%s, %s, %s, %s%s%s);', $s($o->table), self::list($o->localColumns), $s($o->foreignTable), self::list($o->foreignColumns), $this->onDelete($o->onDelete, named: true), null === $o->name ? '' : ', name: ' . $s($o->name)),
             $o instanceof Operation\DropForeignKey => \sprintf('$m->dropForeignKey(%s, %s);', $s($o->table), \is_string($o->foreignKey) ? $s($o->foreignKey) : self::list($o->foreignKey)),
@@ -144,7 +146,45 @@ final class MigrationWriter
     {
         $this->uses[Index::class] = true;
 
-        return \sprintf('new Index(%s, %s%s%s)', self::scalar($index->name), self::list($index->columns), $index->unique ? ', unique: true' : '', null === $index->whereNull ? '' : ', whereNull: ' . self::scalar($index->whereNull));
+        return \sprintf('new Index(%s, %s%s%s%s)', self::scalar($index->name), self::list($index->columns), $index->unique ? ', unique: true' : '', null === $index->whereNull ? '' : ', whereNull: ' . self::scalar($index->whereNull), $this->indexKind($index->kind, $index->distance, $index->m, $index->efConstruction, $index->language));
+    }
+
+    private function createIndex(Operation\CreateIndex $o): string
+    {
+        $s = self::scalar(...);
+        $name = null === $o->name ? '' : ', name: ' . $s($o->name);
+        $concurrently = $o->concurrently ? ', concurrently: true' : '';
+
+        return match ($o->kind) {
+            IndexKind::Regular => \sprintf('$m->createIndex(%s, %s%s%s%s%s);', $s($o->table), self::list($o->columns), $o->unique ? ', unique: true' : '', $name, $concurrently, null === $o->whereNull ? '' : ', whereNull: ' . $s($o->whereNull)),
+            IndexKind::Vector => \sprintf('$m->createVectorIndex(%s, %s, %s%s%s%s%s);', $s($o->table), $s($o->columns[0]), $this->distance($o->distance ?? VectorDistance::Cosine), null === $o->m ? '' : ', m: ' . $o->m, null === $o->efConstruction ? '' : ', efConstruction: ' . $o->efConstruction, $name, $concurrently),
+            IndexKind::FullText => \sprintf('$m->createFullTextIndex(%s, %s%s%s%s);', $s($o->table), self::list($o->columns), null === $o->language ? '' : ', language: ' . $s($o->language), $name, $concurrently),
+        };
+    }
+
+    // les arguments nommés d'un index vectoriel ou plein texte dans « new Index(…) »
+    private function indexKind(IndexKind $kind, ?VectorDistance $distance, ?int $m, ?int $efConstruction, ?string $language): string
+    {
+        if (IndexKind::Regular === $kind) {
+            return '';
+        }
+        $this->uses[IndexKind::class] = true;
+        $arguments = ', kind: IndexKind::' . $kind->name;
+        if (null !== $distance) {
+            $arguments .= ', distance: ' . $this->distance($distance);
+        }
+        foreach (['m' => $m, 'efConstruction' => $efConstruction] as $name => $value) {
+            $arguments .= null === $value ? '' : ', ' . $name . ': ' . $value;
+        }
+
+        return $arguments . (null === $language ? '' : ', language: ' . self::scalar($language));
+    }
+
+    private function distance(VectorDistance $distance): string
+    {
+        $this->uses[VectorDistance::class] = true;
+
+        return 'VectorDistance::' . $distance->name;
     }
 
     private function foreignKey(ForeignKey $fk): string

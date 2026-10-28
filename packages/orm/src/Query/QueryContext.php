@@ -30,6 +30,9 @@ final class QueryContext
     /** @var array<string, array{Metamodel<object>, ClassMetadata<object>}> */
     private array $aliases = [];
 
+    /** @var list<array{string, mixed, string}> valeurs liées par une expression : nom, valeur PHP, Type */
+    private array $parameters = [];
+
     public function __construct(
         private readonly QueryBuilder $qb,
         private readonly MetadataFactory $metadata,
@@ -142,6 +145,31 @@ final class QueryContext
         $mapping = $this->mapping($field);
 
         return $this->owner($field->owner)->toFieldValue($mapping, $this->convert($mapping->type, $value));
+    }
+
+    /**
+     * Lie une valeur utilisée dans une expression (le vecteur de distanceTo()) et rend son SQL de
+     * paramètre, enveloppé par le Type (RG-05.4) ; withParameters() la passe à la requête.
+     */
+    public function bind(mixed $value, string $type): string
+    {
+        $name = 'operand_' . (\count($this->parameters) + 1);
+        $this->parameters[] = [$name, $value, $type];
+        $connection = $this->qb->getConnection();
+
+        return $connection->getTypeRegistry()->get($type)->getParameterSql(':' . $name, $connection->getPlatform());
+    }
+
+    /**
+     * La requête avec les valeurs liées par les expressions compilées dans ce contexte.
+     */
+    public function withParameters(QueryBuilder $qb): QueryBuilder
+    {
+        foreach ($this->parameters as [$name, $value, $type]) {
+            $qb = $qb->setParameter($name, $value, $type);
+        }
+
+        return $qb;
     }
 
     /**

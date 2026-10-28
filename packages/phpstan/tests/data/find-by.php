@@ -56,3 +56,21 @@ function namedAndDynamic(EntityManagerInterface $em, string $field): void
     $invoices->findBy(...[['totl' => 1]]);                           // argument déplié : rien à dire
     $em->getRepository(Customer::class)->findBy(['name' => 'Ada', 'nme' => 'Ada']); // autre entité, repository générique
 }
+
+function nearest(EntityManagerInterface $em, string $field): void
+{
+    $docs = $em->getRepository(\Prism\Orm\Tests\Functional\VectorFixtures\Doc::class);
+
+    $docs->nearest('embedding', [1.0, 0.0, 0.0]);                     // Vector
+    $docs->nearest('raw', [1.0, 0.0, 0.0], criteria: ['title' => 'x']); // list<float>
+    $docs->nearest('title', [1.0]);                                   // pas un vecteur
+    $docs->nearest('embeding', [1.0]);                                // inconnu
+    $docs->nearest('embedding', [1.0], 5, ['titel' => 'x']);          // critère inconnu
+    $docs->nearest($field, [1.0]);                                    // champ dynamique : rien à dire
+    $em->getRepository(Invoice::class)->nearest('total', [1.0]);      // entité sans vecteur
+}
+
+function hybridSearch(EntityManagerInterface $em): void
+{
+    $em->getRepository(\Prism\Orm\Tests\Functional\VectorFixtures\Article::class)->hybridSearch('x', [1.0, 0.0, 0.0], 5, ['topik' => 'stock']);
+}

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Prism\Orm\Metadata\Driver;
 
+use Prism\Dbal\Schema\IndexKind;
 use Prism\Orm\Exception\MappingException;
 use Prism\Orm\Mapping as Attr;
 use Prism\Orm\Mapping\LifecycleCallbackAttribute;
@@ -13,6 +14,7 @@ use Prism\Orm\Metadata\AssociationType;
 use Prism\Orm\Metadata\BehaviorMapping;
 use Prism\Orm\Metadata\ClassMetadata;
 use Prism\Orm\Metadata\EmbeddedMapping;
+use Prism\Orm\Metadata\EmbeddingMapping;
 use Prism\Orm\Metadata\FieldMapping;
 use Prism\Orm\Metadata\IdMapping;
 use Prism\Orm\Metadata\IndexMapping;
@@ -20,6 +22,7 @@ use Prism\Orm\Metadata\JoinTableMapping;
 use Prism\Orm\Metadata\Naming\NamingStrategy;
 use Prism\Orm\Metadata\Naming\UnderscoreNamingStrategy;
 use Prism\Orm\Metadata\TenancyMapping;
+use Prism\Orm\Vector\Vector;
 
 /**
  * Construit les ClassMetadata à partir des attributs PHP (ADR 0002).
@@ -79,6 +82,7 @@ final class AttributeDriver implements MetadataDriver
         $associations = [];
         $id = null;
         $version = null;
+        $embeddings = [];
 
         foreach ($reflection->getProperties() as $property) {
             if ($property->isStatic() || $property->getDeclaringClass()->getName() !== $class) {
@@ -103,6 +107,11 @@ final class AttributeDriver implements MetadataDriver
                 if (null !== self::attribute($property, Attr\Version::class)) {
                     $version = $name;
                 }
+                // ADR 0018 : deux colonnes sans propriété, nommées d'après celle du vecteur
+                if (null !== $source = self::attribute($property, Attr\EmbeddedVector::class)) {
+                    $column = $fields[array_key_last($fields)]->columnName;
+                    $embeddings[] = new EmbeddingMapping($name, $source->source, $source->model, $column . '_stale', $column . '_model');
+                }
             }
         }
 
@@ -124,6 +133,7 @@ final class AttributeDriver implements MetadataDriver
             self::listenerCallbacks($listeners),
             $this->tenancy($reflection, $fields),
             self::behaviors($reflection),
+            $embeddings,
         );
     }
 
@@ -195,6 +205,16 @@ final class AttributeDriver implements MetadataDriver
         [$type, $enumType] = $this->columnType($class, $property, $column);
 
         $phpNullable = $property->getType()?->allowsNull() ?? true;
+        // RG-09.6 : un Vector est paresseux par défaut ; un ghost ne peut être qu'un objet Vector
+        $phpType = $property->getType();
+        $vectorObject = $phpType instanceof \ReflectionNamedType && Vector::class === $phpType->getName();
+        $lazy = $column->lazy ?? $vectorObject;
+        if ($lazy && !$vectorObject) {
+            throw MappingException::invalidField($class, $name, \sprintf('lazy: true needs a property typed %s; a "%s" property is always loaded.', Vector::class, $phpType ?? 'mixed'));
+        }
+        if ($vectorObject && 'vector' !== $type) {
+            throw MappingException::invalidField($class, $name, \sprintf('a %s property maps a "vector" column, not "%s".', Vector::class, $type));
+        }
         if ($isId && true === $column->nullable) {
             throw MappingException::invalidField($class, $name, 'the identifier cannot be nullable.');
         }
@@ -211,7 +231,8 @@ final class AttributeDriver implements MetadataDriver
             $columnPrefix . ($column->name ?? $this->naming->propertyToColumnName($name)),
             $type,
             $forceNullable || (!$isId && ($column->nullable ?? $phpNullable)),
-            $column->length,
+            // la dimension d'un vecteur est la longueur de sa colonne (ADR 0017)
+            'vector' === $type ? $column->dimensions : $column->length,
             $column->precision,
             $column->scale,
             $column->unique,
@@ -221,8 +242,9 @@ final class AttributeDriver implements MetadataDriver
             $column->insertable,
             $column->updatable,
             $column->sensitive,
-            $column->lazy,
+            $lazy,
             $column->fixed,
+            $vectorObject,
         );
     }
 
@@ -249,6 +271,7 @@ final class AttributeDriver implements MetadataDriver
 
         return match (true) {
             isset(self::SCALAR_TYPES[$typeName]) => [self::SCALAR_TYPES[$typeName], $column->enumType],
+            Vector::class === $typeName => ['vector', null],
             is_a($typeName, \DateTimeImmutable::class, true) => ['datetime_immutable', $column->enumType],
             enum_exists($typeName) && is_a($typeName, \BackedEnum::class, true) => [
                 'int' === (string) new \ReflectionEnum($typeName)->getBackingType() ? 'integer' : 'string',
@@ -375,6 +398,17 @@ final class AttributeDriver implements MetadataDriver
         foreach ($class->getAttributes(Attr\UniqueConstraint::class) as $attribute) {
             $unique = $attribute->newInstance();
             $indexes[] = new IndexMapping($unique->fields, true, $unique->name, $unique->where);
+        }
+        foreach ($class->getAttributes(Attr\FullTextIndex::class) as $attribute) {
+            $fullText = $attribute->newInstance();
+            $indexes[] = new IndexMapping($fullText->fields, name: $fullText->name, kind: IndexKind::FullText, language: $fullText->language);
+        }
+        // #[VectorIndex] se pose sur le champ vecteur lui-même
+        foreach ($class->getProperties() as $property) {
+            foreach ($property->getAttributes(Attr\VectorIndex::class) as $attribute) {
+                $vector = $attribute->newInstance();
+                $indexes[] = new IndexMapping([$property->getName()], kind: IndexKind::Vector, distance: $vector->distance, m: $vector->m, efConstruction: $vector->efConstruction);
+            }
         }
 
         return $indexes;

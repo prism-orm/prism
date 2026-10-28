@@ -29,12 +29,16 @@ final class NameGenerator
 
     /**
      * Nom d'un index : un index partiel ne prend pas celui de l'index complet sur les mêmes
-     * colonnes (ADR 0015).
+     * colonnes (ADR 0015), un index vectoriel ou plein texte non plus (ADR 0017).
      *
      * @param list<string> $columns
      */
-    public static function index(string $table, array $columns, bool $unique, ?string $whereNull = null): string
+    public static function index(string $table, array $columns, bool $unique, ?string $whereNull = null, IndexKind $kind = IndexKind::Regular): string
     {
-        return self::generate($unique ? 'uniq' : 'idx', $table, null === $whereNull ? $columns : [...$columns, 'where ' . $whereNull . ' is null']);
+        return match ($kind) {
+            IndexKind::Regular => self::generate($unique ? 'uniq' : 'idx', $table, null === $whereNull ? $columns : [...$columns, 'where ' . $whereNull . ' is null']),
+            IndexKind::Vector => self::generate('vec', $table, $columns),
+            IndexKind::FullText => self::generate('ftx', $table, $columns),
+        };
     }
 }
