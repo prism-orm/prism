@@ -34,12 +34,6 @@ final class ReferenceCompletenessTest extends TestCase
 
     private const string PHPSTAN = 'packages/phpstan/docs/reference/errors.md';
 
-    /** RG-10a.2 : déclarés pour le pilier 4, livrés en phase 9 ; absents de la référence d'ici là. */
-    private const array PHASE_9_ATTRIBUTES = ['EmbeddedVector', 'FullTextIndex', 'VectorIndex'];
-
-    /** RG-10a.2 : paramètres lus mais pas encore exploités (type vector, colonnes paresseuses), phase 9. */
-    private const array PHASE_9_PARAMETERS = ['Column' => ['dimensions', 'lazy']];
-
     /** La forme courte de prism.yaml, convertie avant l'arbre (PrismConfiguration::expandShortForm). */
     private const array SHORT_FORM = ['prism.url', 'prism.entity_dirs', 'prism.migrations.dir', 'prism.migrations.namespace'];
 
@@ -54,10 +48,6 @@ final class ReferenceCompletenessTest extends TestCase
             $expected[] = $name;
             $parameters = new \ReflectionClass($class)->getConstructor()?->getParameters() ?? [];
             foreach ($parameters as $parameter) {
-                if (\in_array($parameter->getName(), self::PHASE_9_PARAMETERS[$name] ?? [], true)) {
-                    self::assertStringNotContainsString('`' . $parameter->getName() . '`', $sections[$name] ?? '', \sprintf('RG-10a.2: #[%s(%s)] is documented with phase 9', $name, $parameter->getName()));
-                    continue;
-                }
                 if (!isset($sections[$name]) || 1 !== preg_match('/^\| *`' . preg_quote($parameter->getName(), '/') . '` *\|/m', $sections[$name])) {
                     $missing[] = '#[' . $name . '(' . $parameter->getName() . ')]';
                 }
@@ -66,9 +56,6 @@ final class ReferenceCompletenessTest extends TestCase
 
         self::assertSameNames($expected, array_keys($sections), 'attributes');
         self::assertSame([], $missing, 'each constructor parameter has a row "| `name` |" in its attribute section');
-        foreach (self::PHASE_9_ATTRIBUTES as $name) {
-            self::assertStringNotContainsString('#[' . $name, $page, 'RG-10a.2: documented with phase 9');
-        }
     }
 
     public function testEveryEventIsDocumented(): void
@@ -172,7 +159,7 @@ final class ReferenceCompletenessTest extends TestCase
     {
         $attributes = [];
         foreach (self::apiClasses() as $class) {
-            if ([] !== $class->getAttributes(\Attribute::class) && !\in_array($class->getShortName(), self::PHASE_9_ATTRIBUTES, true)) {
+            if ([] !== $class->getAttributes(\Attribute::class)) {
                 $attributes[$class->getShortName()] = $class->getName();
             }
         }

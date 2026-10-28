@@ -24,6 +24,7 @@ use Prism\Orm\Tenancy\StackTenantContext;
 use Prism\Orm\Tenancy\TenantContext;
 use Prism\Orm\Tenancy\TenantFilter;
 use Prism\Orm\UnitOfWork\UnitOfWork;
+use Prism\Orm\Vector\EmbeddingScheduler;
 use Psr\Clock\ClockInterface;
 use Psr\EventDispatcher\EventDispatcherInterface;
 
@@ -62,6 +63,7 @@ final class EntityManager implements EntityManagerInterface
         ?ClockInterface $clock = null,
         ?ActorProvider $actorProvider = null,
         ?RequestIdProvider $requestIdProvider = null,
+        ?EmbeddingScheduler $embeddingScheduler = null,
     ) {
         $this->tenantContext = $tenantContext ?? new StackTenantContext();
         // les filtres de l'application d'abord ; celui du tenant, verrouillé, toujours présent
@@ -71,7 +73,7 @@ final class EntityManager implements EntityManagerInterface
             $this->filters->add(SoftDeleteFilter::NAME, new SoftDeleteFilter());
         }
         $this->metadata = $metadata ?? new MetadataFactory(new AttributeDriver(), types: $connection->getTypeRegistry());
-        $this->unitOfWork = new UnitOfWork($this->metadata, new DbalPersisterProvider($connection, $this->metadata, $this->filters), $connection->getConversionContext(), $connection->getTypeRegistry(), $events, $listeners, $batchSize, $this->tenantContext, $clock, $actorProvider, new AuditWriter($connection, $clock ?? new SystemClock(), $actorProvider, $requestIdProvider));
+        $this->unitOfWork = new UnitOfWork($this->metadata, new DbalPersisterProvider($connection, $this->metadata, $this->filters), $connection->getConversionContext(), $connection->getTypeRegistry(), $events, $listeners, $batchSize, $this->tenantContext, $clock, $actorProvider, new AuditWriter($connection, $clock ?? new SystemClock(), $actorProvider, $requestIdProvider), $embeddingScheduler);
     }
 
     public function persist(object $entity): void
@@ -127,7 +129,7 @@ final class EntityManager implements EntityManagerInterface
     public function wrapInTransaction(\Closure $operations): mixed
     {
         try {
-            return $this->connection->transactional(function () use ($operations): mixed {
+            $result = $this->connection->transactional(function () use ($operations): mixed {
                 $result = $operations($this);
                 $this->flush();
 
@@ -139,6 +141,12 @@ final class EntityManager implements EntityManagerInterface
 
             throw $e;
         }
+        // RG-09.7 : les vecteurs périmés, une fois la transaction validée
+        if (!$this->connection->isTransactionActive()) {
+            $this->unitOfWork->releaseStaleEmbeddings();
+        }
+
+        return $result;
     }
 
     public function lock(object $entity, LockMode $mode, mixed $version = null): void

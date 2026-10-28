@@ -14,6 +14,7 @@ use Prism\Dbal\Exception\UnknownTypeException;
 use Prism\Dbal\Exception\UnsupportedPlatformException;
 use Prism\Dbal\Platform\AbstractPlatform;
 use Prism\Dbal\Platform\PlatformResolver;
+use Prism\Dbal\Platform\SqliteVectorFunctions;
 use Prism\Dbal\Query\QueryBuilder;
 use Prism\Dbal\Schema\SchemaManager;
 use Prism\Dbal\Type\ConversionContext;
@@ -118,6 +119,12 @@ final class Connection
             $this->platform = PlatformResolver::resolve($this->parameters, \is_string($version) ? $version : '');
         }
         $platform = $this->platform;
+
+        if ($pdo instanceof \Pdo\Sqlite) {
+            foreach (SqliteVectorFunctions::all() as $name => $function) {
+                $pdo->createFunction($name, $function, 2, \Pdo\Sqlite::DETERMINISTIC);
+            }
+        }
 
         $this->pdo = $pdo;
         foreach ($platform->getSessionInitSql() as $sql) {

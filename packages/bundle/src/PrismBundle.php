@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Prism\Bundle;
 
+use Prism\Bundle\Attribute\AsEmbeddingProvider;
 use Prism\Bundle\Attribute\AsEntityListener;
 use Prism\Bundle\Attribute\AsPrismListener;
 use Prism\Bundle\Audit\ContextActorProvider;
@@ -16,6 +17,7 @@ use Prism\Bundle\Debug\PrismDataCollector;
 use Prism\Bundle\Debug\QueryRecorder;
 use Prism\Bundle\Debug\TenantDataCollector;
 use Prism\Bundle\Debug\TenantRecorder;
+use Prism\Bundle\DependencyInjection\Compiler\EmbeddingPass;
 use Prism\Bundle\DependencyInjection\Compiler\FilterPass;
 use Prism\Bundle\DependencyInjection\Compiler\ListenerPass;
 use Prism\Bundle\DependencyInjection\Compiler\MakerPass;
@@ -28,6 +30,8 @@ use Prism\Bundle\Maker\MakeEntity;
 use Prism\Bundle\Maker\MakeMigration;
 use Prism\Bundle\Maker\MakePrismEntity;
 use Prism\Bundle\Maker\MakePrismMigration;
+use Prism\Bundle\Messenger\ComputeEmbedding;
+use Prism\Bundle\Messenger\ComputeEmbeddingHandler;
 use Prism\Bundle\Messenger\ResetMiddleware;
 use Prism\Bundle\Metamodel\MetamodelRefresher;
 use Prism\Bundle\Metamodel\PrismCacheWarmer;
@@ -64,6 +68,10 @@ use Prism\Orm\Tenancy\StackTenantContext;
 use Prism\Orm\Tenancy\TenantContext;
 use Prism\Orm\Tenancy\TenantGuard;
 use Prism\Orm\Tenancy\TenantGuardMode;
+use Prism\Orm\Vector\DeferredEmbeddingScheduler;
+use Prism\Orm\Vector\EmbeddingProvider;
+use Prism\Orm\Vector\EmbeddingProviderRegistry;
+use Prism\Orm\Vector\EmbeddingUpdater;
 use Symfony\Bundle\MakerBundle\Maker\AbstractMaker;
 use Symfony\Bundle\SecurityBundle\DependencyInjection\SecurityExtension;
 use Symfony\Component\Config\Definition\Configurator\DefinitionConfigurator;
@@ -80,6 +88,7 @@ use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigura
 use Symfony\Component\DependencyInjection\Reference;
 use Symfony\Component\EventDispatcher\EventDispatcher;
 use Symfony\Component\HttpKernel\Bundle\AbstractBundle;
+use Symfony\Component\Messenger\Handler\BatchHandlerInterface;
 use Symfony\Component\Messenger\Middleware\MiddlewareInterface;
 use Symfony\Component\Security\Core\User\UserProviderInterface;
 use Symfony\Component\Validator\ConstraintValidator;
@@ -88,7 +97,8 @@ use Symfony\Component\Validator\ConstraintValidator;
  * Intégration Symfony de Prism (ADR 0013) : connexions et EntityManagers nommés depuis
  * prism.yaml, autowiring (repositories compris), types et listeners par tags, commandes db:*
  * avec --em, metamodel et cache warmers, réinitialisation par kernel.reset ; multi-tenancy :
- * contexte, résolution par requête, garde du SQL brut, filtres tagués prism.filter (ADR 0014).
+ * contexte, résolution par requête, garde du SQL brut, filtres tagués prism.filter (ADR 0014) ;
+ * embeddings : fournisseurs par nom, scheduler et handler de ComputeEmbedding (ADR 0018).
  *
  * @api
  */
@@ -109,6 +119,8 @@ final class PrismBundle extends AbstractBundle
         'db:import' => [Orm\ImportCommand::class, ['connection']],
         'db:cache:clear-metadata' => [Orm\CacheClearMetadataCommand::class, ['metadata']],
         'db:audit:purge' => [Orm\AuditPurgeCommand::class, ['connection', 'metadata', 'clock']],
+        'db:embeddings:compute' => [Orm\EmbeddingsComputeCommand::class, ['connection', 'metadata', 'embedding_providers']],
+        'db:embeddings:status' => [Orm\EmbeddingsStatusCommand::class, ['connection', 'metadata']],
         'db:metamodel:generate' => [Orm\MetamodelGenerateCommand::class, ['metadata', 'metamodel']],
         'db:migrations:generate' => [Migrations\GenerateCommand::class, ['migrations']],
         'db:migrations:diff' => [Migrations\DiffCommand::class, ['connection', 'metadata', 'migrations']],
@@ -118,6 +130,9 @@ final class PrismBundle extends AbstractBundle
         'db:migrations:list' => [Migrations\ListCommand::class, ['connection', 'migrations']],
         'db:migrations:lint' => [Migrations\LintCommand::class, ['connection', 'migrations', 'metadata']],
     ];
+
+    // prism-orm/embedding-openai, facultatif : nommé sans dépendance de paquet
+    private const string OPENAI_PROVIDER = 'Prism\\Embedding\\OpenAi\\OpenAiCompatibleProvider';
 
     // RG-07.4 : au plus 1 000 requêtes enregistrées par requête HTTP, toutes comptées
     private const int RECORDED_QUERIES = 1000;
@@ -151,6 +166,7 @@ final class PrismBundle extends AbstractBundle
         $container->addCompilerPass(new RepositoryPass());
         $container->addCompilerPass(new ListenerPass());
         $container->addCompilerPass(new FilterPass());
+        $container->addCompilerPass(new EmbeddingPass());
         // avant MakeCommandRegistrationPass de MakerBundle (priorité 10)
         $container->addCompilerPass(new MakerPass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, 20);
         // le type « prism » des providers de security.yaml, si SecurityBundle est là
@@ -180,12 +196,45 @@ final class PrismBundle extends AbstractBundle
      */
     public function loadExtension(array $config, ContainerConfigurator $container, ContainerBuilder $builder): void
     {
-        /** @var array{default_entity_manager: string, connections: array<string, array{url: string}>, entity_managers: array<string, array{connection: string, entity_dirs: list<string>, batch_size: int, migrations: array{dir: ?string, namespace: ?string}}>, metamodel: array{dir: string}, connection_idle_ttl: int, tenancy: array{type: string, guard: ?string, resolver: array{header?: string, subdomain?: string, user?: bool}, loader: ?string}} $config */
+        /** @var array{default_entity_manager: string, connections: array<string, array{url: string}>, entity_managers: array<string, array{connection: string, entity_dirs: list<string>, batch_size: int, migrations: array{dir: ?string, namespace: ?string}}>, metamodel: array{dir: string}, connection_idle_ttl: int, tenancy: array{type: string, guard: ?string, resolver: array{header?: string, subdomain?: string, user?: bool}, loader: ?string}, embeddings: array{scheduler: string, batch_size: int<1, max>, providers: array<string, array{service: ?string, openai?: array{base_url: string, model: string, dimensions: int, api_key: ?string, send_dimensions: bool, prefix: string}}>}} $config */
         $debug = (bool) $builder->getParameter('kernel.debug');
         $default = $config['default_entity_manager'];
 
         $builder->registerForAutoconfiguration(Type::class)->addTag('prism.type');
         $builder->registerForAutoconfiguration(EntityFilter::class)->addTag(FilterPass::TAG);
+
+        // ADR 0018 : les fournisseurs par nom, complétés par EmbeddingPass ; un scheduler par EntityManager
+        $embeddings = $config['embeddings'];
+        $builder->registerForAutoconfiguration(EmbeddingProvider::class)->addTag(EmbeddingPass::TAG);
+        $builder->registerAttributeForAutoconfiguration(AsEmbeddingProvider::class, static function (ChildDefinition $definition, AsEmbeddingProvider $provider): void {
+            $definition->addTag(EmbeddingPass::TAG, ['name' => $provider->name]);
+        });
+        $providers = [];
+        foreach ($embeddings['providers'] as $providerName => $provider) {
+            if (null !== $provider['service']) {
+                $providers[$providerName] = $provider['service'];
+                continue;
+            }
+            $openai = $provider['openai'] ?? throw new InvalidConfigurationException(\sprintf('The embedding provider "%s" needs "service" or "openai".', $providerName));
+            if (!class_exists(self::OPENAI_PROVIDER)) {
+                throw new InvalidConfigurationException(\sprintf('The embedding provider "%s" uses "openai": run composer require prism-orm/embedding-openai symfony/http-client.', $providerName));
+            }
+            $builder->setDefinition('prism.embedding_provider.' . $providerName, new Definition(self::OPENAI_PROVIDER, [
+                new Reference('http_client'),
+                $openai['base_url'],
+                $openai['model'],
+                $openai['dimensions'],
+                $openai['api_key'],
+                $embeddings['batch_size'],
+                $openai['send_dimensions'],
+                $openai['prefix'],
+            ]));
+            $providers[$providerName] = 'prism.embedding_provider.' . $providerName;
+        }
+        $builder->setParameter(EmbeddingPass::PARAMETER, $providers);
+        $builder->setParameter(EmbeddingPass::SCHEDULER, [$embeddings['scheduler'], $embeddings['batch_size']]);
+        $builder->setDefinition('prism.embedding_providers', new Definition(EmbeddingProviderRegistry::class, [[]]));
+        $builder->setAlias(EmbeddingProviderRegistry::class, 'prism.embedding_providers');
 
         // ADR 0014 : un tenant par requête, partagé par les EntityManagers, oublié à kernel.reset
         $tenancy = $config['tenancy'];
@@ -269,8 +318,18 @@ final class PrismBundle extends AbstractBundle
                 new Definition(AttributeDriver::class, ['$directories' => $em['entity_dirs'], '$tenantType' => $tenancy['type']]),
                 $cache,
                 new Definition(TypeRegistry::class, [new Reference('prism.dbal_configuration')])->setFactory([ConfigurationFactory::class, 'types']),
+                null, // fournisseurs d'embeddings, posés par EmbeddingPass
             ]));
             $builder->setDefinition('prism.filters.' . $name, new Definition(FilterCollection::class));
+            // les filtres de l'EntityManager : celui du tenant compris (ADR 0018)
+            $builder->setDefinition('prism.embedding_updater.' . $name, new Definition(EmbeddingUpdater::class, [
+                $connection,
+                $metadata,
+                new Reference('prism.embedding_providers'),
+                new Reference('prism.filters.' . $name),
+                $embeddings['batch_size'],
+            ]));
+            $builder->setDefinition('prism.embedding_scheduler.' . $name, new Definition(DeferredEmbeddingScheduler::class));
 
             // un dispatcher par EntityManager : ses événements ne disent pas qui les émet (ADR 0013)
             $dispatcher = $builder->setDefinition('prism.event_dispatcher.' . $name, new Definition(EventDispatcher::class));
@@ -296,6 +355,7 @@ final class PrismBundle extends AbstractBundle
                 $clock,
                 new Reference(ActorProvider::class),
                 new Reference(RequestIdProvider::class),
+                new Reference('prism.embedding_scheduler.' . $name),
             ]))->addTag('kernel.reset', ['method' => 'clear']); // RG-07.5
             $builder->registerAliasForArgument('prism.entity_manager.' . $name, EntityManagerInterface::class, $name . 'EntityManager');
 
@@ -317,6 +377,7 @@ final class PrismBundle extends AbstractBundle
                 'environment' => '%kernel.environment%',
                 'metamodel' => $metamodel,
                 'clock' => $clock,
+                'embedding_providers' => new Reference('prism.embedding_providers'),
             ];
             foreach (self::COMMANDS as $command => [$class, $needs]) {
                 $id = \sprintf('prism.command.%s.%s', $name, $command);
@@ -393,6 +454,14 @@ final class PrismBundle extends AbstractBundle
                 new Reference('prism.connection_keeper'),
                 new IteratorArgument(array_values($entityManagers)),
             ]));
+        }
+        if (interface_exists(BatchHandlerInterface::class)) {
+            // ADR 0018 : par lots de messages, dans le tenant des lignes
+            $builder->setDefinition('prism.embeddings.compute_handler', new Definition(ComputeEmbeddingHandler::class, [
+                new ServiceLocatorArgument(array_combine(array_keys($config['entity_managers']), array_map(static fn (string $name): Reference => new Reference('prism.embedding_updater.' . $name), array_keys($config['entity_managers'])))),
+                new Reference('prism.tenant_context'),
+                $embeddings['batch_size'],
+            ]))->addTag('messenger.message_handler', ['handles' => ComputeEmbedding::class]);
         }
         if (class_exists(ConstraintValidator::class)) {
             $builder->setDefinition(UniqueEntityValidator::class, new Definition(UniqueEntityValidator::class, [

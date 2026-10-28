@@ -154,6 +154,6 @@ final class QuotingTest extends TestCase
 
     public function testPostgreSqlForcesStandardConformingStrings(): void
     {
-        self::assertSame(['SET standard_conforming_strings = on'], new PostgreSqlPlatform('16')->getSessionInitSql());
+        self::assertSame(['SET standard_conforming_strings = on', 'SET hnsw.iterative_scan = relaxed_order'], new PostgreSqlPlatform('16')->getSessionInitSql());
     }
 }

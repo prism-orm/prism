@@ -4,7 +4,11 @@ declare(strict_types=1);
 
 namespace Prism\Dbal\Platform;
 
+use Prism\Dbal\Exception\InvalidSchemaException;
 use Prism\Dbal\LockMode;
+use Prism\Dbal\Schema\Column;
+use Prism\Dbal\Schema\Index;
+use Prism\Dbal\Schema\VectorDistance;
 
 /**
  * @api
@@ -70,6 +74,73 @@ final class MariaDbPlatform extends AbstractMySqlPlatform
     protected function getUuidDeclarationSql(): string
     {
         return 'UUID';
+    }
+
+    public function supportsVectors(): bool
+    {
+        return true;
+    }
+
+    // un paramètre lié en texte n'est pas converti implicitement en VECTOR, binaire compris
+    public function getVectorParameterSql(string $placeholder): string
+    {
+        return 'VEC_FromText(' . $placeholder . ')';
+    }
+
+    public function getVectorDistanceSql(VectorDistance $distance, string $column, string $vector): string
+    {
+        return match ($distance) {
+            VectorDistance::Cosine => \sprintf('VEC_DISTANCE_COSINE(%s, %s)', $column, $vector),
+            VectorDistance::Euclidean => \sprintf('VEC_DISTANCE_EUCLIDEAN(%s, %s)', $column, $vector),
+            VectorDistance::InnerProduct => throw InvalidSchemaException::unsupportedFeature($this->getName(), 'the inner product distance (cosine and euclidean only)'),
+        };
+    }
+
+    // un seul index vectoriel par table, sur une colonne NOT NULL (vérifié par le validateur du mapping)
+    protected function getCreateVectorIndexSql(string $table, Index $index): string
+    {
+        $distance = match ($index->distance) {
+            VectorDistance::Cosine => 'cosine',
+            VectorDistance::Euclidean => 'euclidean',
+            VectorDistance::InnerProduct, null => throw InvalidSchemaException::unsupportedFeature($this->getName(), 'the inner product distance (cosine and euclidean only)'),
+        };
+
+        return \sprintf(
+            'CREATE VECTOR INDEX %s ON %s (%s)%s DISTANCE=%s',
+            $this->quoteIdentifier($index->name),
+            $this->quoteIdentifier($table),
+            $this->quoteIdentifiers($index->columns),
+            null === $index->m ? '' : ' M=' . $index->m,
+            $distance,
+        );
+    }
+
+    /**
+     * Le CREATE TABLE tel que MariaDB le rend : M et DISTANCE d'un index vectoriel n'existent
+     * qu'ici.
+     *
+     * @internal
+     */
+    public function getShowCreateTableSql(string $table): string
+    {
+        return 'SHOW CREATE TABLE ' . $this->quoteIdentifier($table);
+    }
+
+    // MariaDB n'utilise son index que sur la distance nue : « + 0 » le fait calculer sur chaque ligne
+    public function getExactVectorDistanceSql(VectorDistance $distance, string $column, string $vector): string
+    {
+        return '(' . $this->getVectorDistanceSql($distance, $column, $vector) . ' + 0)';
+    }
+
+    // le graphe hors du cache et un filtre sélectif : moins de lignes que demandé (mesuré, ADR 0017)
+    public function vectorIndexMayMissRows(): bool
+    {
+        return true;
+    }
+
+    protected function getVectorDeclarationSql(Column $column): string
+    {
+        return \sprintf('VECTOR(%d)', $column->length);
     }
 
     // ADR 0003 : première LTS avec le type VECTOR

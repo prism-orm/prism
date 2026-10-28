@@ -32,6 +32,7 @@ make ci         # style + PHPStan + tests sur les 4 bases
 | `packages/bundle` | `Prism\Bundle` | Intégration Symfony |
 | `packages/phpstan` | `Prism\PHPStan` | Extension PHPStan |
 | `packages/test-pack` | `Prism\TestPack` | Tests des applications : factories, `ResetDatabase`, `assertQueryCount()` |
+| `packages/embedding-openai` | `Prism\Embedding\OpenAi` | Fournisseur d'embeddings pour l'API `/v1/embeddings` (OpenAI, Mistral, Ollama…) |
 | `website` | `Prism\Website\Tests` | Site de documentation (VitePress) et ses tests : exemples exécutés, complétude de la référence, liens |
 
 Roadmap : [docs/ROADMAP.md](docs/ROADMAP.md) · Commandes `db:*` : [packages/bundle/docs/commands.md](packages/bundle/docs/commands.md) · Décisions : [docs/adr](docs/adr)

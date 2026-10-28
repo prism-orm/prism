@@ -7,13 +7,22 @@ namespace Prism\Dbal\Platform;
 use Prism\Dbal\Schema\Column;
 use Prism\Dbal\Schema\ColumnDiff;
 use Prism\Dbal\Schema\Index;
+use Prism\Dbal\Schema\IndexKind;
+use Prism\Dbal\Schema\Schema;
+use Prism\Dbal\Schema\SchemaDiff;
 use Prism\Dbal\Schema\Table;
+use Prism\Dbal\Schema\VectorDistance;
 
 /**
  * @api
  */
 final class PostgreSqlPlatform extends AbstractPlatform
 {
+    /** Opclass HNSW de pgvector, par distance. */
+    public const array OPERATOR_CLASSES = ['Cosine' => 'vector_cosine_ops', 'Euclidean' => 'vector_l2_ops', 'InnerProduct' => 'vector_ip_ops'];
+
+    public const string DEFAULT_LANGUAGE = 'simple';
+
     public function getName(): string
     {
         return 'PostgreSQL';
@@ -38,6 +47,63 @@ final class PostgreSqlPlatform extends AbstractPlatform
         return \sprintf('CAST(%s AS %s)', $expression, 'integer' === $type ? 'BIGINT' : 'NUMERIC');
     }
 
+    public function supportsVectors(): bool
+    {
+        return true;
+    }
+
+    // un paramètre lié en texte reste de type inconnu dans une expression : converti explicitement
+    public function getVectorParameterSql(string $placeholder): string
+    {
+        return 'CAST(' . $placeholder . ' AS vector)';
+    }
+
+    // <#> rend l'opposé du produit scalaire : une distance, comme les deux autres
+    public function getVectorDistanceSql(VectorDistance $distance, string $column, string $vector): string
+    {
+        return \sprintf(match ($distance) {
+            VectorDistance::Cosine => '(%s <=> %s)',
+            VectorDistance::Euclidean => '(%s <-> %s)',
+            VectorDistance::InnerProduct => '(%s <#> %s)',
+        }, $column, $vector);
+    }
+
+    /**
+     * L'extension pgvector, créée si besoin, puis sa version vérifiée (0.8 : parcours itératif
+     * des index HNSW sous filtre, ADR 0017). Sans le droit de la créer, l'erreur de la base remonte.
+     *
+     * @return list<string>
+     */
+    public function getVectorExtensionSql(): array
+    {
+        $version = "(SELECT extversion FROM pg_extension WHERE extname = 'vector')";
+
+        return [
+            'CREATE EXTENSION IF NOT EXISTS vector',
+            'DO $$ BEGIN IF string_to_array(' . $version . ", '.')::int[] < ARRAY[0, 8] THEN"
+                . " RAISE EXCEPTION 'Prism needs pgvector 0.8 or later, found %', " . $version . '; END IF; END $$',
+        ];
+    }
+
+    public function getCreateSchemaSql(Schema $schema): array
+    {
+        $sql = parent::getCreateSchemaSql($schema);
+
+        return self::hasVector($schema->getTables()) ? [...$this->getVectorExtensionSql(), ...$sql] : $sql;
+    }
+
+    public function getMigrationSql(SchemaDiff $diff): array
+    {
+        $sql = parent::getMigrationSql($diff);
+        $columns = [];
+        foreach ($diff->alteredTables as $table) {
+            array_push($columns, ...$table->addedColumns, ...array_map(static fn (ColumnDiff $c): Column => $c->to, $table->changedColumns));
+        }
+        $needed = self::hasVector($diff->createdTables) || [] !== array_filter($columns, static fn (Column $c): bool => 'vector' === $c->type);
+
+        return $needed ? [...$this->getVectorExtensionSql(), ...$sql] : $sql;
+    }
+
     public function getListDatabasesSql(): string
     {
         return 'SELECT datname FROM pg_database WHERE datistemplate = false';
@@ -49,9 +115,14 @@ final class PostgreSqlPlatform extends AbstractPlatform
     }
 
     // valeur par défaut depuis 9.1, mais modifiable par l'administrateur ; quoteStringLiteral() en dépend
+    /**
+     * hnsw.iterative_scan (pgvector 0.8) : sous un filtre sélectif, l'index HNSW poursuit son
+     * parcours jusqu'à la limite (ADR 0017) ; l'ordre, à peine relâché, est rétabli par l'ORM.
+     * Sans pgvector, le réglage est gardé sans effet.
+     */
     public function getSessionInitSql(): array
     {
-        return ['SET standard_conforming_strings = on'];
+        return ['SET standard_conforming_strings = on', 'SET hnsw.iterative_scan = relaxed_order'];
     }
 
     public function failedStatementAbortsTransaction(): bool
@@ -65,6 +136,79 @@ final class PostgreSqlPlatform extends AbstractPlatform
     }
 
     // RG-06.5 : sans verrou des écritures ; interdit dans une transaction
+    /**
+     * HNSW avec l'opclass de la distance ; plein texte : index GIN sur l'expression du document,
+     * que la recherche reprend à l'identique pour qu'il serve (getFullTextDocumentSql()).
+     */
+    public function getCreateIndexSql(string $table, Index $index): string
+    {
+        $index = $this->getCanonicalIndex($index);
+
+        return match ($index->kind) {
+            IndexKind::Regular => parent::getCreateIndexSql($table, $index),
+            IndexKind::Vector => \sprintf(
+                'CREATE INDEX %s ON %s USING hnsw (%s %s) WITH (m = %d, ef_construction = %d)',
+                $this->quoteIdentifier($index->name),
+                $this->quoteIdentifier($table),
+                $this->quoteIdentifier($index->columns[0]),
+                self::OPERATOR_CLASSES[($index->distance ?? VectorDistance::Cosine)->name],
+                $index->m,
+                $index->efConstruction,
+            ),
+            IndexKind::FullText => \sprintf(
+                'CREATE INDEX %s ON %s USING gin (%s)',
+                $this->quoteIdentifier($index->name),
+                $this->quoteIdentifier($table),
+                $this->getFullTextDocumentSql(array_map($this->quoteIdentifier(...), $index->columns), $index->language),
+            ),
+        };
+    }
+
+    /**
+     * Le document plein texte de colonnes (expressions SQL déjà citées) : celui de l'index GIN.
+     *
+     * @param list<string> $columns
+     */
+    public function getFullTextDocumentSql(array $columns, ?string $language): string
+    {
+        return \sprintf(
+            'to_tsvector(%s, %s)',
+            $this->quoteStringLiteral($language ?? self::DEFAULT_LANGUAGE),
+            implode(" || ' ' || ", array_map(static fn (string $column): string => \sprintf("coalesce(%s, '')", $column), $columns)),
+        );
+    }
+
+    // ts_rank_cd sur le document de l'index GIN (même expression : l'index sert la condition)
+    public function getFullTextScoreSql(array $columns, ?string $language, string $query): string
+    {
+        return \sprintf('ts_rank_cd(%s, %s)', $this->getFullTextDocumentSql($columns, $language), $this->getTsQuerySql($language, $query));
+    }
+
+    public function getFullTextConditionSql(array $columns, ?string $language, string $query): string
+    {
+        return \sprintf('%s @@ %s', $this->getFullTextDocumentSql($columns, $language), $this->getTsQuerySql($language, $query));
+    }
+
+    // plainto_tsquery neutralise la syntaxe du texte (&, |, !, :*) et rend un ET ; ses « & » deviennent des OU
+    private function getTsQuerySql(?string $language, string $query): string
+    {
+        $config = $this->quoteStringLiteral($language ?? self::DEFAULT_LANGUAGE);
+
+        return \sprintf("to_tsquery(%s, replace(plainto_tsquery(%s, %s)::text, ' & ', ' | '))", $config, $config, $query);
+    }
+
+    // défauts de pgvector (m = 16, ef_construction = 64, au moins 2 × m) et configuration « simple »
+    public function getCanonicalIndex(Index $index): Index
+    {
+        $m = $index->m ?? 16;
+
+        return match ($index->kind) {
+            IndexKind::Regular => $index,
+            IndexKind::Vector => $index->withVectorOptions($m, $index->efConstruction ?? max(64, 2 * $m)),
+            IndexKind::FullText => $index->withLanguage($index->language ?? self::DEFAULT_LANGUAGE),
+        };
+    }
+
     public function getCreateIndexConcurrentlySql(string $table, Index $index): string
     {
         return (string) preg_replace('/^CREATE (UNIQUE )?INDEX /', 'CREATE $1INDEX CONCURRENTLY ', $this->getCreateIndexSql($table, $index));
@@ -87,6 +231,22 @@ final class PostgreSqlPlatform extends AbstractPlatform
         return 'SELECT nextval(' . $this->quoteStringLiteral($this->quoteIdentifier($sequence)) . ')';
     }
 
+    /**
+     * @param array<array-key, Table> $tables
+     */
+    private static function hasVector(array $tables): bool
+    {
+        foreach ($tables as $table) {
+            foreach ($table->getColumns() as $column) {
+                if ('vector' === $column->type) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
     // BYTEA n'a pas de longueur, fixe ou non
     public function getCanonicalColumn(Column $column): Column
     {
@@ -104,22 +264,31 @@ final class PostgreSqlPlatform extends AbstractPlatform
     {
         return 'SELECT c.column_name AS name, c.udt_name AS data_type, c.is_nullable AS nullable, c.column_default AS default_value,'
             . ' c.character_maximum_length AS length, c.numeric_precision AS precision, c.numeric_scale AS scale, c.is_identity AS is_identity,'
-            . ' k.ordinal_position AS primary_position'
+            . ' k.ordinal_position AS primary_position, a.atttypmod AS type_modifier'
             . ' FROM information_schema.columns c'
+            // la dimension d'un vector(n) n'est que dans le modificateur de type
+            . ' JOIN pg_attribute a ON a.attrelid = (quote_ident(c.table_schema) || \'.\' || quote_ident(c.table_name))::regclass AND a.attname = c.column_name'
             . " LEFT JOIN information_schema.table_constraints t ON t.table_schema = c.table_schema AND t.table_name = c.table_name AND t.constraint_type = 'PRIMARY KEY'"
             . ' LEFT JOIN information_schema.key_column_usage k ON k.constraint_schema = t.constraint_schema AND k.constraint_name = t.constraint_name AND k.column_name = c.column_name'
             . ' WHERE c.table_schema = current_schema() AND c.table_name = ? ORDER BY c.ordinal_position';
     }
 
+    /**
+     * Une ligne par colonne de l'index ; column_name est NULL pour une expression (le document
+     * d'un index plein texte), relue dans definition.
+     */
     public function getListIndexesSql(): string
     {
-        return 'SELECT i.relname AS name, a.attname AS column_name, CASE WHEN ix.indisunique THEN 0 ELSE 1 END AS non_unique, pg_get_expr(ix.indpred, ix.indrelid) AS predicate'
+        return 'SELECT i.relname AS name, a.attname AS column_name, CASE WHEN ix.indisunique THEN 0 ELSE 1 END AS non_unique, pg_get_expr(ix.indpred, ix.indrelid) AS predicate,'
+            . " am.amname AS method, oc.opcname AS operator_class, array_to_string(i.reloptions, ',') AS options, pg_get_indexdef(ix.indexrelid) AS definition"
             . ' FROM pg_index ix'
             . ' JOIN pg_class t ON t.oid = ix.indrelid'
             . ' JOIN pg_class i ON i.oid = ix.indexrelid'
+            . ' JOIN pg_am am ON am.oid = i.relam'
             . ' JOIN pg_namespace n ON n.oid = t.relnamespace'
-            . ' CROSS JOIN LATERAL unnest(ix.indkey::int2[]) WITH ORDINALITY AS k(attnum, position)'
-            . ' JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = k.attnum'
+            . ' CROSS JOIN LATERAL unnest(ix.indkey::int2[], ix.indclass::oid[]) WITH ORDINALITY AS k(attnum, opclass, position)'
+            . ' LEFT JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = k.attnum AND k.attnum > 0'
+            . ' LEFT JOIN pg_opclass oc ON oc.oid = k.opclass'
             . ' WHERE n.nspname = current_schema() AND t.relname = ? AND NOT ix.indisprimary'
             . ' ORDER BY i.relname, k.position';
     }
@@ -171,6 +340,8 @@ final class PostgreSqlPlatform extends AbstractPlatform
             'json' => 'JSONB',
             'uuid' => 'UUID',
             'binary' => 'BYTEA',
+            // extension pgvector, créée par le DDL qui en a besoin (getVectorExtensionSql())
+            'vector' => \sprintf('vector(%d)', $column->length),
             default => $this->unsupportedType($table, $column),
         };
     }

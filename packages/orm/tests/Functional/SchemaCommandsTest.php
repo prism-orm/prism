@@ -160,15 +160,15 @@ final class SchemaCommandsTest extends TestCase
 
     public function testValidateReportsEveryMappingError(): void
     {
-        // la fixture Invoice utilise le type vector, inconnu avant la phase 9
-        $invalid = new MetadataFactory(new AttributeDriver([__DIR__ . '/../Unit/Mapping/Fixtures']), null, $this->connection->getTypeRegistry());
+        // le type de UnknownTypeEntity n'est pas enregistré
+        $invalid = new MetadataFactory(new AttributeDriver([__DIR__ . '/../Unit/Mapping/InvalidFixtures']), null, $this->connection->getTypeRegistry());
         $tester = new CommandTester(new SchemaValidateCommand($this->connection, $invalid));
 
         $code = $tester->execute(['--skip-sync' => true]);
 
         self::assertSame(Command::FAILURE, $code);
         self::assertStringContainsString('The mapping is invalid (1 error).', $tester->getDisplay());
-        self::assertStringContainsString('unknown type "vector"', $tester->getDisplay());
+        self::assertStringContainsString('unknown type "money"', $tester->getDisplay());
     }
 
     /**

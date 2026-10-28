@@ -13,3 +13,4 @@
 /tmp/
 # schéma ERP réel anonymisé, propre à un poste : le test qui le charge est sauté sans lui
 /packages/orm/tests/Fixtures/Erp/
+/prismdemo/*

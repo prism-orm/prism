@@ -91,6 +91,11 @@ final class InvalidSchemaException extends \InvalidArgumentException implements 
         return new self(\sprintf('Cannot introspect column "%s.%s": the %s type "%s" has no Prism type. Register a custom Type or change the column.', $table, $column, $platform, $declaration));
     }
 
+    public static function unsupportedVector(string $platform): self
+    {
+        return new self(\sprintf('%s does not support the vector type: it has neither a vector distance nor a vector index. Use MariaDB 11.8+ or PostgreSQL with pgvector 0.8+.', $platform));
+    }
+
     public static function unsupportedFeature(string $platform, string $feature): self
     {
         return new self(\sprintf('%s does not support %s.', $platform, $feature));

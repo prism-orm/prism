@@ -1,0 +1,23 @@
+{
+    "name": "prism-orm/embedding-openai",
+    "description": "Prism embedding provider for the OpenAI-compatible /v1/embeddings API: OpenAI, Mistral, Ollama, vLLM, LocalAI, Text Embeddings Inference",
+    "type": "library",
+    "license": "MIT",
+    "require": {
+        "php": ">=8.4",
+        "prism-orm/orm": "self.version",
+        "symfony/http-client-contracts": "^3.5"
+    },
+    "require-dev": {
+        "symfony/http-client": "^7.4 || ^8.0"
+    },
+    "suggest": {
+        "symfony/http-client": "An implementation of HttpClientInterface"
+    },
+    "autoload": {
+        "psr-4": {
+            "Prism\\Embedding\\OpenAi\\": "src/"
+        }
+    },
+    "minimum-stability": "stable"
+}

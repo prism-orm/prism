@@ -7,8 +7,9 @@ namespace Prism\Orm\Mapping;
 /**
  * Index plein texte utilisé par hybridSearch() (pilier 4). Répétable.
  *
- * FULLTEXT sous MySQL et MariaDB ; colonne tsvector générée + index GIN sous PostgreSQL,
- * avec la configuration de langue indiquée (french, english, simple…).
+ * FULLTEXT sous MySQL et MariaDB ; index GIN sur l'expression to_tsvector() sous PostgreSQL,
+ * avec la configuration de langue indiquée (french, english, simple…) ; score calculé en PHP
+ * sous SQLite (ADR 0017).
  *
  * @api
  */

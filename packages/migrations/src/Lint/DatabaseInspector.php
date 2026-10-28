@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Prism\Migrations\Lint;
 
 use Prism\Dbal\Connection;
+use Prism\Dbal\Query\Order;
 use Prism\Dbal\Query\QueryBuilder;
 
 /**
@@ -37,6 +38,15 @@ final class DatabaseInspector implements DataInspector
         $qb = $this->connection->createQueryBuilder();
 
         return $this->exists($qb->select('1')->from($table)->where($qb->expr()->isNull($qb->column($column)))->limit(1));
+    }
+
+    public function largestGroup(string $table, string $column): int
+    {
+        $qb = $this->connection->createQueryBuilder();
+        $count = $qb->select($qb->expr()->count())->from($table)->groupBy($qb->column($column))
+            ->orderBy($qb->expr()->count(), Order::Desc)->limit(1)->executeQuery()->fetchOne();
+
+        return is_numeric($count) ? (int) $count : 0;
     }
 
     public function hasDuplicates(string $table, array $columns): bool

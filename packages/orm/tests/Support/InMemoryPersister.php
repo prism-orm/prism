@@ -6,6 +6,7 @@ namespace Prism\Orm\Tests\Support;
 
 use Prism\Dbal\LockMode;
 use Prism\Dbal\Query\Order;
+use Prism\Dbal\Schema\VectorDistance;
 use Prism\Orm\Filter\FilterOperation;
 use Prism\Orm\Mapping\GenerationStrategy;
 use Prism\Orm\Metadata\ClassMetadata;
@@ -48,7 +49,74 @@ final class InMemoryPersister implements EntityPersister
 
     public function loadById(mixed $id, FilterOperation $operation = FilterOperation::Read): ?array
     {
-        return $this->storage->load($this->table, $id);
+        $row = $this->storage->load($this->table, $id);
+
+        return null === $row ? null : $this->flagged($row);
+    }
+
+    public function loadNearest(string $column, array $vector, VectorDistance $distance, int $limit, array $criteria = [], ?string $staleColumn = null): array
+    {
+        throw new \LogicException('nearest() needs a database: see the functional tests.');
+    }
+
+    public function loadNearestIds(string $column, array $vector, VectorDistance $distance, int $limit, array $criteria = [], ?string $staleColumn = null): array
+    {
+        throw new \LogicException('hybridSearch() needs a database: see the functional tests.');
+    }
+
+    public function loadFullTextIds(array $columns, ?string $language, string $query, int $limit, array $criteria = []): array
+    {
+        throw new \LogicException('hybridSearch() needs a database: see the functional tests.');
+    }
+
+    public function loadColumns(array $columns, array $ids, bool $lock = false): array
+    {
+        throw new \LogicException('The EmbeddingUpdater needs a database: see the functional tests.');
+    }
+
+    public function loadIdsAfter(?string $flag, mixed $afterId, int $limit): array
+    {
+        throw new \LogicException('The EmbeddingUpdater needs a database: see the functional tests.');
+    }
+
+    public function updateAll(array $changes): int
+    {
+        throw new \LogicException('The EmbeddingUpdater needs a database: see the functional tests.');
+    }
+
+    public function countGroupedBy(array $columns): array
+    {
+        throw new \LogicException('The EmbeddingUpdater needs a database: see the functional tests.');
+    }
+
+    public function loadColumn(string $column, array $ids): array
+    {
+        $this->storage->log[] = ['SELECT', $this->table, [$column]];
+        $values = [];
+        foreach ($ids as $id) {
+            $row = $this->storage->load($this->table, $id);
+            if (null !== $row) {
+                $values[] = [$row[$this->idColumn], $row[$column] ?? null];
+            }
+        }
+
+        return $values;
+    }
+
+    /**
+     * Comme BasicEntityPersister : d'une colonne paresseuse, seulement 1 si elle est NULL, 0 sinon.
+     *
+     * @param array<string, mixed> $row
+     *
+     * @return array<string, mixed>
+     */
+    private function flagged(array $row): array
+    {
+        foreach ($this->metadata->getLazyFields() as $field) {
+            $row[$field->columnName] = null === ($row[$field->columnName] ?? null) ? 1 : 0;
+        }
+
+        return $row;
     }
 
     public function loadBy(array $criteria, array $orderBy = [], ?int $limit = null, int $offset = 0, FilterOperation $operation = FilterOperation::Read): array
@@ -71,7 +139,7 @@ final class InMemoryPersister implements EntityPersister
         });
         $this->storage->log[] = ['SELECT', $this->table, []];
 
-        return \array_slice($rows, $offset, $limit);
+        return array_map($this->flagged(...), \array_slice($rows, $offset, $limit));
     }
 
     public function loadAfter(array $criteria, mixed $afterId, int $limit): array
@@ -80,7 +148,7 @@ final class InMemoryPersister implements EntityPersister
         usort($rows, fn (array $a, array $b): int => $a[$this->idColumn] <=> $b[$this->idColumn]);
         $this->storage->log[] = ['SELECT', $this->table, []];
 
-        return \array_slice($rows, 0, $limit);
+        return array_map($this->flagged(...), \array_slice($rows, 0, $limit));
     }
 
     public function count(array $criteria = []): int
@@ -134,11 +202,11 @@ final class InMemoryPersister implements EntityPersister
         });
         $this->storage->log[] = ['SELECT', $this->table, []];
 
-        return array_map(static function (array $row): array {
+        return array_map(function (array $row): array {
             $owner = $row['prism_owner'];
             unset($row['prism_owner']);
 
-            return [$owner, $row];
+            return [$owner, $this->flagged($row)];
         }, $rows);
     }
 

@@ -69,7 +69,7 @@ final class DiffTranslator
                 $pairs[] = [new Operation\DropForeignKey($t->name, $fk->name), new Operation\AddForeignKey($t->name, $fk->localColumns, $fk->foreignTable, $fk->foreignColumns, $fk->onDelete, $fk->name)];
             }
             foreach ($t->droppedIndexes as $index) {
-                $pairs[] = [new Operation\DropIndex($t->name, $index->name), new Operation\CreateIndex($t->name, $index->columns, $index->unique, $index->name, whereNull: $index->whereNull)];
+                $pairs[] = [new Operation\DropIndex($t->name, $index->name), Operation\CreateIndex::of($t->name, $index)];
             }
             foreach ($t->addedColumns as $column) {
                 $pairs[] = [new Operation\AddColumn($t->name, $column), new Operation\DropColumn($t->name, $column->name)];
@@ -86,7 +86,7 @@ final class DiffTranslator
                 $pairs[] = [new Operation\DropColumn($t->name, $column->name), \sprintf('it drops %s.%s, whose data cannot be restored', $t->name, $column->name)];
             }
             foreach ($t->addedIndexes as $index) {
-                $pairs[] = [new Operation\CreateIndex($t->name, $index->columns, $index->unique, $index->name, whereNull: $index->whereNull), new Operation\DropIndex($t->name, $index->name)];
+                $pairs[] = [Operation\CreateIndex::of($t->name, $index), new Operation\DropIndex($t->name, $index->name)];
             }
             foreach ($t->addedForeignKeys as $fk) {
                 $pairs[] = [new Operation\AddForeignKey($t->name, $fk->localColumns, $fk->foreignTable, $fk->foreignColumns, $fk->onDelete, $fk->name), new Operation\DropForeignKey($t->name, $fk->name)];

@@ -1,0 +1,45 @@
+<?php
+
+declare(strict_types=1);
+
+// Généré par Prism (db:metamodel:generate) : ne pas modifier.
+
+namespace Prism\Orm\Tests\Functional\VectorFixtures;
+
+use Prism\Orm\Query\Metamodel as M;
+
+/**
+ * @extends M\Metamodel<\Prism\Orm\Tests\Functional\VectorFixtures\Passage>
+ */
+final class Passage_ extends M\Metamodel
+{
+    public readonly M\IntField $id;
+
+    public readonly M\DateTimeField $deletedAt;
+
+    public readonly M\StringField $topic;
+
+    public readonly M\StringField $title;
+
+    public readonly M\VectorField $embedding;
+
+    public function __construct(string $alias = 'passage')
+    {
+        parent::__construct($alias);
+        $this->id = new M\IntField($this, 'id');
+        $this->deletedAt = new M\DateTimeField($this, 'deletedAt');
+        $this->topic = new M\StringField($this, 'topic');
+        $this->title = new M\StringField($this, 'title');
+        $this->embedding = new M\VectorField($this, 'embedding');
+    }
+
+    public static function as(string $alias): self
+    {
+        return new self($alias);
+    }
+
+    protected static function entityClass(): string
+    {
+        return \Prism\Orm\Tests\Functional\VectorFixtures\Passage::class;
+    }
+}

@@ -79,6 +79,8 @@ final class PrismApplication
             new Orm\ImportCommand($connection),
             new Orm\CacheClearMetadataCommand($metadata),
             new Orm\AuditPurgeCommand($connection, $metadata),
+            new Orm\EmbeddingsComputeCommand($connection, $metadata, $config->embeddingProviders),
+            new Orm\EmbeddingsStatusCommand($connection, $metadata),
             new Orm\MetamodelGenerateCommand($metadata, $config->metamodelDir),
             new Migrations\GenerateCommand($migrations),
             new Migrations\DiffCommand($connection, $metadata, $migrations),

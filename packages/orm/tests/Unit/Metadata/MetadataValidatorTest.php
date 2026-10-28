@@ -6,8 +6,12 @@ namespace Prism\Orm\Tests\Unit\Metadata;
 
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
-use Prism\Dbal\Type\ConversionContext;
-use Prism\Dbal\Type\Type;
+use Prism\Dbal\Platform\AbstractPlatform;
+use Prism\Dbal\Platform\MariaDbPlatform;
+use Prism\Dbal\Platform\MySqlPlatform;
+use Prism\Dbal\Platform\PostgreSqlPlatform;
+use Prism\Dbal\Platform\SqlitePlatform;
+use Prism\Dbal\Schema\IndexKind;
 use Prism\Dbal\Type\TypeRegistry;
 use Prism\Orm\Exception\MappingException;
 use Prism\Orm\Mapping\Cascade;
@@ -20,6 +24,7 @@ use Prism\Orm\Metadata\BehaviorMapping;
 use Prism\Orm\Metadata\ClassMetadata;
 use Prism\Orm\Metadata\Driver\AttributeDriver;
 use Prism\Orm\Metadata\EmbeddedMapping;
+use Prism\Orm\Metadata\EmbeddingMapping;
 use Prism\Orm\Metadata\FieldMapping;
 use Prism\Orm\Metadata\IdMapping;
 use Prism\Orm\Metadata\IndexMapping;
@@ -39,6 +44,9 @@ use Prism\Orm\Tests\Unit\Metadata\Fixtures\Callbacks\CheckedListener;
 use Prism\Orm\Tests\Unit\Metadata\Fixtures\Callbacks\EmptyListener;
 use Prism\Orm\Tests\Unit\Metadata\Fixtures\Callbacks\ListenedEntity;
 use Prism\Orm\Tests\Unit\Metadata\Fixtures\Callbacks\UntypedCollections;
+use Prism\Orm\Vector\Distance;
+use Prism\Orm\Vector\EmbeddingProviderRegistry;
+use Prism\Orm\Vector\HashingEmbeddingProvider;
 
 /**
  * Cas du validateur, chacun avec son message exact. Avec les 20 erreurs du driver, ils forment
@@ -133,8 +141,8 @@ final class MetadataValidatorTest extends TestCase
 
         // types
         yield '7 unknown type' => [
-            static fn (): array => [self::meta(Client::class, 'client', [new FieldMapping('embedding', 'embedding', 'vector')])],
-            [Client::class . '::$embedding: unknown type "vector"; registered types: string, text, integer, smallint, bigint, boolean, decimal, float, datetime_immutable, date_immutable, time_immutable, json, uuid, binary. Register custom types with TypeRegistry::register().'],
+            static fn (): array => [self::meta(Client::class, 'client', [new FieldMapping('balance', 'balance', 'money')])],
+            [Client::class . '::$balance: unknown type "money"; registered types: string, text, integer, smallint, bigint, boolean, decimal, float, datetime_immutable, date_immutable, time_immutable, json, uuid, binary, vector. Register custom types with TypeRegistry::register().'],
         ];
         yield '8 enum backing type' => [
             static fn (): array => [self::meta(Client::class, 'client', [new FieldMapping('status', 'status', 'integer', enumType: FixtureStatus::class)])],
@@ -353,8 +361,8 @@ final class MetadataValidatorTest extends TestCase
         new MetadataValidator()->assertValid($metadata);
     }
 
-    // les fixtures complètes : seule erreur, le type vector qui arrive en phase 9
-    public function testFixturesAreValidOnceTheVectorTypeExists(): void
+    // les fixtures complètes, type vector compris (phase 9) : valides, un seul avertissement
+    public function testFixturesAreValid(): void
     {
         $driver = new AttributeDriver();
         $metadata = array_map($driver->loadMetadata(...), [Invoice::class, Client::class, InvoiceLine::class, Tag::class]);
@@ -362,35 +370,124 @@ final class MetadataValidatorTest extends TestCase
         $found = new MetadataValidator()->validate($metadata);
         $errors = array_values(array_filter($found, static fn (MappingError $e): bool => MappingSeverity::Error === $e->severity));
         $warnings = array_values(array_filter($found, static fn (MappingError $e): bool => MappingSeverity::Warning === $e->severity));
-        self::assertCount(1, $errors);
-        self::assertStringStartsWith(Invoice::class . '::$embedding: unknown type "vector"', (string) $errors[0]);
+        self::assertSame([], $errors);
         // RG-04.6 : Invoice::$lines (cascade remove, orphanRemoval) et InvoiceLine::$invoice (onDelete CASCADE)
         self::assertSame([Invoice::class . '::$lines: cascade: remove repeats onDelete: CASCADE of ' . InvoiceLine::class . '::$invoice: the database already deletes these rows, without events. Keep one of them (RG-04.6).'], array_map(static fn (MappingError $e): string => (string) $e, $warnings));
 
-        $vector = new class extends Type {
-            public function getName(): string
-            {
-                return 'vector';
-            }
-
-            public function toDatabase(mixed $value, ConversionContext $context): ?string
-            {
-                return \is_string($value) ? $value : null;
-            }
-
-            public function toPhp(mixed $value, ConversionContext $context): mixed
-            {
-                return $value;
-            }
-        };
         // l'avertissement RG-04.6 reste, il ne bloque pas
-        new MetadataValidator(TypeRegistry::withDefaults()->register($vector))->assertValid($metadata);
-        self::assertCount(1, self::errors($metadata, TypeRegistry::withDefaults()->register($vector)));
+        new MetadataValidator()->assertValid($metadata);
+        self::assertCount(1, self::errors($metadata));
+    }
+
+    /**
+     * RG-09.1, RG-09.3 (ADR 0017) : la dimension partout, puis ce que la plateforme visée refuse.
+     *
+     * @return iterable<string, array{list<FieldMapping>, list<IndexMapping>, AbstractPlatform|null, list<string>}>
+     */
+    public static function vectorCases(): iterable
+    {
+        $vector = new FieldMapping('embedding', 'embedding', 'vector', length: 3);
+        $index = new IndexMapping(['embedding'], kind: IndexKind::Vector, distance: Distance::Cosine);
+        $mariaDb = new MariaDbPlatform('11.8');
+
+        yield 'valid without a platform' => [[$vector], [$index], null, []];
+        yield 'valid on MariaDB' => [[$vector], [$index], $mariaDb, []];
+        yield 'valid on SQLite' => [[$vector], [$index], new SqlitePlatform('3.46'), []];
+        yield 'no dimensions' => [[new FieldMapping('embedding', 'embedding', 'vector')], [], null, [
+            Client::class . "::\$embedding: a vector field needs its dimensions: #[Column(type: 'vector', dimensions: …)] (RG-09.1).",
+        ]];
+        yield 'MySQL' => [[$vector], [], new MySqlPlatform('8.4'), [
+            Client::class . '::$embedding: MySQL does not support the vector type: it has neither a vector distance nor a vector index. Use MariaDB 11.8+ or PostgreSQL with pgvector 0.8+.',
+        ]];
+        yield 'inner product on MariaDB' => [[$vector], [new IndexMapping(['embedding'], kind: IndexKind::Vector, distance: Distance::InnerProduct)], $mariaDb, [
+            Client::class . '::$embedding: MariaDB has no inner product distance; use Distance::Cosine or Distance::Euclidean (RG-09.3).',
+        ]];
+        yield 'inner product on PostgreSQL' => [[$vector], [new IndexMapping(['embedding'], kind: IndexKind::Vector, distance: Distance::InnerProduct)], new PostgreSqlPlatform('16'), []];
+        yield 'nullable indexed vector on MariaDB' => [[new FieldMapping('embedding', 'embedding', 'vector', nullable: true, length: 3)], [$index], $mariaDb, [
+            Client::class . '::$embedding: MariaDB only indexes NOT NULL vector columns; make the field non-nullable.',
+        ]];
+        yield 'two vector indexes on MariaDB' => [[$vector, new FieldMapping('other', 'other', 'vector', length: 3)], [$index, new IndexMapping(['other'], kind: IndexKind::Vector, distance: Distance::Cosine)], $mariaDb, [
+            Client::class . ': MariaDB allows one vector index per table, 2 are declared on embedding, other.',
+        ]];
+        yield 'too many dimensions for HNSW on PostgreSQL' => [[new FieldMapping('embedding', 'embedding', 'vector', length: 3072)], [$index], new PostgreSqlPlatform('16'), [
+            Client::class . '::$embedding: pgvector indexes vectors of up to 2000 dimensions with HNSW, the field has 3072.',
+        ]];
+        yield 'vector index on a string' => [[new FieldMapping('embedding', 'embedding', 'string')], [$index], null, [
+            Client::class . '::$embedding: #[VectorIndex] needs a field of type "vector".',
+        ]];
+        yield 'full-text index on a number' => [[new FieldMapping('total', 'total', 'integer'), new FieldMapping('title', 'title', 'string')], [new IndexMapping(['title', 'total'], kind: IndexKind::FullText)], null, [
+            Client::class . ': #[FullTextIndex] on "title, total": "total" is not a string or text field.',
+        ]];
+        yield 'full-text index on an unknown field' => [[], [new IndexMapping(['title'], kind: IndexKind::FullText)], null, [
+            Client::class . ': #[FullTextIndex] on "title": "title" is not a mapped field or an owning to-one relation.',
+        ]];
+    }
+
+    /**
+     * @param list<FieldMapping> $fields
+     * @param list<IndexMapping> $indexes
+     * @param list<string>       $expected
+     */
+    #[DataProvider('vectorCases')]
+    public function testVectorRulesPerPlatform(array $fields, array $indexes, ?AbstractPlatform $platform, array $expected): void
+    {
+        $errors = new MetadataValidator(platform: $platform)->validate([self::meta(Client::class, 'client', $fields, indexes: $indexes)]);
+
+        self::assertSame($expected, array_map(static fn (MappingError $e): string => (string) $e, $errors));
+    }
+
+    /**
+     * ADR 0018 : #[EmbeddedVector] sur un vecteur, des sources texte, des colonnes d'état libres,
+     * un fournisseur connu de la même dimension.
+     *
+     * @return iterable<string, array{list<FieldMapping>, list<EmbeddingMapping>, EmbeddingProviderRegistry|null, list<string>}>
+     */
+    public static function embeddingCases(): iterable
+    {
+        $vector = new FieldMapping('embedding', 'embedding', 'vector', nullable: true, length: 8);
+        $title = new FieldMapping('title', 'title', 'string');
+        $embedding = new EmbeddingMapping('embedding', ['title'], 'default', 'embedding_stale', 'embedding_model');
+        $providers = new EmbeddingProviderRegistry(['default' => new HashingEmbeddingProvider(8)]);
+
+        yield 'valid without providers' => [[$vector, $title], [$embedding], null, []];
+        yield 'valid with its provider' => [[$vector, $title], [$embedding], $providers, []];
+        yield 'not a vector' => [[new FieldMapping('embedding', 'embedding', 'text'), $title], [$embedding], null, [
+            Client::class . '::$embedding: #[EmbeddedVector] needs a "vector" field, not "text".',
+        ]];
+        yield 'unknown source' => [[$vector], [$embedding], null, [
+            Client::class . '::$embedding: #[EmbeddedVector] reads "title", which is not a mapped field.',
+        ]];
+        yield 'source not a text' => [[$vector, new FieldMapping('title', 'title', 'integer')], [$embedding], null, [
+            Client::class . '::$embedding: #[EmbeddedVector] reads "title", a "integer" field; a source must be a "string" or "text" field.',
+        ]];
+        yield 'state column taken' => [[$vector, $title, new FieldMapping('stale', 'embedding_stale', 'boolean')], [$embedding], null, [
+            Client::class . '::$embedding: column "embedding_stale" is already used by $stale.',
+        ]];
+        yield 'unknown provider' => [[$vector, $title], [$embedding], new EmbeddingProviderRegistry(['other' => new HashingEmbeddingProvider(8)]), [
+            Client::class . '::$embedding: #[EmbeddedVector] uses the embedding provider "default", which is not registered; registered providers: other.',
+        ]];
+        yield 'provider of another dimension' => [[$vector, $title], [$embedding], new EmbeddingProviderRegistry(['default' => new HashingEmbeddingProvider(16)]), [
+            Client::class . '::$embedding: the embedding provider "default" produces 16 dimensions, but the column has 8; change #[Column(dimensions:)] and migrate, or use another provider.',
+        ]];
+    }
+
+    /**
+     * @param list<FieldMapping>     $fields
+     * @param list<EmbeddingMapping> $embeddings
+     * @param list<string>           $expected
+     */
+    #[DataProvider('embeddingCases')]
+    public function testEmbeddedVectorRules(array $fields, array $embeddings, ?EmbeddingProviderRegistry $providers, array $expected): void
+    {
+        $metadata = new ClassMetadata(Client::class, 'client', new IdMapping('id'), [new FieldMapping('id', 'id', 'integer'), ...$fields], embeddings: $embeddings);
+        $errors = new MetadataValidator(embeddings: $providers)->validate([$metadata]);
+
+        self::assertSame($expected, array_map(static fn (MappingError $e): string => (string) $e, $errors));
     }
 
     public function testAllErrorsAreReportedAtOnce(): void
     {
-        $metadata = [self::meta(Client::class, 'client', [new FieldMapping('total', 'total', 'decimal'), new FieldMapping('qty', 'qty', 'integer', length: 4), new FieldMapping('x', 'x', 'vector')])];
+        $metadata = [self::meta(Client::class, 'client', [new FieldMapping('total', 'total', 'decimal'), new FieldMapping('qty', 'qty', 'integer', length: 4), new FieldMapping('x', 'x', 'money')])];
 
         self::assertCount(3, self::errors($metadata));
 

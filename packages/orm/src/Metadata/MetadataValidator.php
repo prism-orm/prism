@@ -4,6 +4,10 @@ declare(strict_types=1);
 
 namespace Prism\Orm\Metadata;
 
+use Prism\Dbal\Platform\AbstractPlatform;
+use Prism\Dbal\Platform\MariaDbPlatform;
+use Prism\Dbal\Platform\PostgreSqlPlatform;
+use Prism\Dbal\Schema\IndexKind;
 use Prism\Dbal\Type\TypeRegistry;
 use Prism\Orm\Collection\Collection;
 use Prism\Orm\Exception\MappingException;
@@ -12,6 +16,8 @@ use Prism\Orm\Mapping\Entity;
 use Prism\Orm\Mapping\GenerationStrategy;
 use Prism\Orm\Mapping\LifecycleEvent;
 use Prism\Orm\Mapping\OnDelete;
+use Prism\Orm\Vector\Distance;
+use Prism\Orm\Vector\EmbeddingProviderRegistry;
 
 /**
  * Vérifications qui portent sur l'ensemble des entités et sur le registre des types :
@@ -31,6 +37,8 @@ final class MetadataValidator
 
     private const array LENGTH_TYPES = ['string', 'binary'];
 
+    private const int PGVECTOR_HNSW_MAX_DIMENSIONS = 2000;
+
     private const array NO_DEFAULT_TYPES = ['text', 'json', 'binary'];
 
     /** @var list<MappingError> */
@@ -39,9 +47,13 @@ final class MetadataValidator
     private readonly TypeRegistry $types;
 
     /**
-     * @param TypeRegistry|null $types types connus ; les 14 types natifs du DBAL par défaut
+     * @param TypeRegistry|null              $types      types connus ; les types natifs du DBAL par défaut
+     * @param AbstractPlatform|null          $platform   la base visée : ce qu'elle ne sait pas faire est
+     *                                                   refusé ici, pas à l'exécution (RG-09.3, ADR 0017)
+     * @param EmbeddingProviderRegistry|null $embeddings les fournisseurs : nom connu et dimension égale à
+     *                                                   celle du champ, vérifiés au démarrage (ADR 0018)
      */
-    public function __construct(?TypeRegistry $types = null)
+    public function __construct(?TypeRegistry $types = null, private readonly ?AbstractPlatform $platform = null, private readonly ?EmbeddingProviderRegistry $embeddings = null)
     {
         $this->types = $types ?? TypeRegistry::withDefaults();
     }
@@ -66,6 +78,8 @@ final class MetadataValidator
             $this->validateIdentifierAndVersion($class);
             $this->validateAssociations($class, $byClass);
             $this->validateIndexes($class);
+            $this->validateVectors($class);
+            $this->validateEmbeddings($class);
             $this->validateCallbacks($class);
             $this->validateTenancy($class);
             $this->validateBehaviors($class);
@@ -152,6 +166,45 @@ final class MetadataValidator
             $this->assertLength($class->className, null, 'column', $tenancy->column);
             if (isset($owners[strtolower($tenancy->column)])) {
                 $this->error($class->className, null, \sprintf('the #[Tenanted] column "%s" is already used by $%s; rename one of them (#[Tenanted(column: ...)]).', $tenancy->column, $owners[strtolower($tenancy->column)]));
+            }
+        }
+        // colonnes d'état d'un #[EmbeddedVector] (ADR 0018)
+        foreach ($class->getEmbeddings() as $embedding) {
+            $register($embedding->staleColumn, $embedding->field);
+            $register($embedding->modelColumn, $embedding->field);
+        }
+    }
+
+    /**
+     * ADR 0018 : #[EmbeddedVector] sur un vecteur, des sources texte, un fournisseur connu de la
+     * même dimension.
+     *
+     * @param ClassMetadata<object> $class
+     */
+    private function validateEmbeddings(ClassMetadata $class): void
+    {
+        foreach ($class->getEmbeddings() as $embedding) {
+            $field = $class->getField($embedding->field);
+            if ('vector' !== $field->type) {
+                $this->error($class->className, $field->fieldName, \sprintf('#[EmbeddedVector] needs a "vector" field, not "%s".', $field->type));
+
+                continue;
+            }
+            foreach ($embedding->source as $source) {
+                if (!$class->hasField($source)) {
+                    $this->error($class->className, $field->fieldName, \sprintf('#[EmbeddedVector] reads "%s", which is not a mapped field.', $source));
+                } elseif (!\in_array($class->getField($source)->type, ['string', 'text'], true)) {
+                    $this->error($class->className, $field->fieldName, \sprintf('#[EmbeddedVector] reads "%s", a "%s" field; a source must be a "string" or "text" field.', $source, $class->getField($source)->type));
+                }
+            }
+            if (null === $this->embeddings) {
+                continue;
+            }
+            if (!$this->embeddings->has($embedding->provider)) {
+                $known = $this->embeddings->names();
+                $this->error($class->className, $field->fieldName, \sprintf('#[EmbeddedVector] uses the embedding provider "%s", which is not registered; registered providers: %s.', $embedding->provider, [] === $known ? 'none' : implode(', ', $known)));
+            } elseif (null !== $field->length && ($dimensions = $this->embeddings->get($embedding->provider)->dimensions()) !== $field->length) {
+                $this->error($class->className, $field->fieldName, \sprintf('the embedding provider "%s" produces %d dimensions, but the column has %d; change #[Column(dimensions:)] and migrate, or use another provider.', $embedding->provider, $dimensions, $field->length));
             }
         }
     }
@@ -263,7 +316,8 @@ final class MetadataValidator
         if ('decimal' === $field->type && (null === $field->precision || null === $field->scale)) {
             $this->error($class, $path, 'a decimal column needs a precision and a scale, for example #[Column(type: \'decimal\', precision: 12, scale: 2)].');
         }
-        if (null !== $field->length && !\in_array($field->type, self::LENGTH_TYPES, true)) {
+        // la longueur d'un vecteur est sa dimension (ADR 0017)
+        if (null !== $field->length && !\in_array($field->type, [...self::LENGTH_TYPES, 'vector'], true)) {
             $this->error($class, $path, \sprintf('length is not supported by the "%s" type.', $field->type));
         }
         if ($field->fixed && (!\in_array($field->type, self::LENGTH_TYPES, true) || null === $field->length)) {
@@ -413,8 +467,55 @@ final class MetadataValidator
                 $isColumn = $class->hasField($field)
                     || ($class->hasAssociation($field) && $class->getAssociation($field)->isOwningSide() && $class->getAssociation($field)->isToOne());
                 if (!$isColumn) {
-                    $this->error($class->className, null, \sprintf('%s on "%s": "%s" is not a mapped field or an owning to-one relation.', $index->unique ? '#[UniqueConstraint]' : '#[Index]', implode(', ', $index->fields), $field));
+                    $this->error($class->className, null, \sprintf('%s on "%s": "%s" is not a mapped field or an owning to-one relation.', $index->describe(), implode(', ', $index->fields), $field));
+                    continue;
                 }
+                $type = $class->hasField($field) ? $class->getField($field)->type : null;
+                if (IndexKind::Vector === $index->kind && 'vector' !== $type) {
+                    $this->error($class->className, $field, '#[VectorIndex] needs a field of type "vector".');
+                }
+                if (IndexKind::FullText === $index->kind && !\in_array($type, ['string', 'text'], true)) {
+                    $this->error($class->className, null, \sprintf('#[FullTextIndex] on "%s": "%s" is not a string or text field.', implode(', ', $index->fields), $field));
+                }
+            }
+        }
+    }
+
+    /**
+     * Pilier 4 (ADR 0017) : dimension obligatoire (RG-09.1), puis ce que la plateforme visée ne
+     * sait pas faire (RG-09.3) : vecteur sous MySQL, produit scalaire, plusieurs index vectoriels
+     * ou colonne indexée nullable sous MariaDB, plus de 2 000 dimensions indexées sous pgvector.
+     *
+     * @param ClassMetadata<object> $class
+     */
+    private function validateVectors(ClassMetadata $class): void
+    {
+        foreach ($class->getFields() as $field) {
+            if ('vector' !== $field->type) {
+                continue;
+            }
+            if (null === $field->length) {
+                $this->error($class->className, $field->fieldName, 'a vector field needs its dimensions: #[Column(type: \'vector\', dimensions: …)] (RG-09.1).');
+            }
+            if (null !== $this->platform && !$this->platform->supportsVectors()) {
+                $this->error($class->className, $field->fieldName, \sprintf('%s does not support the vector type: it has neither a vector distance nor a vector index. Use MariaDB 11.8+ or PostgreSQL with pgvector 0.8+.', $this->platform->getName()));
+            }
+        }
+
+        $vectorIndexes = array_values(array_filter($class->indexes, static fn (IndexMapping $i): bool => IndexKind::Vector === $i->kind && $class->hasField($i->fields[0] ?? '')));
+        if ($this->platform instanceof MariaDbPlatform && \count($vectorIndexes) > 1) {
+            $this->error($class->className, null, \sprintf('MariaDB allows one vector index per table, %d are declared on %s.', \count($vectorIndexes), implode(', ', array_map(static fn (IndexMapping $i): string => $i->fields[0], $vectorIndexes))));
+        }
+        foreach ($vectorIndexes as $index) {
+            $field = $class->getField($index->fields[0]);
+            if ($this->platform instanceof MariaDbPlatform && Distance::InnerProduct === $index->distance) {
+                $this->error($class->className, $field->fieldName, 'MariaDB has no inner product distance; use Distance::Cosine or Distance::Euclidean (RG-09.3).');
+            }
+            if ($this->platform instanceof MariaDbPlatform && $field->nullable) {
+                $this->error($class->className, $field->fieldName, 'MariaDB only indexes NOT NULL vector columns; make the field non-nullable.');
+            }
+            if ($this->platform instanceof PostgreSqlPlatform && null !== $field->length && $field->length > self::PGVECTOR_HNSW_MAX_DIMENSIONS) {
+                $this->error($class->className, $field->fieldName, \sprintf('pgvector indexes vectors of up to %d dimensions with HNSW, the field has %d.', self::PGVECTOR_HNSW_MAX_DIMENSIONS, $field->length));
             }
         }
     }

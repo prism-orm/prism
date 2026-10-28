@@ -10,6 +10,7 @@ use Prism\Orm\Mapping as Prism;
 use Prism\Orm\Mapping\Cascade;
 use Prism\Orm\Mapping\Order;
 use Prism\Orm\Vector\Distance;
+use Prism\Orm\Vector\Vector;
 
 /**
  * Entité de démonstration utilisant la quasi-totalité des attributs de la 1.0.
@@ -68,11 +69,11 @@ final class Invoice
     #[Prism\Column(nullable: true)]
     public ?\DateTimeImmutable $deletedAt = null;
 
-    /** @var list<float> */
-    #[Prism\Column(type: 'vector', dimensions: 1024, lazy: true)]
+    // type vector et lazy déduits de Vector (RG-09.6)
+    #[Prism\Column(dimensions: 1024)]
     #[Prism\VectorIndex(distance: Distance::Cosine, m: 16, efConstruction: 64)]
     #[Prism\EmbeddedVector(source: ['number', 'notes'])]
-    public array $embedding = [];
+    public Vector $embedding;
 
     #[Prism\ManyToOne(inversedBy: 'invoices', cascade: [Cascade::Persist], batchSize: 200)]
     public Client $client;

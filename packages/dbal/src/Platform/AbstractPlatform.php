@@ -13,11 +13,13 @@ use Prism\Dbal\Schema\Column;
 use Prism\Dbal\Schema\ColumnDiff;
 use Prism\Dbal\Schema\ForeignKey;
 use Prism\Dbal\Schema\Index;
+use Prism\Dbal\Schema\IndexKind;
 use Prism\Dbal\Schema\Schema;
 use Prism\Dbal\Schema\SchemaDiff;
 use Prism\Dbal\Schema\Sequence;
 use Prism\Dbal\Schema\Table;
 use Prism\Dbal\Schema\TableDiff;
+use Prism\Dbal\Schema\VectorDistance;
 
 /**
  * Seul endroit où vit le SQL propre à un SGBD.
@@ -106,6 +108,84 @@ abstract class AbstractPlatform
      * @throws InvalidParameterException chemin vide, clé ou index invalide
      */
     abstract public function getJsonExtractTextSql(string $expression, array $path): string;
+
+    /**
+     * Vrai si la plateforme stocke, indexe et compare des vecteurs (ADR 0017).
+     */
+    public function supportsVectors(): bool
+    {
+        return false;
+    }
+
+    /**
+     * Le SQL d'un paramètre vecteur lié en texte (« [0.5,-1.25,3] ») : MariaDB et PostgreSQL ne
+     * le lisent qu'à travers une conversion.
+     *
+     * @throws InvalidSchemaException plateforme sans vecteurs (MySQL)
+     */
+    public function getVectorParameterSql(string $placeholder): string
+    {
+        throw InvalidSchemaException::unsupportedVector($this->getName());
+    }
+
+    /**
+     * Distance entre une colonne vecteur et une expression vecteur (le SQL d'un paramètre).
+     * Toujours une distance, plus petite = plus proche ; laissée nue, pour que l'index serve à
+     * « ORDER BY distance LIMIT n » (MariaDB n'utilise son index que sous cette forme).
+     *
+     * @throws InvalidSchemaException plateforme sans vecteurs, ou distance qu'elle ne calcule pas
+     */
+    public function getVectorDistanceSql(VectorDistance $distance, string $column, string $vector): string
+    {
+        throw InvalidSchemaException::unsupportedVector($this->getName());
+    }
+
+    /**
+     * La même distance, calculée sur chaque ligne sans l'index vectoriel : la relance exacte
+     * d'une recherche que l'index a laissée incomplète sous un filtre (ADR 0017). Identique
+     * à getVectorDistanceSql() là où l'index ne rend jamais moins de lignes que demandé.
+     *
+     * @throws InvalidSchemaException plateforme sans vecteurs, ou distance qu'elle ne calcule pas
+     */
+    public function getExactVectorDistanceSql(VectorDistance $distance, string $column, string $vector): string
+    {
+        return $this->getVectorDistanceSql($distance, $column, $vector);
+    }
+
+    /**
+     * Score plein texte d'une ligne pour une recherche (plus grand = plus pertinent), sur les
+     * colonnes d'un index plein texte. Une recherche de plusieurs mots est un OU : un document
+     * qui en contient un seul est trouvé (ADR 0017). Le texte cherché est un paramètre lié.
+     *
+     * @param list<string> $columns colonnes déjà citées, celles de l'index
+     *
+     * @throws InvalidSchemaException plateforme sans recherche plein texte
+     */
+    public function getFullTextScoreSql(array $columns, ?string $language, string $query): string
+    {
+        throw InvalidSchemaException::unsupportedFeature($this->getName(), 'full-text search');
+    }
+
+    /**
+     * La condition « la ligne correspond au texte cherché », servie par l'index plein texte.
+     *
+     * @param list<string> $columns
+     *
+     * @throws InvalidSchemaException plateforme sans recherche plein texte
+     */
+    public function getFullTextConditionSql(array $columns, ?string $language, string $query): string
+    {
+        throw InvalidSchemaException::unsupportedFeature($this->getName(), 'full-text search');
+    }
+
+    /**
+     * Vrai si un index vectoriel peut rendre moins de lignes que la limite sous un filtre, sans
+     * réglage qui l'empêche : la recherche relance alors le calcul exact (MariaDB, ADR 0017).
+     */
+    public function vectorIndexMayMissRows(): bool
+    {
+        return false;
+    }
 
     /**
      * Conversion SQL d'une expression texte en entier ou en décimal.
@@ -232,7 +312,7 @@ abstract class AbstractPlatform
             $sql[] = $this->getCreateTableSql($table);
         }
         foreach ($schema->getTables() as $table) {
-            foreach ($table->getIndexes() as $index) {
+            foreach ($this->getCanonicalTable($table)->getIndexes() as $index) {
                 $sql[] = $this->getCreateIndexSql($table->name, $index);
             }
         }
@@ -310,7 +390,8 @@ abstract class AbstractPlatform
 
         // 6. index
         foreach ($diff->createdTables as $table) {
-            foreach ($table->getIndexes() as $index) {
+            // les index tels que la plateforme les crée (ni vectoriel ni plein texte sous SQLite)
+            foreach ($this->getCanonicalTable($table)->getIndexes() as $index) {
                 $sql[] = $this->getCreateIndexSql($table->name, $index);
             }
         }
@@ -429,10 +510,17 @@ abstract class AbstractPlatform
     }
 
     /**
-     * Un index partiel (whereNull) porte « WHERE colonne IS NULL » (PostgreSQL, SQLite).
+     * Un index partiel (whereNull) porte « WHERE colonne IS NULL » (PostgreSQL, SQLite). Un index
+     * vectoriel ou plein texte n'a pas de forme commune : chaque plateforme le déclare.
+     *
+     * @throws InvalidSchemaException index vectoriel ou plein texte sur une plateforme qui n'en a pas
      */
     public function getCreateIndexSql(string $table, Index $index): string
     {
+        if (IndexKind::Regular !== $index->kind) {
+            throw InvalidSchemaException::unsupportedFeature($this->getName(), IndexKind::Vector === $index->kind ? 'vector indexes' : 'full-text indexes');
+        }
+
         return \sprintf(
             'CREATE %sINDEX %s ON %s (%s)%s',
             $index->unique ? 'UNIQUE ' : '',
@@ -507,10 +595,23 @@ abstract class AbstractPlatform
         return 'string' === $column->type && null === $column->length ? $column->withType('string', 255) : $column;
     }
 
+    /**
+     * Forme d'un index telle que la plateforme la conserve ; null : la plateforme ne le crée pas
+     * (index vectoriel ou plein texte sous SQLite, ADR 0017).
+     */
+    public function getCanonicalIndex(Index $index): ?Index
+    {
+        return $index;
+    }
+
     public function getCanonicalTable(Table $table): Table
     {
         foreach ($table->getColumns() as $column) {
             $table = $table->withColumn($this->getCanonicalColumn($column));
+        }
+        foreach ($table->getIndexes() as $index) {
+            $canonical = $this->getCanonicalIndex($index);
+            $table = null === $canonical ? $table->withoutIndex($index->name) : $table->withIndex($canonical);
         }
 
         return $table;

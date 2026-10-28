@@ -31,7 +31,7 @@ features:
       details: Every query is filtered by the current tenant and raw SQL is checked. No tenant, no query. Changes are audited in the same transaction.
     - icon: 🔎
       title: Vector and hybrid search
-      details: Coming in Prism 0.9.
+      details: Store embeddings next to your data. nearest() and hybridSearch() search by meaning and by words, after the tenant filter, and stale vectors are recomputed after the commit.
 ---
 
 <div class="vp-doc home-examples">

@@ -8,7 +8,12 @@ use Prism\Dbal\Query\Order;
 use Prism\Orm\EntityManagerInterface;
 use Prism\Orm\Exception\InvalidArgumentException;
 use Prism\Orm\Exception\MappingException;
+use Prism\Orm\Exception\VectorDimensionMismatchException;
 use Prism\Orm\Metadata\ClassMetadata;
+use Prism\Orm\Vector\HybridOptions;
+use Prism\Orm\Vector\HybridResult;
+use Prism\Orm\Vector\ScoredResult;
+use Prism\Orm\Vector\Vector;
 
 /**
  * Lecture des entités d'une classe. Seule classe du cœur ouverte à l'héritage (ADR 0006) : un
@@ -83,6 +88,67 @@ class EntityRepository
     public function findBy(array $criteria, array $orderBy = [], ?int $limit = null, int $offset = 0): array
     {
         return $this->entityManager->getUnitOfWork()->findBy($this->metadata->className, $criteria, $orderBy, $limit, $offset);
+    }
+
+    /**
+     * Marque périmés tous les vecteurs du champ #[EmbeddedVector] $field, pour changer de modèle
+     * d'embedding (RG-09.10) ; db:embeddings:compute, ou les messages ComputeEmbedding, les
+     * recalculent ensuite. À appeler depuis une migration de données :
+     *
+     *     $em->getRepository(Document::class)->markEmbeddingsStale('embedding');
+     *
+     * @return int lignes marquées
+     *
+     * @throws MappingException champ sans #[EmbeddedVector]
+     */
+    public function markEmbeddingsStale(string $field): int
+    {
+        return $this->entityManager->getUnitOfWork()->markEmbeddingsStale($this->metadata->className, $field);
+    }
+
+    /**
+     * Les entités dont le vecteur $field est le plus proche de $vector, de la plus proche à la
+     * plus lointaine, chacune avec sa distance et son score (RG-09.4). Les critères, le tenant et
+     * la suppression logique filtrent avant le classement ; un vecteur #[EmbeddedVector] périmé
+     * est exclu, sauf $includeStale (RG-09.8).
+     *
+     *     foreach ($docs->nearest('embedding', $question, limit: 5, criteria: ['published' => true]) as $hit) {
+     *         echo $hit->entity->title, ' ', $hit->score;
+     *     }
+     *
+     * @param list<float>|Vector   $vector
+     * @param array<string, mixed> $criteria
+     *
+     * @return list<ScoredResult<T>>
+     *
+     * @throws MappingException                 champ inconnu, ou qui n'est pas un vecteur
+     * @throws VectorDimensionMismatchException vecteur d'une autre dimension que le champ (RG-09.1)
+     */
+    public function nearest(string $field, array|Vector $vector, int $limit = 10, array $criteria = [], bool $includeStale = false): array
+    {
+        return $this->entityManager->getUnitOfWork()->nearest($this->metadata->className, $field, $vector, $limit, $criteria, $includeStale);
+    }
+
+    /**
+     * Recherche hybride (RG-09.5) : les entités qui contiennent les mots de $query et celles dont
+     * le vecteur est proche de $vector, fusionnées par Reciprocal Rank Fusion. Chaque résultat
+     * porte son score et ses deux rangs. L'entité a un #[FullTextIndex] et un champ vecteur.
+     *
+     *     foreach ($docs->hybridSearch('partial payment', $embedding, limit: 5) as $hit) {
+     *         echo $hit->entity->title, ' ', $hit->textRank ?? '-', ' ', $hit->vectorRank ?? '-';
+     *     }
+     *
+     * @param list<float>|Vector   $vector
+     * @param array<string, mixed> $criteria
+     *
+     * @return list<HybridResult<T>>
+     *
+     * @throws MappingException                 entité sans champ vecteur ou sans #[FullTextIndex]
+     * @throws VectorDimensionMismatchException vecteur d'une autre dimension que le champ (RG-09.1)
+     */
+    public function hybridSearch(string $query, array|Vector $vector, int $limit = 10, array $criteria = [], HybridOptions $options = new HybridOptions()): array
+    {
+        return $this->entityManager->getUnitOfWork()->hybridSearch($this->metadata->className, $query, $vector, $limit, $criteria, $options);
     }
 
     /**

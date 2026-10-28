@@ -25,9 +25,9 @@ use Prism\Orm\Query\Metamodel\JsonField;
 use Prism\Orm\Query\Metamodel\Metamodel;
 use Prism\Orm\Query\Metamodel\MetamodelAutoloader;
 use Prism\Orm\Query\Metamodel\MetamodelGenerator;
-use Prism\Orm\Query\Metamodel\MixedField;
 use Prism\Orm\Query\Metamodel\Relation;
 use Prism\Orm\Query\Metamodel\StringField;
+use Prism\Orm\Query\Metamodel\VectorField;
 use Prism\Orm\Tests\Functional\PersisterFixtures;
 use Prism\Orm\Tests\Unit\Mapping\Fixtures\Address;
 use Prism\Orm\Tests\Unit\Mapping\Fixtures\Client;
@@ -118,11 +118,22 @@ final class MetamodelGeneratorTest extends TestCase
         self::assertSame(Priority::class, $priority->enum);
     }
 
-    public function testCustomTypeIsAMixedField(): void
+    // ADR 0017 : la distance d'un vecteur se trie et se sélectionne
+    public function testVectorIsAVectorField(): void
     {
         $this->generateAndLoad([Invoice::class, Client::class]);
 
-        self::assertInstanceOf(MixedField::class, self::property(self::make(Invoice::class, 'i'), 'embedding'));
+        self::assertInstanceOf(VectorField::class, self::property(self::make(Invoice::class, 'i'), 'embedding'));
+    }
+
+    // un type personnalisé (enregistré par l'application) : égalité seulement
+    public function testCustomTypeIsAMixedField(): void
+    {
+        /** @var class-string $class */
+        $class = Client::class;
+        $files = new MetamodelGenerator()->render([new ClassMetadata($class, 'client', new IdMapping('id'), [new FieldMapping('id', 'id', 'integer'), new FieldMapping('balance', 'balance', 'money')])]);
+
+        self::assertStringContainsString('public readonly M\\MixedField $balance;', (string) current($files));
     }
 
     // ---------------------------------------------------------------- fichiers
