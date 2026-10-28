@@ -17,8 +17,8 @@ Phase 9 : pilier 4, vector et recherche hybride. Stocker des embeddings à côt�
 - `EmbeddingProvider` (RG-09.9), `EmbeddingProviderRegistry`, `HashingEmbeddingProvider` (déterministe, sans réseau), planificateurs différé et synchrone, `EmbeddingException` ; `db:embeddings:compute` et `db:embeddings:status`.
 - Paquet `prism-orm/embedding-openai` : `OpenAiCompatibleProvider` pour l'API `/v1/embeddings` (OpenAI, Mistral, Ollama, vLLM, LocalAI, Text Embeddings Inference), par lots, réponses vérifiées, préfixe par texte (`search_document: ` de nomic-embed-text).
 - Bundle : configuration `prism.embeddings` (scheduler `auto`, `messenger`, `synchronous` ou `deferred`, taille de lot, fournisseurs `service` ou `openai`), tag `prism.embedding_provider` et `#[AsEmbeddingProvider]`, fournisseurs vérifiés au `cache:warmup` ; message `ComputeEmbedding` et son handler par lots de messages (`BatchHandlerInterface`), dans le tenant des lignes.
-- Démo : recherche dans la documentation de Prism (page `/docs`), second EntityManager `docs` sur PostgreSQL avec pgvector, 313 sections, vecteurs `nomic-embed-text:v1.5` précalculés dans `demo/data` (`make embeddings-snapshot`), jeu de 60 questions annotées, `app:docs:evaluate`. Rappel@10 : `hybridSearch()` 0,931, vectoriel seul 0,908, plein texte seul 0,725.
-- `make bench-vector` : `nearest()` sur 100 000 vecteurs de 768 dimensions, sous MariaDB et PostgreSQL.
+- Démo : recherche dans la documentation de Prism (page `/docs`), second EntityManager `docs` sur PostgreSQL avec pgvector, 324 sections, vecteurs `nomic-embed-text:v1.5` précalculés dans `demo/data` (`make embeddings-snapshot`), jeu de 60 questions annotées, `app:docs:evaluate`. Rappel@10 : `hybridSearch()` 0,922, vectoriel seul 0,903, plein texte seul 0,719.
+- `make bench-vector` : `nearest()` sur 100 000 vecteurs de 768 dimensions, p95 de 22 ms sous MariaDB (cache du graphe dimensionné) et de 31 ms sous PostgreSQL.
 
 ### Modifié
 
@@ -29,6 +29,7 @@ Phase 9 : pilier 4, vector et recherche hybride. Stocker des embeddings à côt�
 
 - SQLite : une table créée par une migration avait perdu ses index vectoriels et plein texte.
 - MariaDB : un vecteur dont le premier octet float32 vaut `0x5B` (« [ ») était lu comme du texte et refusé ; trouvé par `make bench-vector`.
+- `nearest()` et `withVectors()` : l'UnitOfWork ne réencode plus chaque vecteur hydraté pour son snapshot (environ 2 ms par vecteur de 768 dimensions) ; un vecteur égal à sa relecture n'est plus réencodé au flush. `nearest()` passe de 42 à 22 ms au p95 sur 100 000 lignes MariaDB.
 - L'`EmbeddingScheduler` est appelé à la fin de `flush()`, après `PostFlush` : un message traité en synchrone ne peut plus vider l'EntityManager au milieu du flush.
 
 ## [0.8.0] — 2026-10-27

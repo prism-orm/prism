@@ -202,4 +202,54 @@ final class LazyVectorTest extends MappingSchemaTestCase
         self::assertTrue(self::isGhost($doc->embedding));
         self::assertSame([7.0, 7.0, 7.0], $doc->embedding->toArray());
     }
+
+    // RG-03.5 : un vecteur relu, par withVectors(), nearest() ou à son premier accès, n'est pas un
+    // changement, même d'une valeur que la base arrondit en float32 (0.1) ; un snapshot gardé tel
+    // que la base l'a rendu, sans réencoder chaque vecteur à l'hydratation (make bench-vector)
+    public function testVectorsReadBackAreNotChanges(): void
+    {
+        $this->em->persist(new Doc('rounded', new Vector([0.1, 0.2, 0.3]), new Vector([0.7, -0.1, 1e-7]), [0.1, 0.2, 0.3]));
+        $this->em->flush();
+        $this->startCounting();
+
+        $d = Doc_::as('d');
+        $eager = $this->em->query($d)->withVectors()->getResult();
+        $this->em->flush();
+        self::assertSame([], $this->statements('UPDATE'), 'hydrated with withVectors()');
+
+        $this->startCounting();
+        $hits = $this->em->getRepository(Doc::class)->nearest('embedding', [0.1, 0.2, 0.3], limit: 1);
+        $this->em->flush();
+        self::assertSame([], $this->statements('UPDATE'), 'hydrated by nearest()');
+
+        $this->startCounting();
+        $lazy = $this->em->find(Doc::class, $eager[0]->id);
+        self::assertNotNull($lazy);
+        self::assertEqualsWithDelta(0.1, $lazy->embedding->toArray()[0], 1e-6);
+        $this->em->flush();
+        self::assertSame([], $this->statements('UPDATE'), 'loaded on first access');
+        self::assertCount(1, $hits);
+    }
+
+    // une liste d'entiers égale à la valeur en base n'est pas un changement ; une autre, si, une fois
+    public function testChangedVectorIsWrittenOnce(): void
+    {
+        [$doc] = $this->seed(1);
+        $this->startCounting();
+        $read = $this->em->getRepository(Doc::class)->nearest('embedding', [1.0, 0.5, -1.0], limit: 1)[0]->entity;
+
+        $read->raw = [0.25, 0.5, 1];
+        $this->em->flush();
+        self::assertSame([], $this->statements('UPDATE'), 'the same floats, written as integers');
+
+        $read->embedding = new Vector([0.1, 0.2, 0.3]);
+        $this->em->flush();
+        $this->em->flush();
+        self::assertCount(1, $this->statements('UPDATE'));
+
+        $this->em->clear();
+        $again = $this->em->find(Doc::class, $doc->id);
+        self::assertNotNull($again);
+        self::assertEqualsWithDelta([0.1, 0.2, 0.3], $again->embedding->toArray(), 1e-6);
+    }
 }

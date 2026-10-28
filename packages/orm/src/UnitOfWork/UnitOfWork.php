@@ -184,7 +184,7 @@ final class UnitOfWork implements TenantSwitchListener
     /** @var array<string, array<int, array{object, Vector}>> vecteurs paresseux à charger, par « classe::champ » puis entité (RG-09.6) */
     private array $lazyPending = [];
 
-    /** @var array<string, array<int, array{bool, mixed}>> vecteurs chargés par lot, en attente de leur ghost : [trouvé, valeur PHP] */
+    /** @var array<string, array<int, array{bool, mixed, mixed}>> vecteurs chargés par lot, en attente de leur ghost : [trouvé, valeur PHP, valeur lue en base] */
     private array $lazyLoaded = [];
 
     private readonly TenantContext $tenants;
@@ -1367,7 +1367,7 @@ final class UnitOfWork implements TenantSwitchListener
         $topLevel = array_map(static fn (FieldMapping $f): string => $f->columnName, $metadata->getFields());
 
         $changes = [];
-        foreach ($this->databaseRow($metadata, $entity) as $column => $value) {
+        foreach ($this->databaseRow($metadata, $entity, $snapshot) as $column => $value) {
             $field = $this->field($metadata, $column);
             $readonly = $field->readonly && \in_array($column, $topLevel, true);
             if ($column === $idColumn || $column === $versionColumn || $readonly || !$field->updatable) {
@@ -1419,17 +1419,23 @@ final class UnitOfWork implements TenantSwitchListener
 
     /**
      * Valeurs de la base des colonnes de l'entité ; un decimal est complété à l'échelle de sa
-     * colonne, pour que '12.5' et '12.50' ne soient pas vus comme un changement.
+     * colonne, pour que '12.5' et '12.50' ne soient pas vus comme un changement. Avec le snapshot,
+     * un vecteur égal à sa valeur relue reprend celle du snapshot, sans être réencodé.
      *
-     * @param ClassMetadata<object> $metadata
+     * @param ClassMetadata<object>     $metadata
+     * @param array<string, mixed>|null $snapshot
      *
      * @return array<string, mixed>
      */
-    private function databaseRow(ClassMetadata $metadata, object $entity): array
+    private function databaseRow(ClassMetadata $metadata, object $entity, ?array $snapshot = null): array
     {
         $row = [];
         foreach ($metadata->extractRow($entity) as $column => $value) {
             $field = $this->field($metadata, $column);
+            if (null !== $snapshot && 'vector' === $field->type && \is_array($value) && \is_string($snapshot[$column] ?? null) && $this->isStoredVector($field, $snapshot[$column], $value)) {
+                $row[$column] = $snapshot[$column];
+                continue;
+            }
             // RG-09.1 : avant l'envoi, avec la classe et le champ
             if ('vector' === $field->type && \is_array($value) && null !== $field->length && \count($value) !== $field->length) {
                 throw VectorDimensionMismatchException::forField($metadata->className, $metadata->getFieldPathByColumn($column) ?? $field->fieldName, $field->length, \count($value));
@@ -1470,6 +1476,17 @@ final class UnitOfWork implements TenantSwitchListener
         }
 
         return $keys;
+    }
+
+    /**
+     * Le vecteur PHP a-t-il les composantes de la valeur lue en base ? Comparées en flottants : une
+     * liste d'entiers égale n'est pas un changement.
+     *
+     * @param array<mixed> $value
+     */
+    private function isStoredVector(FieldMapping $field, string $stored, array $value): bool
+    {
+        return $this->toPhp($field, $stored) === array_map(static fn (mixed $x): mixed => \is_int($x) ? (float) $x : $x, $value);
     }
 
     private function toDatabase(FieldMapping $field, mixed $value): mixed
@@ -1514,6 +1531,11 @@ final class UnitOfWork implements TenantSwitchListener
             $field = $metadata->getFieldPathByColumn($column) ?? $this->joinFieldOf($metadata, $column);
             if (null === $field || \in_array($field, $metadata->behaviors->auditExclude, true)) {
                 continue;
+            }
+            // un vecteur du snapshot est sous la forme lue (binaire de MariaDB) : journalisé en texte
+            if ($metadata->hasField($field) && 'vector' === $metadata->getField($field)->type && \is_string($old[$column] ?? null)) {
+                $vector = $metadata->getField($field);
+                $old[$column] = $this->toDatabase($vector, $this->toPhp($vector, $old[$column]));
             }
             $before = \array_key_exists($column, $old) ? self::auditValue($old[$column]) : null;
             $after = \array_key_exists($column, $new) ? self::auditValue($new[$column]) : null;
@@ -1978,9 +2000,9 @@ final class UnitOfWork implements TenantSwitchListener
             }
             $this->hydrateRelations($metadata, $entity, $row, refresh: false);
             $this->hydrateCollections($metadata, $entity, refresh: false);
-            $this->snapshots[$oid] = $this->snapshotOf($metadata, $entity, $values) + $this->foreignKeys($metadata, $entity) + $this->tenantColumn($metadata, $row);
+            $this->snapshots[$oid] = $this->snapshotOf($metadata, $entity, $values, $row) + $this->foreignKeys($metadata, $entity) + $this->tenantColumn($metadata, $row);
         } else {
-            $this->snapshots[$oid] = $this->snapshotOf($metadata, $entity, $values) + $this->tenantColumn($metadata, $row);
+            $this->snapshots[$oid] = $this->snapshotOf($metadata, $entity, $values, $row) + $this->tenantColumn($metadata, $row);
         }
         $this->postLoad($metadata, $entity);
 
@@ -1992,12 +2014,17 @@ final class UnitOfWork implements TenantSwitchListener
      * databaseRow() relirait, sans relire les propriétés. Une ligne incomplète (colonne absente,
      * propriété laissée à sa valeur par défaut) passe par databaseRow().
      *
+     * Un vecteur garde la valeur que la base a rendue (binaire de MariaDB, texte ailleurs) : la
+     * réencoder coûterait un json_encode de chaque composante par entité hydratée.
+     * databaseRow() la reprend tant que le vecteur PHP n'a pas changé.
+     *
      * @param ClassMetadata<object> $metadata
      * @param array<string, mixed>  $values   valeurs PHP, par colonne
+     * @param array<string, mixed>  $row      la ligne lue
      *
      * @return array<string, mixed>
      */
-    private function snapshotOf(ClassMetadata $metadata, object $entity, array $values): array
+    private function snapshotOf(ClassMetadata $metadata, object $entity, array $values, array $row = []): array
     {
         if (\count($values) !== \count($metadata->getColumnTypes())) {
             return $this->databaseRow($metadata, $entity);
@@ -2005,7 +2032,8 @@ final class UnitOfWork implements TenantSwitchListener
 
         $snapshot = [];
         foreach ($values as $column => $value) {
-            $snapshot[$column] = $this->toDatabase($this->field($metadata, $column), $value);
+            $field = $this->field($metadata, $column);
+            $snapshot[$column] = 'vector' === $field->type && \is_string($row[$column] ?? null) ? $row[$column] : $this->toDatabase($field, $value);
         }
 
         return $snapshot;
@@ -2121,16 +2149,16 @@ final class UnitOfWork implements TenantSwitchListener
             }
             $values = [];
             foreach ($this->persisters->getPersister($metadata)->loadColumn($field->columnName, $ids) as [$rowId, $value]) {
-                $values[self::key($this->toPhp($idField, $rowId))] = $this->toPhp($field, $value);
+                $values[self::key($this->toPhp($idField, $rowId))] = [$this->toPhp($field, $value), $value];
             }
             foreach ($batch as $other => $member) {
                 $memberKey = self::key($this->property($metadata->className, $idField->fieldName)->getValue($member));
-                $this->lazyLoaded[$lazyKey][$other] = [\array_key_exists($memberKey, $values), $values[$memberKey] ?? null];
+                $this->lazyLoaded[$lazyKey][$other] = [\array_key_exists($memberKey, $values), ...$values[$memberKey] ?? [null, null]];
                 unset($this->lazyPending[$lazyKey][$other]);
             }
         }
 
-        [$found, $value] = $this->lazyLoaded[$lazyKey][$oid];
+        [$found, $value, $stored] = $this->lazyLoaded[$lazyKey][$oid];
         unset($this->lazyLoaded[$lazyKey][$oid], $this->lazyPending[$lazyKey][$oid]);
         if (!$found) {
             throw EntityNotFoundException::forId($metadata->className, $id);
@@ -2141,7 +2169,8 @@ final class UnitOfWork implements TenantSwitchListener
         // le constructeur sur le ghost : la forme d'initialisation des objets paresseux de PHP
         new \ReflectionMethod(Vector::class, '__construct')->invoke($ghost, $value);
         if (($this->entities[$oid] ?? null) === $entity && isset($this->snapshots[$oid])) {
-            $this->snapshots[$oid][$field->columnName] = $this->toDatabase($field, $value);
+            // la valeur lue, comme à l'hydratation (snapshotOf)
+            $this->snapshots[$oid][$field->columnName] = \is_string($stored) ? $stored : $this->toDatabase($field, $value);
         }
     }
 

@@ -8,7 +8,7 @@ declare(strict_types=1);
  *
  * 100 000 vecteurs aléatoires de 768 dimensions (la taille de nomic-embed-text), normalisés, d'une
  * graine fixe : le sens n'influe pas sur la vitesse. L'index HNSW (cosinus, m = 16) est créé après
- * le chargement, puis 20 recherches d'échauffement et 200 mesurées, chacune avec un nouveau
+ * le chargement, puis 200 recherches d'échauffement et 200 mesurées, chacune avec un nouveau
  * vecteur : nearest() des 10 plus proches, sans filtre, puis avec un critère qui garde 1 % des
  * lignes (pré-filtrage, ADR 0017), sur une colonne indexée comme le serait tenant_id. Temps de
  * bout en bout, hydratation comprise.
@@ -39,7 +39,8 @@ use Prism\Orm\Tools\SchemaTool;
 const DATABASE = 'prism_bench_vector';
 const DIMENSIONS = 768;
 const QUERIES = 200;
-const WARMUP = 20;
+// le graphe en cache : 200 recherches le parcourent assez pour que la mesure soit stable
+const WARMUP = 200;
 const LIMIT_MS = 50.0;
 
 $rows = (int) (getenv('ROWS') ?: 100_000);
