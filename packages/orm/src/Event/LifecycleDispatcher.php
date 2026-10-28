@@ -31,13 +31,16 @@ final class LifecycleDispatcher
     /**
      * @param ClassMetadata<object> $metadata
      * @param \Closure(): object    $event    construit seulement si quelqu'un l'attend
+     *
+     * @return bool faux si aucun callback, listener ni dispatcher n'a reçu l'événement : l'entité n'a
+     *              pas pu changer
      */
-    public function lifecycle(ClassMetadata $metadata, LifecycleEvent $type, object $entity, \Closure $event): void
+    public function lifecycle(ClassMetadata $metadata, LifecycleEvent $type, object $entity, \Closure $event): bool
     {
         $callbacks = $metadata->getLifecycleCallbacks($type);
         $listeners = $metadata->getEntityListenerCallbacks($type);
         if ([] === $callbacks && [] === $listeners && null === $this->events) {
-            return;
+            return false;
         }
 
         $object = $event();
@@ -48,6 +51,8 @@ final class LifecycleDispatcher
             $this->method($class, $method)->invoke($this->listeners->resolve($class), $entity, $object);
         }
         $this->events?->dispatch($object);
+
+        return true;
     }
 
     public function dispatch(object $event): void

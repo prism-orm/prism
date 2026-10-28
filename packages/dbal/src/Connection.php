@@ -38,6 +38,12 @@ final class Connection
     /** PostgreSQL : niveau le plus bas auquel une requête a échoué dans la transaction en cours. */
     private ?int $abortedAtLevel = null;
 
+    /** Écritures préparées gardées pour être réexécutées : au plus ce nombre, les plus anciennes libérées. */
+    private const int REUSED_STATEMENTS = 64;
+
+    /** @var array<string, \PDOStatement> SQL → requête préparée, de cette connexion PDO */
+    private array $statements = [];
+
     private readonly LoggerInterface $logger;
 
     private ?ConversionContext $conversionContext = null;
@@ -166,6 +172,7 @@ final class Connection
             $this->logger->warning('Connection closed with an active transaction (level {level}); the server rolls it back.', ['level' => $this->nestingLevel]);
         }
 
+        $this->statements = [];
         $this->pdo = null;
         $this->nestingLevel = 0;
         $this->abortedAtLevel = null;
@@ -201,7 +208,9 @@ final class Connection
      */
     public function executeStatement(string $sql, array $params = [], array $types = []): int
     {
-        return $this->run($sql, $params, $types)->rowCount();
+        // une écriture répétée (un flush de 1 000 UPDATE) n'est préparée qu'une fois ; elle ne
+        // renvoie pas de lignes, une réexécution n'interrompt donc aucune lecture en cours
+        return $this->run($sql, $params, $types, reuse: 1 === preg_match('/^\s*(INSERT|UPDATE|DELETE)\b/i', $sql))->rowCount();
     }
 
     /**
@@ -427,7 +436,7 @@ final class Connection
      * @param list<mixed>|array<string, mixed>        $params
      * @param array<int|string, ParameterType|string> $types
      */
-    private function run(string $sql, array $params, array $types): \PDOStatement
+    private function run(string $sql, array $params, array $types, bool $reuse = false): \PDOStatement
     {
         // ADR 0014 : une garde qui lève une exception empêche la requête, rien n'est envoyé
         foreach ($this->configuration->guards as $guard) {
@@ -438,12 +447,14 @@ final class Connection
         $start = hrtime(true);
 
         try {
-            $statement = $pdo->prepare($sql);
+            $statement = $reuse ? $this->prepared($pdo, $sql) : $pdo->prepare($sql);
             foreach ($bound as [$name, $value, $type]) {
                 $statement->bindValue($name, $value, $type->toPdo());
             }
             $statement->execute();
         } catch (\PDOException $e) {
+            // une requête en échec n'est pas gardée : la suivante la prépare à nouveau
+            unset($this->statements[$sql]);
             $this->failed($sql, $e, $bound);
 
             throw QueryFailedException::fromPdo($e, $sql);
@@ -462,6 +473,22 @@ final class Connection
         }
 
         return $statement;
+    }
+
+    /**
+     * La requête préparée d'une écriture, gardée pour la suivante au même SQL : une préparation
+     * de moins par écriture, un aller-retour de moins avec le serveur.
+     */
+    private function prepared(\PDO $pdo, string $sql): \PDOStatement
+    {
+        if (isset($this->statements[$sql])) {
+            return $this->statements[$sql];
+        }
+        if (\count($this->statements) >= self::REUSED_STATEMENTS) {
+            array_shift($this->statements);
+        }
+
+        return $this->statements[$sql] = $pdo->prepare($sql);
     }
 
     /**

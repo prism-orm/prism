@@ -12,7 +12,7 @@ URL_sqlite  := sqlite:///:memory:
 DATABASES := mysql mariadb pgsql sqlite
 
 .DEFAULT_GOAL := help
-.PHONY: help up down build install shell test test-unit test-db test-all-db stan cs cs-check infection bench bench-tenancy bench-vector bench-baseline bench-compare coverage compat test-symfony demo-install demo-test embeddings-snapshot split worker-test docs-install docs-dev docs-build ci
+.PHONY: help up down build install shell test test-unit test-db test-all-db stan cs cs-check infection bench bench-tenancy bench-vector bench-doctrine bench-baseline bench-compare coverage compat test-symfony demo-install demo-test embeddings-snapshot split worker-test docs-install docs-dev docs-build ci
 
 help: ## Affiche cette aide
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
@@ -68,6 +68,19 @@ bench-vector: ## Critère de la phase 9 : nearest() < 50 ms (p95) sur 100 000 ve
 	@for db in $(if $(filter mariadb pgsql,$(DB)),$(DB),mariadb pgsql); do \
 		url=$$( [ $$db = pgsql ] && echo '$(URL_pgsql)' || echo '$(URL_mariadb)' ); \
 		$(RUN) env DATABASE_URL="$$url" ROWS=$(or $(ROWS),100000) KEEP=$(KEEP) php -d memory_limit=1G -d opcache.enable_cli=1 tools/bench/vector-nearest.php || exit 1; \
+	done
+
+bench-doctrine: ## Prism face à Doctrine ORM 3 (ADR 0021) : hydratation, flush, N+1, mémoire en worker, sur MySQL et PostgreSQL : make bench-doctrine [DB=mysql|pgsql] [REQUESTS=10000]
+	$(RUN) sh -c 'cd tools/bench/doctrine && composer install --quiet --no-interaction'
+	@for db in $(if $(filter command line,$(origin DB)),$(DB),mysql pgsql); do \
+		url=$$( [ $$db = pgsql ] && echo '$(URL_pgsql)' || echo '$(URL_mysql)' ); \
+		echo "=== $$db"; \
+		$(RUN) env DATABASE_URL="$$url" sh -c 'cd tools/bench/doctrine && php bin/database.php create \
+			&& vendor/bin/phpbench run --report=aggregate --progress=none \
+			&& php -d opcache.enable_cli=1 -d pcov.enabled=0 bin/queries.php \
+			&& php -d opcache.enable_cli=1 -d pcov.enabled=0 -d memory_limit=1G bin/worker.php prism $(or $(REQUESTS),10000) \
+			&& php -d opcache.enable_cli=1 -d pcov.enabled=0 -d memory_limit=1G bin/worker.php doctrine $(or $(REQUESTS),10000); \
+			status=$$?; php bin/database.php drop; exit $$status' || exit 1; \
 	done
 
 bench-baseline: ## Enregistre la référence de bench-compare (avant une modification de l'UoW ou de l'hydratation)

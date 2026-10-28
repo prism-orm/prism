@@ -45,6 +45,9 @@ final class ClassMetadata
     /** @var array<string, EmbeddingMapping> champs #[EmbeddedVector], par nom (ADR 0018) */
     private readonly array $embeddings;
 
+    /** @var list<FieldMapping>|null champs paresseux, calculés au premier appel (lu pour chaque ligne hydratée) */
+    private ?array $lazyFields = null;
+
     /**
      * @param class-string<T>                                                    $className
      * @param list<FieldMapping>                                                 $fields
@@ -360,7 +363,7 @@ final class ClassMetadata
      */
     public function getLazyFields(): array
     {
-        return array_values(array_filter($this->fields, static fn (FieldMapping $f): bool => $f->lazy));
+        return $this->lazyFields ??= array_values(array_filter($this->fields, static fn (FieldMapping $f): bool => $f->lazy));
     }
 
     /**

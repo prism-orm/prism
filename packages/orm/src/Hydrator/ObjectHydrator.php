@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Prism\Orm\Hydrator;
 
 use Prism\Dbal\Type\ConversionContext;
+use Prism\Dbal\Type\Type;
 use Prism\Dbal\Type\TypeRegistry;
 use Prism\Orm\Metadata\ClassMetadata;
 
@@ -20,6 +21,12 @@ use Prism\Orm\Metadata\ClassMetadata;
  */
 final class ObjectHydrator
 {
+    /** @var array<class-string, \ReflectionClass<object>> */
+    private array $classes = [];
+
+    /** @var array<class-string, array<string, Type>> colonne → Type, par classe */
+    private array $columnTypes = [];
+
     public function __construct(
         private readonly ConversionContext $conversion,
         private readonly TypeRegistry $types,
@@ -52,7 +59,8 @@ final class ObjectHydrator
      */
     public function fromPhpRow(ClassMetadata $metadata, array $row): object
     {
-        $entity = new \ReflectionClass($metadata->className)->newInstanceWithoutConstructor();
+        /** @var T $entity */
+        $entity = ($this->classes[$metadata->className] ??= new \ReflectionClass($metadata->className))->newInstanceWithoutConstructor();
         $metadata->hydrateRow($entity, $row);
 
         return $entity;
@@ -104,10 +112,11 @@ final class ObjectHydrator
      */
     public function toPhpRow(ClassMetadata $metadata, array $row): array
     {
+        $types = $this->columnTypes[$metadata->className] ??= array_map($this->types->get(...), $metadata->getColumnTypes());
         $converted = [];
-        foreach ($metadata->getColumnTypes() as $column => $type) {
+        foreach ($types as $column => $type) {
             if (\array_key_exists($column, $row)) {
-                $converted[$column] = $this->types->get($type)->toPhp($row[$column], $this->conversion);
+                $converted[$column] = $type->toPhp($row[$column], $this->conversion);
             }
         }
 

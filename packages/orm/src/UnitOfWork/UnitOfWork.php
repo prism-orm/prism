@@ -561,8 +561,9 @@ final class UnitOfWork implements TenantSwitchListener, FlushContext
         $fresh = [];
         $entities = [];
         foreach ($rows as $row) {
-            $known = isset($this->identityMap[$metadata->className][self::key($this->toPhp($metadata->getIdField(), $row[$metadata->getIdField()->columnName] ?? null))]);
-            $entities[] = $entity = $this->register($metadata, $row, $cohort, $vectors);
+            $key = self::key($this->toPhp($metadata->getIdField(), $row[$metadata->getIdField()->columnName] ?? null));
+            $known = isset($this->identityMap[$metadata->className][$key]);
+            $entities[] = $entity = $this->register($metadata, $row, $cohort, $vectors, $key);
             if (!$known) {
                 $fresh[] = $entity;
                 foreach ($fetched as $field) {
@@ -1198,9 +1199,11 @@ final class UnitOfWork implements TenantSwitchListener, FlushContext
             $entity = $this->entities[$oid];
             $metadata = $this->metadataOf($entity);
 
-            $this->lifecycle->lifecycle($metadata, LifecycleEvent::PreUpdate, $entity, fn (): PreUpdateEvent => new PreUpdateEvent($entity, $this->changeSet($metadata, $oid, $changes), $this));
-            // RG-03.8 : une modification faite dans PreUpdate est prise en compte
-            $changes = $this->changes($metadata, $entity);
+            // RG-03.8 : une modification faite dans PreUpdate est prise en compte ; sans personne pour
+            // la recevoir, l'entité n'a pas changé depuis le calcul des changements
+            if ($this->lifecycle->lifecycle($metadata, LifecycleEvent::PreUpdate, $entity, fn (): PreUpdateEvent => new PreUpdateEvent($entity, $this->changeSet($metadata, $oid, $changes), $this))) {
+                $changes = $this->changes($metadata, $entity);
+            }
             if ([] === $changes) {
                 continue;
             }
@@ -1994,10 +1997,10 @@ final class UnitOfWork implements TenantSwitchListener, FlushContext
      *
      * @return T
      */
-    private function register(ClassMetadata $metadata, array $row, ?Cohort $cohort = null, bool $vectors = false): object
+    private function register(ClassMetadata $metadata, array $row, ?Cohort $cohort = null, bool $vectors = false, ?string $key = null): object
     {
         $idField = $metadata->getIdField();
-        $key = self::key($this->toPhp($idField, $row[$idField->columnName] ?? null));
+        $key ??= self::key($this->toPhp($idField, $row[$idField->columnName] ?? null));
         if (isset($this->identityMap[$metadata->className][$key])) {
             /** @var T $known */
             $known = $this->identityMap[$metadata->className][$key];
