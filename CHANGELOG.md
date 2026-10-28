@@ -22,6 +22,14 @@ Phase 10b : stabilisation et gel de l'API publique (ADR 0020). Les ruptures avec
 ### Ajouté
 
 - Test de la surface de l'API : chaque classe porte `@api` ou `@internal`, et aucune signature `@api` n'expose une classe `@internal`.
+- `make bench-doctrine` (ADR 0021) : Prism face à Doctrine ORM 3 sur MySQL et PostgreSQL (hydratation, flush, N+1, mémoire en mode worker), projet séparé dans `tools/bench/doctrine/` ; résultats, méthode et matériel dans `tools/bench/doctrine/RESULTS.md` et sur la page « Benchmarks » du site.
+
+### Performances
+
+- Snapshot de l'UnitOfWork en valeurs PHP (ADR 0022) : l'hydratation ne reconvertit plus chaque valeur en valeur de base, et le flush ne convertit que les valeurs qui ont changé. `findAll()` de 10 000 entités passe d'environ 133 à 107 ms. Les colonnes d'un type personnalisé, `json` ou `binary` restent comparées en valeurs de base.
+- `Connection::executeStatement()` garde la requête préparée d'un INSERT, UPDATE ou DELETE (64 au plus) et la réexécute : un flush de 1 000 UPDATE ne prépare plus qu'une requête.
+- Le flush ne recalcule plus les changements d'une entité après `PreUpdate` quand aucun callback, listener ni dispatcher n'a reçu l'événement.
+- L'hydrateur garde, par classe, sa réflexion et ses types de colonnes.
 
 ## [0.9.0] — 2026-10-28
 

@@ -48,6 +48,7 @@ export default defineConfig({
                     { text: 'Installation', link: '/guide/installation' },
                     { text: 'Your first entity', link: '/guide/getting-started' },
                     { text: 'Coming from Doctrine', link: '/guide/from-doctrine' },
+                    { text: 'Benchmarks', link: '/benchmarks' },
                 ],
             },
             {
