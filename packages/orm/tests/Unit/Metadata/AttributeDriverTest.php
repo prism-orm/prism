@@ -6,13 +6,13 @@ namespace Prism\Orm\Tests\Unit\Metadata;
 
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
+use Prism\Dbal\Query\Order;
 use Prism\Orm\Exception\MappingException;
 use Prism\Orm\Mapping\Cascade;
 use Prism\Orm\Mapping\Fetch;
 use Prism\Orm\Mapping\GenerationStrategy;
 use Prism\Orm\Mapping\LifecycleEvent;
 use Prism\Orm\Mapping\OnDelete;
-use Prism\Orm\Mapping\Order;
 use Prism\Orm\Mapping\TrackingPolicy;
 use Prism\Orm\Metadata\AssociationType;
 use Prism\Orm\Metadata\BehaviorMapping;

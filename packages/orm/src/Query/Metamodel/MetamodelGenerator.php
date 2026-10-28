@@ -15,7 +15,7 @@ use Prism\Orm\Metadata\FieldMapping;
  * des fichiers identiques ; un fichier identique n'est pas réécrit, et seuls les fichiers
  * générés par Prism (en-tête) sont supprimés quand leur entité disparaît.
  *
- * @api
+ * @internal
  */
 final class MetamodelGenerator
 {

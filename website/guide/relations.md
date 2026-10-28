@@ -96,11 +96,11 @@ When only the inverse side changed, Prism publishes an `InverseSideChangedEvent`
 ```php no-run
 /** @var Collection<string, Product> */
 #[Prism\ManyToMany(targetEntity: Product::class, indexBy: 'sku')]
-#[Prism\OrderBy(['name' => Prism\Order::Asc])]
+#[Prism\OrderBy(['name' => Order::Asc])]
 public Collection $products;
 ```
 
-`#[Prism\OrderBy]` sorts a `OneToMany` or `ManyToMany` collection in SQL when it loads, and the order is kept when the collection is loaded in a batch. `indexBy` keys the collection by a field of the target: `$priceList->products['SKU-042']`.
+`#[Prism\OrderBy]` sorts a `OneToMany` or `ManyToMany` collection in SQL when it loads, with `Prism\Dbal\Query\Order`, the sort order of `findBy()` and of the query builder, and the order is kept when the collection is loaded in a batch. `indexBy` keys the collection by a field of the target: `$priceList->products['SKU-042']`.
 
 ## One to one
 

@@ -8,7 +8,7 @@ namespace Prism\Dbal\Schema;
  * Différences d'une table présente des deux côtés. Un index ou une clé étrangère modifiés
  * apparaissent en suppression + ajout ; une colonne renommée aussi (RG-01.9).
  *
- * @api
+ * @internal
  */
 final class TableDiff
 {

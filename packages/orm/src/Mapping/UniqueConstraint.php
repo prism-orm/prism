@@ -8,7 +8,9 @@ namespace Prism\Orm\Mapping;
  * Contrainte d'unicité sur un ou plusieurs champs. Répétable.
  *
  * fields désigne des champs PHP (pas des colonnes) ; « embedded.champ » vise un champ d'embeddable.
- * where crée un index partiel sous PostgreSQL et est ignoré ailleurs, avec un avertissement.
+ * where n'est pas encore pris en charge : une contrainte avec where est refusée à la construction
+ * du schéma, car l'appliquer sans sa condition refuserait des lignes valides. Pour l'unicité des
+ * seules lignes non supprimées, #[SoftDeletable] la pose seul (RG-08.15).
  * Si l'entité est #[Tenanted], tenant_id est ajouté en tête : UNIQUE (tenant_id, number).
  *
  * @api

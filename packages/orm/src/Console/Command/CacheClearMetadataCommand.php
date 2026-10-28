@@ -14,7 +14,7 @@ use Symfony\Component\Console\Style\SymfonyStyle;
 /**
  * Vide le cache PSR-6 de la metadata : les attributs sont relus à la prochaine utilisation.
  *
- * @api
+ * @internal
  */
 #[AsCommand(name: 'db:cache:clear-metadata', description: 'Clear the metadata cache')]
 final class CacheClearMetadataCommand extends Command

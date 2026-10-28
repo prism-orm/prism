@@ -8,7 +8,8 @@ namespace Prism\Orm\Mapping;
  * Index sur un ou plusieurs champs. Répétable.
  *
  * fields désigne des champs PHP (pas des colonnes) ; « embedded.champ » vise un champ d'embeddable.
- * where crée un index partiel sous PostgreSQL et est ignoré ailleurs, avec un avertissement.
+ * where est accepté mais pas encore appliqué, sur aucune base : l'index couvre toutes les lignes,
+ * plus large, jamais faux. Un index partiel à condition libre viendra après la 1.0 (backlog).
  * Si l'entité est #[Tenanted], tenant_id est ajouté en tête (RG-08.1).
  *
  * @api

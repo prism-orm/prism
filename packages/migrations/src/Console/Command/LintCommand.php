@@ -24,7 +24,7 @@ use Symfony\Component\Console\Style\SymfonyStyle;
  * --strict, aussi sur un avertissement (pour la CI). #[IgnoreLint] sur une migration ignore une
  * règle assumée, sa raison affichée.
  *
- * @api
+ * @internal
  */
 #[AsCommand(name: 'db:migrations:lint', description: 'Find the dangerous operations of the pending migrations')]
 final class LintCommand extends Command

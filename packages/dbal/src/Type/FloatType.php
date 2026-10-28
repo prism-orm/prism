@@ -9,7 +9,7 @@ use Prism\Dbal\Exception\ConversionException;
 /**
  * Flottant double précision. Pour un montant, utiliser decimal (RG-01.5).
  *
- * @api
+ * @internal
  */
 final class FloatType extends Type
 {

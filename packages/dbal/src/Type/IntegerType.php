@@ -9,7 +9,7 @@ use Prism\Dbal\ParameterType;
 /**
  * Entier 32 bits (INTEGER).
  *
- * @api
+ * @internal
  */
 final class IntegerType extends Type
 {

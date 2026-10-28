@@ -27,6 +27,10 @@ use Prism\Dbal\Schema\VectorDistance;
  * Tout identifiant généré par Prism est cité, mot réservé ou non (RG-01.3) : pas de liste
  * de mots-clés à maintenir, et un SQL déterministe pour le diff de schéma (RG-01.7).
  *
+ * API d'usage seulement (ADR 0020) : une application la reçoit (Connection::getPlatform(),
+ * Type::getParameterSql()) et lit ses méthodes, mais n'en hérite pas ; Prism ne supporte que ses
+ * quatre plateformes, dont les classes concrètes sont internes.
+ *
  * @api
  */
 abstract class AbstractPlatform
@@ -338,6 +342,8 @@ abstract class AbstractPlatform
      * @return list<string>
      *
      * @throws InvalidSchemaException opération impossible sur la plateforme
+     *
+     * @internal le diff de schéma passe par les migrations (ADR 0020)
      */
     public function getMigrationSql(SchemaDiff $diff): array
     {

@@ -18,7 +18,7 @@ use Symfony\Component\Console\Style\SymfonyStyle;
  * Supprime la base de la connexion et toutes ses données : rien sans --force (« toute commande
  * destructrice exige --force »), une confirmation en prod.
  *
- * @api
+ * @internal
  */
 #[AsCommand(name: 'db:database:drop', description: 'Drop the database of the connection, with all its data')]
 final class DatabaseDropCommand extends Command

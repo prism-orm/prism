@@ -10,7 +10,7 @@ use Prism\Dbal\ParameterType;
 /**
  * Octets bruts (VARBINARY, BYTEA, BLOB) dans une string PHP.
  *
- * @api
+ * @internal
  */
 final class BinaryType extends Type
 {

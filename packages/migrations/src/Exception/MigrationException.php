@@ -66,6 +66,9 @@ final class MigrationException extends \RuntimeException implements MigrationsEx
     }
 
     // RG-06.6 : sans transaction, ce qui a précédé l'échec reste en base
+    /**
+     * @internal levée par le Migrator
+     */
     public static function failed(string $version, Direction $direction, bool $partial, \Throwable $previous): self
     {
         return new self(\sprintf(

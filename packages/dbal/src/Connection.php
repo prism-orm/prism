@@ -369,6 +369,9 @@ final class Connection
         return new QueryBuilder($this);
     }
 
+    /**
+     * @internal le schéma passe par les migrations (MigrationBuilder, db:migrations:diff), ADR 0020
+     */
     public function createSchemaManager(): SchemaManager
     {
         return new SchemaManager($this);

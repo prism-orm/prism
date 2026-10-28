@@ -10,7 +10,7 @@ namespace Prism\Orm\Mapping;
  * Permet à l'AttributeDriver de filtrer en une passe :
  * $reflector->getAttributes(MappingAttribute::class, \ReflectionAttribute::IS_INSTANCEOF).
  *
- * @api
+ * @internal
  */
 interface MappingAttribute
 {

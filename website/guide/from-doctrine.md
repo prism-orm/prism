@@ -42,6 +42,7 @@ class Invoice
 ```
 
 ```php no-run [Prism]
+use Prism\Dbal\Query\Order;
 use Prism\Orm\Collection\ArrayCollection;
 use Prism\Orm\Collection\Collection;
 use Prism\Orm\Mapping as Prism;
@@ -65,7 +66,7 @@ final class Invoice
 
     /** @var Collection<int, InvoiceLine> */
     #[Prism\OneToMany(targetEntity: InvoiceLine::class, mappedBy: 'invoice', cascade: [Prism\Cascade::Persist], orphanRemoval: true)]
-    #[Prism\OrderBy(['position' => Prism\Order::Asc])]
+    #[Prism\OrderBy(['position' => Order::Asc])]
     private Collection $lines;
 
     public function __construct()
@@ -81,7 +82,7 @@ The differences:
 
 - **No `#[ORM\JoinColumn]`.** The foreign key options are parameters of the relation: `joinColumn`, `onDelete`, `foreignKey`. The nullability comes from the PHP type: `Customer` is `NOT NULL`, `?Customer` is nullable.
 - **Indexes name fields**, not columns: `fields: ['issuedAt']`, and they are repeatable attributes instead of a `Table` option.
-- **Enums instead of strings**: `Prism\Cascade::Persist`, `Prism\OnDelete::Cascade`, `Prism\Order::Asc`.
+- **Enums instead of strings**: `Prism\Cascade::Persist`, `Prism\OnDelete::Cascade`, and `Order::Asc`: `Prism\Dbal\Query\Order`, the same sort order as `findBy()`.
 - **`#[Column]` deduces more**: `\DateTimeImmutable` needs no type, an identifier needs no `#[Column]`.
 - **Collections** come from `Prism\Orm\Collection`, with the same `add()`, `removeElement()`, `contains()`, `toArray()`...
 - **The class can be `final`**: Prism generates no proxy class.
@@ -96,7 +97,7 @@ The differences:
 | `#[ORM\JoinColumn]`, `#[ORM\JoinColumns]` | `joinColumn:`, `onDelete:`, `foreignKey:` of the relation |
 | `#[ORM\JoinTable]` | `#[Prism\JoinTable]` |
 | `#[ORM\ManyToOne]`, `#[ORM\OneToMany]`, `#[ORM\OneToOne]`, `#[ORM\ManyToMany]` | the same names and parameters, `cascade` as enums |
-| `#[ORM\OrderBy]` | `#[Prism\OrderBy]`, with `Prism\Order` cases |
+| `#[ORM\OrderBy]` | `#[Prism\OrderBy]`, with `Prism\Dbal\Query\Order` cases |
 | `#[ORM\Index]`, `#[ORM\UniqueConstraint]` | the same, on fields |
 | `#[ORM\Embeddable]`, `#[ORM\Embedded]` | the same; a nullable embeddable is `null` when its columns are |
 | `#[ORM\Version]` | `#[Prism\Version]` |

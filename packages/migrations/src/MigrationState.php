@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Prism\Migrations;
 
 /**
- * @api
+ * @internal
  */
 enum MigrationState: string
 {

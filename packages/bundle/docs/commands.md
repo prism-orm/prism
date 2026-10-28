@@ -474,7 +474,7 @@ namespace App\Imported;
 
 use Prism\Orm\Mapping as Prism;
 
-// Importé par db:import depuis la table customer : à relire.
+// Imported by db:import from the table customer: review it.
 #[Prism\Entity]
 #[Prism\Table('customer')]
 #[Prism\UniqueConstraint(['email'], name: 'uniq_customer_45b166be')]

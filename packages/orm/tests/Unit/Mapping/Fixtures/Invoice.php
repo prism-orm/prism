@@ -4,11 +4,11 @@ declare(strict_types=1);
 
 namespace Prism\Orm\Tests\Unit\Mapping\Fixtures;
 
+use Prism\Dbal\Query\Order;
 use Prism\Orm\Collection\ArrayCollection;
 use Prism\Orm\Collection\Collection;
 use Prism\Orm\Mapping as Prism;
 use Prism\Orm\Mapping\Cascade;
-use Prism\Orm\Mapping\Order;
 use Prism\Orm\Vector\Distance;
 use Prism\Orm\Vector\Vector;
 

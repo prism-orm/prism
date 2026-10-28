@@ -14,7 +14,7 @@ use Prism\Dbal\Schema\Table;
 use Prism\Dbal\Schema\VectorDistance;
 
 /**
- * @api
+ * @internal
  */
 final class PostgreSqlPlatform extends AbstractPlatform
 {

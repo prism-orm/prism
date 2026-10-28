@@ -10,7 +10,7 @@ use Prism\Dbal\ParameterType;
 /**
  * Booléen : BOOLEAN natif sous PostgreSQL, 0/1 sous MySQL, MariaDB et SQLite.
  *
- * @api
+ * @internal
  */
 final class BooleanType extends Type
 {

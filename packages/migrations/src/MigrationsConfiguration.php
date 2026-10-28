@@ -19,6 +19,9 @@ final class MigrationsConfiguration
     ) {
     }
 
+    /**
+     * @internal le Migrator et les commandes la lisent
+     */
     public function finder(): MigrationFinder
     {
         return new MigrationFinder($this->directory, $this->namespace);

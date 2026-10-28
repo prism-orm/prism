@@ -11,7 +11,7 @@ use Prism\Dbal\Schema\Index;
 use Prism\Dbal\Schema\VectorDistance;
 
 /**
- * @api
+ * @internal
  */
 final class MariaDbPlatform extends AbstractMySqlPlatform
 {

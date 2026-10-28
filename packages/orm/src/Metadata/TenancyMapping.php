@@ -17,6 +17,9 @@ final class TenancyMapping
     /** types acceptés pour l'identifiant du tenant */
     public const array TYPES = ['integer', 'bigint', 'uuid'];
 
+    /**
+     * @internal construite par Prism (AttributeDriver, MetadataValidator) ; lisible, pas à construire (ADR 0020)
+     */
     public function __construct(
         public readonly string $column,
         public readonly string $type = 'integer',

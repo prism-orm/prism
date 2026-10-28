@@ -7,7 +7,6 @@ namespace Prism\Orm\Query;
 use Prism\Dbal\Connection;
 use Prism\Dbal\ParameterType;
 use Prism\Dbal\Query\Expression;
-use Prism\Dbal\Query\Order;
 use Prism\Dbal\Query\QueryBuilder;
 use Prism\Orm\Behavior\SoftDeleteFilter;
 use Prism\Orm\EntityManager;
@@ -17,7 +16,6 @@ use Prism\Orm\Exception\NonUniqueResultException;
 use Prism\Orm\Exception\QueryException;
 use Prism\Orm\Filter\FilterCollection;
 use Prism\Orm\Filter\FilterTarget;
-use Prism\Orm\Mapping\Order as MappingOrder;
 use Prism\Orm\Metadata\AssociationMapping;
 use Prism\Orm\Metadata\ClassMetadata;
 use Prism\Orm\Metadata\FieldMapping;
@@ -615,7 +613,7 @@ final class EntityQueryBuilder
             $nodes[$target->alias] = new Node($targetMetadata, $association, $target->via()?->owner->alias);
             // une collection chargée garde son ordre (RG-04.12)
             foreach ($association->isCollection() ? $association->orderBy : [] as $field => $order) {
-                $orderBy[] = [$qb->column($targetMetadata->getField($field)->columnName, $target->alias), MappingOrder::Desc === $order ? Order::Desc : Order::Asc];
+                $orderBy[] = [$qb->column($targetMetadata->getField($field)->columnName, $target->alias), $order];
             }
         }
 

@@ -9,7 +9,7 @@ use Prism\Dbal\Exception\ConversionException;
 /**
  * Texte long (TEXT, CLOB).
  *
- * @api
+ * @internal
  */
 final class TextType extends Type
 {

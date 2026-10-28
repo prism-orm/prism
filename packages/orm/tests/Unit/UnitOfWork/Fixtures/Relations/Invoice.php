@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Prism\Orm\Tests\Unit\UnitOfWork\Fixtures\Relations;
 
+use Prism\Dbal\Query\Order;
 use Prism\Orm\Collection\ArrayCollection;
 use Prism\Orm\Collection\Collection;
 use Prism\Orm\Mapping as Prism;
@@ -16,7 +17,7 @@ final class Invoice
 
     /** @var Collection<int, InvoiceLine> collection readonly (ADR 0007) */
     #[Prism\OneToMany(targetEntity: InvoiceLine::class, mappedBy: 'invoice', cascade: [Prism\Cascade::Persist])]
-    #[Prism\OrderBy(['position' => Prism\Order::Asc])]
+    #[Prism\OrderBy(['position' => Order::Asc])]
     public readonly Collection $lines;
 
     /** @var Collection<int, Tag> */

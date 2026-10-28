@@ -9,7 +9,7 @@ use Prism\Orm\Event;
 /**
  * Événements du cycle de vie d'une entité.
  *
- * @api
+ * @internal
  */
 enum LifecycleEvent: string
 {

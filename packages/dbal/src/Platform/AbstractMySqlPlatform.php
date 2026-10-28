@@ -18,7 +18,7 @@ use Prism\Dbal\Schema\TableDiff;
 /**
  * Socle commun MySQL / MariaDB ; les divergences (VECTOR, JSON, index) vivent dans les sous-classes.
  *
- * @api
+ * @internal
  */
 abstract class AbstractMySqlPlatform extends AbstractPlatform
 {

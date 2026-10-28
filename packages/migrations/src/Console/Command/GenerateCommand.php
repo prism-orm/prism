@@ -17,7 +17,7 @@ use Symfony\Component\Console\Style\SymfonyStyle;
  * Crée une migration vide, nommée d'après l'heure UTC (RG-06.1) ; --data, une migration de
  * données (RG-06.8).
  *
- * @api
+ * @internal
  */
 #[AsCommand(name: 'db:migrations:generate', description: 'Create an empty migration')]
 final class GenerateCommand extends Command

@@ -2,6 +2,27 @@
 
 Toutes les évolutions notables de Prism, par version. Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) ; versions [SemVer](https://semver.org/lang/fr/), en `0.x` jusqu'à la 1.0 (RT-16). Les règles citées (RG-xx, RT-xx) sont décrites dans `docs/ROADMAP.md` et `docs/roadmap/`, les décisions (ADR) dans `docs/adr/`.
 
+## [Non publié] — 1.0.0
+
+Phase 10b : stabilisation et gel de l'API publique (ADR 0020). Les ruptures avec la 0.9 et leur remplacement sont dans [UPGRADE-1.0.md](UPGRADE-1.0.md).
+
+### Modifié (ruptures)
+
+- API publique réduite à ce qu'une application écrit, appelle, implémente ou configure : 73 classes passent de `@api` à `@internal` (plateformes concrètes, comparaison de schémas, types natifs, `UnitOfWork`, classes des commandes, générateurs, linter, migrateur), ainsi que les constructeurs des classes de metadata, `Connection::createSchemaManager()` et `EntityManager::getUnitOfWork()`. `AbstractPlatform` reste `@api`, pour l'usage seulement.
+- Un seul enum de tri : `Prism\Orm\Mapping\Order` disparaît, `#[OrderBy]` prend `Prism\Dbal\Query\Order`, comme `findBy()` et le QueryBuilder.
+- La propriété `unitOfWork` des événements est typée par la nouvelle interface `FlushContext` (`persist()`, `remove()`, `contains()`, `getEntityState()`, `hasPendingChanges()`, `getScheduled*()`) ; `EntityState` redevient `@api`.
+- Dépréciations : par un helper de Prism, au format de Symfony, sans dépendance (RT-16 reformulée).
+
+### Corrigé
+
+- Audit : un vecteur paresseux remplacé sans avoir été lu est journalisé avec son ancienne valeur, lue en base avant l'UPDATE, au lieu de `null`.
+- `db:import` et `db:migrations:diff` écrivent leur commentaire d'en-tête en anglais.
+- Docblocks de `#[Index(where:)]`, `#[UniqueConstraint(where:)]` et `Fetch::ExtraLazy` alignés sur le code ; message de refus de `#[UniqueConstraint(where:)]` à jour.
+
+### Ajouté
+
+- Test de la surface de l'API : chaque classe porte `@api` ou `@internal`, et aucune signature `@api` n'expose une classe `@internal`.
+
 ## [0.9.0] — 2026-10-28
 
 Phase 9 : pilier 4, vector et recherche hybride. Stocker des embeddings à côté des données métier, les indexer, chercher par le sens et par les mots depuis le repository, et garder chaque vecteur à jour de son texte ; guide : [Vector search](website/guide/vector-search.md).

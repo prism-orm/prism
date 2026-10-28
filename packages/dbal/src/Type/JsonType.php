@@ -9,7 +9,7 @@ use Prism\Dbal\Exception\ConversionException;
 /**
  * Valeur JSON, décodée en tableaux associatifs. Un null PHP devient un NULL SQL (pas le JSON « null »).
  *
- * @api
+ * @internal
  */
 final class JsonType extends Type
 {

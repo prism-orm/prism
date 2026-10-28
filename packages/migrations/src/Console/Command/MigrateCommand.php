@@ -22,7 +22,7 @@ use Symfony\Component\Console\Style\SymfonyStyle;
  * Migre jusqu'à une version, ou jusqu'à la dernière (RG-06.1). Annonce les migrations qui
  * tourneront sans transaction (RG-06.6) et demande confirmation en prod (RG-06.9).
  *
- * @api
+ * @internal
  */
 #[AsCommand(name: 'db:migrations:migrate', description: 'Run the pending migrations, or migrate to a version')]
 final class MigrateCommand extends Command

@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Prism\Dbal\Platform;
 
 /**
- * @api
+ * @internal
  */
 final class MySqlPlatform extends AbstractMySqlPlatform
 {

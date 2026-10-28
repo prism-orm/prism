@@ -21,7 +21,7 @@ use Symfony\Component\Console\Style\SymfonyStyle;
 /**
  * Vérifie le mapping (toutes les erreurs), puis que la base lui correspond.
  *
- * @api
+ * @internal
  */
 #[AsCommand(name: 'db:schema:validate', description: 'Validate the mapping and check that the database is in sync with it')]
 final class SchemaValidateCommand extends Command

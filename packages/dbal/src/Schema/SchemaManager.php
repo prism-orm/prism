@@ -19,7 +19,7 @@ use Prism\Dbal\Schema\Introspection\SqliteIntrospector;
  * Lit le schéma réel de la base courante. Le SQL du catalogue vit dans la Platform ;
  * l'Introspector de la plateforme ne fait que lire les lignes.
  *
- * @api
+ * @internal
  */
 final class SchemaManager
 {

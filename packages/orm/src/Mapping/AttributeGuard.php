@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Prism\Orm\Mapping;
 
+use Prism\Dbal\Query\Order;
 use Prism\Orm\Exception\MappingException;
 
 /**

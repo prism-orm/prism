@@ -7,7 +7,7 @@ namespace Prism\Migrations;
 /**
  * Sens d'exécution d'une migration.
  *
- * @api
+ * @internal
  */
 enum Direction: string
 {

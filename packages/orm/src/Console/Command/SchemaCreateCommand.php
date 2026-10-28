@@ -16,7 +16,7 @@ use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Style\SymfonyStyle;
 
 /**
- * @api
+ * @internal
  */
 #[AsCommand(name: 'db:schema:create', description: 'Create the tables, indexes, foreign keys and sequences of the mapping')]
 final class SchemaCreateCommand extends Command

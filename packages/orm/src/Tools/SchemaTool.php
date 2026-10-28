@@ -39,7 +39,7 @@ use Prism\Orm\Vector\Distance;
  * - Une entité #[Auditable] ajoute la table prism_audit_log (RG-08.10).
  * - Les noms générés sont déterministes (RG-01.7) : le diff reste stable.
  *
- * @api
+ * @internal
  */
 final class SchemaTool
 {
@@ -150,7 +150,7 @@ final class SchemaTool
                 continue;
             }
             if ($index->unique && null !== $index->where) {
-                throw MappingException::invalidMetadata($class->className, \sprintf('the unique constraint on "%s" has a "where" condition; partial indexes arrive with phase 8 (RG-08.15). Enforcing it without its condition would reject valid rows.', implode(', ', $index->fields)));
+                throw MappingException::invalidMetadata($class->className, \sprintf('the unique constraint on "%s" has a "where" condition, which is not supported yet: enforcing it without its condition would reject valid rows. For uniqueness among the rows that are not deleted, #[SoftDeletable] adds it by itself.', implode(', ', $index->fields)));
             }
             // un index non unique sans sa condition est plus large, jamais faux
             $table = $table->withIndexOn(self::tenantFirst($class, $columns), $index->unique, $index->name, $index->unique ? $live : null);

@@ -214,6 +214,9 @@ final class EntityManager implements EntityManagerInterface
         return $this->filters;
     }
 
+    /**
+     * @internal l'UnitOfWork n'est pas couverte par la rétrocompatibilité (ADR 0020)
+     */
     public function getUnitOfWork(): UnitOfWork
     {
         return $this->unitOfWork;

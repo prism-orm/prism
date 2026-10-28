@@ -160,5 +160,8 @@ interface EntityManagerInterface
 
     public function getConnection(): Connection;
 
+    /**
+     * @internal l'UnitOfWork n'est pas couverte par la rétrocompatibilité (ADR 0020)
+     */
     public function getUnitOfWork(): UnitOfWork;
 }

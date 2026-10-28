@@ -14,6 +14,9 @@ use Prism\Orm\Mapping\GenerationStrategy;
  */
 final class IdMapping
 {
+    /**
+     * @internal construite par Prism (AttributeDriver, MetadataValidator) ; lisible, pas à construire (ADR 0020)
+     */
     public function __construct(
         public readonly string $fieldName,
         public readonly ?GenerationStrategy $strategy = null,

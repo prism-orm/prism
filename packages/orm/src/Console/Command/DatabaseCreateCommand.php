@@ -18,7 +18,7 @@ use Symfony\Component\Console\Style\SymfonyStyle;
  * Crée la base nommée dans l'URL de connexion, par une connexion au serveur sans elle. Sous
  * SQLite, la base est un fichier : il est créé.
  *
- * @api
+ * @internal
  */
 #[AsCommand(name: 'db:database:create', description: 'Create the database of the connection')]
 final class DatabaseCreateCommand extends Command

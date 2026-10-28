@@ -20,6 +20,8 @@ final class EmbeddedMapping
     /**
      * @param class-string       $class
      * @param list<FieldMapping> $fields
+     *
+     * @internal construite par Prism (AttributeDriver, MetadataValidator) ; lisible, pas à construire (ADR 0020)
      */
     public function __construct(
         public readonly string $fieldName,

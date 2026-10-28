@@ -8,7 +8,7 @@ namespace Prism\Orm\Query\Metamodel;
  * Charge les classes du metamodel (nom finissant par « _ ») depuis leur dossier de génération
  * (ADR 0009). Le bundle l'enregistre ; hors Symfony, l'application l'appelle une fois.
  *
- * @api
+ * @internal
  */
 final class MetamodelAutoloader
 {

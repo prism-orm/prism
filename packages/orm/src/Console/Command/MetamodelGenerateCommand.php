@@ -19,7 +19,7 @@ use Symfony\Component\Console\Style\SymfonyStyle;
  * Génère le metamodel du QueryBuilder typé (ADR 0009, RG-05.1, RG-05.2), et l'aide aux IDE : son
  * stub hors de var/, et les repositories pour PhpStorm.
  *
- * @api
+ * @internal
  */
 #[AsCommand(name: 'db:metamodel:generate', description: 'Generate the metamodel classes of the typed query builder')]
 final class MetamodelGenerateCommand extends Command

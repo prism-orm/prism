@@ -16,7 +16,7 @@ use Symfony\Component\Console\Style\SymfonyStyle;
  * Les entités mappées : classe, table, repository ; celles dont le mapping est invalide, avec
  * l'erreur.
  *
- * @api
+ * @internal
  */
 #[AsCommand(name: 'db:mapping:info', description: 'List the mapped entities')]
 final class MappingInfoCommand extends Command

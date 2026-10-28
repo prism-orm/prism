@@ -53,7 +53,6 @@ use Prism\Orm\Lazy\LazyFactory;
 use Prism\Orm\Mapping\Cascade;
 use Prism\Orm\Mapping\Fetch;
 use Prism\Orm\Mapping\LifecycleEvent;
-use Prism\Orm\Mapping\Order as MappingOrder;
 use Prism\Orm\Mapping\TrackingPolicy;
 use Prism\Orm\Metadata\AssociationMapping;
 use Prism\Orm\Metadata\AssociationType;
@@ -107,9 +106,9 @@ use Psr\EventDispatcher\EventDispatcherInterface;
  *
  * Les entités sont indexées par spl_object_id() ; clear() libère toutes les références (worker).
  *
- * @api
+ * @internal
  */
-final class UnitOfWork implements TenantSwitchListener
+final class UnitOfWork implements TenantSwitchListener, FlushContext
 {
     /** @var array<int, EntityState> */
     private array $states = [];
@@ -1220,13 +1219,14 @@ final class UnitOfWork implements TenantSwitchListener
                 $version = [$field->columnName, $old];
             }
 
+            $unread = $metadata->behaviors->auditable ? $this->unreadOldValues($metadata, $oid, $changes) : [];
             $affected = $this->persisters->getPersister($metadata)->update($this->idOf($metadata, $oid), $changes + $this->embeddingState($metadata, $entity, null, $changes), $version);
             if (0 === $affected && null !== $version) {
                 throw OptimisticLockException::versionMismatch($entity, $this->toPhp($metadata->getField($metadata->versionField), $version[1]));
             }
             if ($metadata->behaviors->auditable && 0 !== $affected) {
                 $action = isset($this->softDeleted[$oid]) ? AuditLog::SOFT_DELETE : (isset($this->restored[$oid]) ? AuditLog::RESTORE : AuditLog::UPDATE);
-                $this->audit($metadata, $action, $this->idOf($metadata, $oid), $this->snapshotTenant($metadata, $oid), array_intersect_key($this->snapshots[$oid] ?? [], $changes), $changes);
+                $this->audit($metadata, $action, $this->idOf($metadata, $oid), $this->snapshotTenant($metadata, $oid), array_intersect_key($this->snapshots[$oid] ?? [], $changes) + $unread, $changes);
             }
             $updated[] = [$entity, $changes];
         }
@@ -1582,6 +1582,31 @@ final class UnitOfWork implements TenantSwitchListener
     private static function auditKey(mixed $value): string
     {
         return \is_scalar($value) ? (string) $value : get_debug_type($value);
+    }
+
+    /**
+     * L'ancienne valeur, lue en base avant l'UPDATE, des colonnes paresseuses remplacées sans avoir
+     * été lues : le snapshot ne les connaît pas (RG-09.6), le journal d'audit en a besoin (RG-08.10).
+     * Une requête par colonne, seulement pour une entité #[Auditable].
+     *
+     * @param ClassMetadata<object> $metadata
+     * @param array<string, mixed>  $changes
+     *
+     * @return array<string, mixed>
+     */
+    private function unreadOldValues(ClassMetadata $metadata, int $oid, array $changes): array
+    {
+        $old = [];
+        foreach ($metadata->getLazyFields() as $field) {
+            if (!\array_key_exists($field->columnName, $changes) || \array_key_exists($field->columnName, $this->snapshots[$oid] ?? [])) {
+                continue;
+            }
+            foreach ($this->persisters->getPersister($metadata)->loadColumn($field->columnName, [$this->idOf($metadata, $oid)]) as [, $value]) {
+                $old[$field->columnName] = $value;
+            }
+        }
+
+        return $old;
     }
 
     /**
@@ -2479,7 +2504,7 @@ final class UnitOfWork implements TenantSwitchListener
     private function loadCollection(ClassMetadata $metadata, object $owner, AssociationMapping $association): array
     {
         $target = $this->metadata->getMetadataFor($association->targetEntity);
-        $order = array_map(static fn (MappingOrder $o): Order => MappingOrder::Desc === $o ? Order::Desc : Order::Asc, $association->orderBy);
+        $order = $association->orderBy;
         $field = $association->fieldName;
         // RG-04.12 : la même collection des autres membres de la cohorte, en une requête
         $owners = $this->batch->ownersWith($owner, $association, function (object $member) use ($metadata, $field): bool {

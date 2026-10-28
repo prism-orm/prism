@@ -18,7 +18,7 @@ use Symfony\Component\Console\Style\SymfonyStyle;
 /**
  * Toutes les migrations, avec leur état, leur date et leur durée d'exécution.
  *
- * @api
+ * @internal
  */
 #[AsCommand(name: 'db:migrations:list', description: 'List the migrations and their state')]
 final class ListCommand extends Command

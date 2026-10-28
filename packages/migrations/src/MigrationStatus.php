@@ -7,7 +7,7 @@ namespace Prism\Migrations;
 /**
  * L'état d'une migration, pour db:migrations:status.
  *
- * @api
+ * @internal
  */
 final class MigrationStatus
 {

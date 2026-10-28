@@ -45,7 +45,7 @@ final class SourceClasses
         $sources = glob(DocPages::root() . '/packages/*/src', \GLOB_ONLYDIR);
         foreach (false === $sources ? [] : $sources as $src) {
             foreach (self::in($src) as $class => $source) {
-                if (str_contains($source, '@api') && (class_exists($class) || interface_exists($class) || enum_exists($class))) {
+                if ('api' === self::tag($source) && (class_exists($class) || interface_exists($class) || enum_exists($class))) {
                     $api[$class] = $source;
                 }
             }
@@ -53,6 +53,23 @@ final class SourceClasses
         ksort($api);
 
         return $api;
+    }
+
+    /**
+     * Le marquage de la classe, lu dans le docblock qui précède sa déclaration (ADR 0020) : « api »,
+     * « internal », ou null sans l'un ni l'autre.
+     */
+    public static function tag(string $source): ?string
+    {
+        if (1 !== preg_match('/(\/\*\*(?:(?!\*\/).)*\*\/)\s*(?:#\[[^\n]*\]\s*)*^(?:(?:final|abstract|readonly)\s+)*(?:class|interface|trait|enum)\s/ms', $source, $match)) {
+            return null;
+        }
+
+        return match (true) {
+            1 === preg_match('/^\s*\* @internal\b/m', $match[1]) => 'internal',
+            1 === preg_match('/^\s*\* @api\b/m', $match[1]) => 'api',
+            default => null,
+        };
     }
 
     public static function shortName(string $class): string

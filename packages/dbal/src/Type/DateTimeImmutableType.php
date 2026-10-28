@@ -8,7 +8,7 @@ namespace Prism\Dbal\Type;
  * Date et heure à la seconde. Avec un fuseau de stockage (RG-01.6), la valeur est écrite dans ce
  * fuseau et relue dans ce fuseau ; sans fuseau, aucune conversion.
  *
- * @api
+ * @internal
  */
 final class DateTimeImmutableType extends Type
 {

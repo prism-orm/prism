@@ -7,7 +7,7 @@ namespace Prism\Orm\Mapping;
 /**
  * Paramètres communs aux quatre attributs de relation.
  *
- * @api
+ * @internal
  */
 interface AssociationAttribute extends MappingAttribute
 {

@@ -23,7 +23,7 @@ use Prism\Orm\Metadata\Naming\UnderscoreNamingStrategy;
  * exactement un identifiant en 1.0, RG-02.4). Une clé étrangère composite, ou vers une table non
  * importée, reste une colonne scalaire, signalée.
  *
- * @api
+ * @internal
  */
 final class EntityImporter
 {
@@ -168,7 +168,7 @@ final class EntityImporter
         }
 
         return \sprintf(
-            "<?php\n\ndeclare(strict_types=1);\n\nnamespace %s;\n\nuse Prism\\Orm\\Mapping as Prism;\n\n// Importé par db:import depuis la table %s : à relire.\n%s%s\nfinal class %s\n{\n%s\n}\n",
+            "<?php\n\ndeclare(strict_types=1);\n\nnamespace %s;\n\nuse Prism\\Orm\\Mapping as Prism;\n\n// Imported by db:import from the table %s: review it.\n%s%s\nfinal class %s\n{\n%s\n}\n",
             $namespace,
             $table->name,
             [] === $notes ? '' : implode("\n", $notes) . "\n",

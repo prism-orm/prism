@@ -7,7 +7,7 @@ namespace Prism\Dbal\Type;
 /**
  * Heure seule à la seconde, rendue au 1970-01-01. Jamais convertie de fuseau.
  *
- * @api
+ * @internal
  */
 final class TimeImmutableType extends Type
 {

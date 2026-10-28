@@ -9,7 +9,7 @@ use Prism\Dbal\ParameterType;
 /**
  * Entier 64 bits (BIGINT), rendu en int : PHP 64 bits couvre toute la plage signée.
  *
- * @api
+ * @internal
  */
 final class BigIntType extends Type
 {

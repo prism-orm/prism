@@ -58,6 +58,8 @@ final class ClassMetadata
      * @param array<class-string, array<value-of<LifecycleEvent>, list<string>>> $entityListenerCallbacks
      *                                                                                                    méthodes de chaque listener d'entité, par événement
      * @param list<EmbeddingMapping>                                             $embeddings
+     *
+     * @internal construite par Prism (AttributeDriver, MetadataValidator) ; lisible, pas à construire (ADR 0020)
      */
     public function __construct(
         public readonly string $className,
@@ -247,6 +249,8 @@ final class ClassMetadata
 
     /**
      * @return list<string>
+     *
+     * @internal lu par le LifecycleDispatcher
      */
     public function getLifecycleCallbacks(LifecycleEvent $event): array
     {
@@ -257,6 +261,8 @@ final class ClassMetadata
      * Méthodes des listeners d'entité pour cet événement, dans l'ordre de #[EntityListeners].
      *
      * @return list<array{class-string, string}> listener et méthode
+     *
+     * @internal lu par le LifecycleDispatcher
      */
     public function getEntityListenerCallbacks(LifecycleEvent $event): array
     {

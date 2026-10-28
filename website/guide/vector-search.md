@@ -149,9 +149,9 @@ The demo searches the Prism documentation: 324 sections, `nomic-embed-text:v1.5`
 
 | Search | Recall@10 | MRR@10 |
 | --- | --- | --- |
-| `hybridSearch()` | **0.922** | 0.776 |
+| `hybridSearch()` | **0.922** | 0.777 |
 | vector only | 0.903 | **0.807** |
-| full text only | 0.711 | 0.530 |
+| full text only | 0.711 | 0.529 |
 
 The hybrid search finds more of the relevant sections in its first ten results; the vector search alone more often puts the best one first. The corpus is small: these figures compare the three rankings with each other, they are not a public benchmark.
 
