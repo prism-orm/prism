@@ -2,9 +2,9 @@
 
 Toutes les évolutions notables de Prism, par version. Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) ; versions [SemVer](https://semver.org/lang/fr/), en `0.x` jusqu'à la 1.0 (RT-16). Les règles (RG-xx, RT-xx) et les décisions d'architecture (ADR) citées sont les notes de conception du mainteneur, référencées par leur numéro.
 
-## [Non publié] — 1.0.0
+## [1.0.0-RC1] — 2026-10-29
 
-Phase 10b : stabilisation et gel de l'API publique (ADR 0020). Les ruptures avec la 0.9 et leur remplacement sont dans [UPGRADE-1.0.md](UPGRADE-1.0.md).
+Première version candidate de la 1.0 (phase 10b) : API publique gelée (ADR 0020), dépôt public `prism-orm/prism`, benchmarks contre Doctrine ORM 3. Seuls des correctifs arrivent jusqu'à la 1.0.0, après au moins trois semaines d'usage réel. Les ruptures avec la 0.9 et leur remplacement sont dans [UPGRADE-1.0.md](UPGRADE-1.0.md).
 
 ### Modifié (ruptures)
 
