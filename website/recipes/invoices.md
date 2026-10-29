@@ -4,7 +4,7 @@ examples: sequence
 
 # Invoices
 
-This recipe issues invoices from orders, computes their amounts without rounding errors, follows their payment and keeps their history. It uses the demo application's `Order`, `OrderLine` and `Invoice` entities; the examples of the page run one after the other, as Acme.
+This recipe issues invoices from orders, computes their amounts without rounding errors, follows their payment and keeps their history. It uses the `Order`, `OrderLine` and `Invoice` entities of the example ERP; the examples of the page run one after the other, as Acme.
 
 ## The model
 

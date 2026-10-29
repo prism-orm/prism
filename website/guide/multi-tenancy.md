@@ -103,7 +103,7 @@ final class Product
 }
 ```
 
-A row whose `tenant_id` is `NULL` is shared: every tenant reads it, and only the system mode writes it. Rows with a tenant follow the usual rules. In the demo, the 30 products of the catalog are shared, and each company has two of its own.
+A row whose `tenant_id` is `NULL` is shared: every tenant reads it, and only the system mode writes it. Rows with a tenant follow the usual rules. In the example ERP, the 30 products of the catalog are shared, and each company has two of its own.
 
 ## Raw SQL
 

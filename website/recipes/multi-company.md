@@ -1,6 +1,6 @@
 # Multi-company ERP
 
-This recipe serves several companies from one application and one database: each company reaches the ERP on its own subdomain and sees only its own customers, orders and invoices, while the product catalog is partly shared. It is the architecture of the demo application, where Acme and Globex share one database.
+This recipe serves several companies from one application and one database: each company reaches the ERP on its own subdomain and sees only its own customers, orders and invoices, while the product catalog is partly shared. It is the architecture of the [demo application](https://github.com/prism-orm/demo), where Acme and Globex share one database.
 
 ## The company registry
 

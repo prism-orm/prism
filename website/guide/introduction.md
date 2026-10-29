@@ -51,6 +51,7 @@ Some features are deliberately out of scope for the first stable version: a text
 | `prism-orm/bundle` | Symfony integration |
 | `prism-orm/phpstan` | PHPStan extension |
 | `prism-orm/test-pack` | Testing tools for applications: factories, `ResetDatabase`, `assertQueryCount()` |
+| `prism-orm/embedding-openai` | Embedding provider for OpenAI-compatible `/v1/embeddings` APIs: OpenAI, Mistral, Ollama… |
 
 ## Project status
 

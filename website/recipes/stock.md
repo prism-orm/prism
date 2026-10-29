@@ -2,7 +2,7 @@
 
 This recipe keeps stock levels right when several users and processes move goods at the same time: an append-only journal of movements, a level per product kept in step with it, and locks that prevent two orders from taking the same last item.
 
-The demo application has no stock tables. The entities below are checked against the demo's mapping, and the query on order lines runs on its data; the operations on movements are shown without being run.
+The example ERP has no stock tables. The entities below are checked against its mapping, and the query on order lines runs on its data; the operations on movements are shown without being run.
 
 ## Movements: the journal
 
@@ -73,7 +73,7 @@ $levels = $em->query($m)
     ->getResult();
 ```
 
-The same aggregate runs on the demo's order lines, the quantities sold per product:
+The same aggregate runs on the order lines of the example ERP, the quantities sold per product:
 
 ```php
 final readonly class SoldQuantity

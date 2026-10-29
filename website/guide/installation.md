@@ -10,7 +10,7 @@ Prism replaces Doctrine in a Symfony 7.4 or 8 application:
 composer require prism-orm/bundle
 ```
 
-With Symfony Flex and the Prism recipe, this registers the bundle, creates `config/packages/prism.yaml`, the `src/Entity/` and `migrations/` directories, and adds `DATABASE_URL` to `.env`. Without the recipe, register the bundle yourself:
+Symfony Flex registers the bundle in `config/bundles.php`. Without Flex, register it yourself:
 
 ```php
 // config/bundles.php
@@ -20,7 +20,7 @@ return [
 ];
 ```
 
-Without a `prism.yaml` file, Prism reads `DATABASE_URL` and maps the entities of `src/Entity/`.
+No configuration file is needed to start: Prism reads `DATABASE_URL` and maps the entities of `src/Entity/`. Set `DATABASE_URL` in `.env.local` (see [the database URL](#the-database-url)); every option is described in the [configuration reference](/reference/configuration).
 
 The development tools are separate packages:
 

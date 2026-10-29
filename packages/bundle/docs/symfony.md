@@ -1,6 +1,6 @@
 # Prism in Symfony
 
-The `prism-orm/bundle` package replaces Doctrine in a Symfony 7.4 or 8 application: configuration, services, controllers, console, profiler, Messenger, Security and tests. Every example comes from Prism's demo application, a small ERP written with Prism alone.
+The `prism-orm/bundle` package replaces Doctrine in a Symfony 7.4 or 8 application: configuration, services, controllers, console, profiler, Messenger, Security and tests. Every example comes from Prism's [demo application](https://github.com/prism-orm/demo), a small ERP written with Prism alone.
 
 ## Install
 
