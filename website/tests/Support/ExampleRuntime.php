@@ -19,9 +19,9 @@ use Prism\Orm\Tenancy\TenantGuard;
 
 /**
  * Le contexte d'un exemple de la documentation, dans son propre processus (Examples/prelude.php) :
- * la base de la démo remplie par ExamplesTest, le tenant de la société « acme », la garde du SQL
+ * la base de l'application d'exemple (website/tests/App, ADR 0023) remplie par ExamplesTest, le tenant de la société « acme », la garde du SQL
  * brut, une transaction annulée à la fin ; les entités déclarées par l'exemple sont validées avec
- * celles de la démo.
+ * celles de l'application d'exemple.
  *
  * @internal
  */
@@ -33,7 +33,7 @@ final class ExampleRuntime
 
     public static function entityDir(): string
     {
-        return DocPages::root() . '/demo/src/Entity';
+        return DocPages::root() . '/website/tests/App/Entity';
     }
 
     /**
@@ -63,7 +63,7 @@ final class ExampleRuntime
         $metadata = new MetadataFactory(new AttributeDriver([self::entityDir()]));
         $connection = DriverManager::fromUrl($url, new Configuration(guards: [new TenantGuard($metadata, $tenants)]));
         $em = new EntityManager($connection, $metadata, tenantContext: $tenants);
-        // aucune requête avant l'exemple : la garde chargerait les entités de la démo avant celles qu'il redéclare
+        // aucune requête avant l'exemple : la garde chargerait les entités de l'application avant celles qu'il redéclare
         $tenants->setTenantId((int) $tenant);
 
         $connection->beginTransaction();
@@ -99,7 +99,7 @@ final class ExampleRuntime
         foreach ($declared as $class) {
             if (class_exists($class) && new \ReflectionClass($class)->isUserDefined() && [] !== new \ReflectionClass($class)->getAttributes(Entity::class)) {
                 $mine = true;
-                // la démo complète l'exemple : une classe qu'il redéclare (App\Entity\Order) remplace la sienne
+                // l'application complète l'exemple : une classe qu'il redéclare (App\Entity\Order) remplace la sienne
                 if (!\in_array($class, $classes, true)) {
                     $classes[] = $class;
                 }

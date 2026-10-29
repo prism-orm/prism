@@ -2,7 +2,7 @@
 
 The `EntityManager` saves, loads and tracks your entities. Its unit of work remembers every entity it manages and, at `flush()`, writes what changed in one transaction.
 
-The examples run on the demo application: `Customer`, `Order`, `OrderLine`, `Product` and `Invoice` entities, with Acme as the current tenant.
+The examples run on a small example ERP: `Customer`, `Order`, `OrderLine`, `Product` and `Invoice` entities, with Acme as the current tenant.
 
 ## Entity states
 

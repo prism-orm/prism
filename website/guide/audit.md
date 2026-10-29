@@ -2,7 +2,7 @@
 
 Business data needs to know when it changed, who changed it, and what it looked like before. Four class attributes cover this, with no extra package: `#[Prism\Timestampable]`, `#[Prism\Blameable]`, `#[Prism\SoftDeletable]` and `#[Prism\Auditable]`.
 
-The examples run on the demo application, where `Order` is timestamped and blamed, `Customer` is soft-deletable and `Invoice` is audited.
+The examples run on a small example ERP, where `Order` is timestamped and blamed, `Customer` is soft-deletable and `Invoice` is audited.
 
 ## Timestamps and authors
 

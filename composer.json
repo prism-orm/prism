@@ -64,7 +64,7 @@
             "Prism\\TestPack\\Tests\\": "packages/test-pack/tests/",
             "Prism\\Benchmarks\\": "benchmarks/",
             "Prism\\Website\\Tests\\": "website/tests/",
-            "App\\": "demo/src/"
+            "App\\": "website/tests/App/"
         }
     },
     "config": {

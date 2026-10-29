@@ -21,6 +21,8 @@ Phase 10b : stabilisation et gel de l'API publique (ADR 0020). Les ruptures avec
 
 ### Ajouté
 
+- Dépôt public `prism-orm/prism` (ADR 0019) : `SECURITY.md`, `CONTRIBUTING.md`, modèles d'issues, README en anglais ; site publié sur GitHub Pages (`https://prism-orm.github.io/prism/`) par la CI ou par `make docs-publish`.
+- La démo quitte le monorepo pour son propre dépôt, `prism-orm/demo`, installé depuis Packagist (ADR 0023) ; les exemples du site s'exécutent sur une petite application d'exemple, `website/tests/App`, et `make demo-*`, `worker-test` et `embeddings-snapshot` partent avec la démo.
 - Test de la surface de l'API : chaque classe porte `@api` ou `@internal`, et aucune signature `@api` n'expose une classe `@internal`.
 - `make bench-doctrine` (ADR 0021) : Prism face à Doctrine ORM 3 sur MySQL et PostgreSQL (hydratation, flush, N+1, mémoire en mode worker), projet séparé dans `tools/bench/doctrine/` ; résultats, méthode et matériel dans `tools/bench/doctrine/RESULTS.md` et sur la page « Benchmarks » du site.
 
