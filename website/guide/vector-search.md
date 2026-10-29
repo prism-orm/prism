@@ -9,9 +9,13 @@ Store embeddings next to your business data, index them, and search them from th
 | SQLite | text, distances computed in PHP | none: for tests and development | scored in PHP |
 | MySQL | refused: Community has neither a vector distance nor a vector index | | |
 
+::: warning Vectors do not work with MySQL
+MySQL Community can store a `VECTOR` column, but it cannot compute a distance or index it: `DISTANCE()` is reserved for HeatWave and MySQL AI. Prism refuses a `vector` field on MySQL when the mapping is validated, so the error shows at startup, not in production. Use MariaDB 11.8+ or PostgreSQL with pgvector; the rest of Prism works on MySQL.
+:::
+
 Prism creates the `vector` extension of PostgreSQL with the schema, and refuses a pgvector older than 0.8.
 
-The examples of this page are not run by the documentation tests, which also run on MySQL: the [demo application](https://github.com/IMAMx39/prism/tree/main/demo) and Prism's functional tests run the same code on MariaDB, PostgreSQL and SQLite.
+The examples of this page are not run by the documentation tests, which also run on MySQL: the [demo application](https://github.com/prism-orm/demo) and Prism's functional tests run the same code on MariaDB, PostgreSQL and SQLite.
 
 ## A vector field
 

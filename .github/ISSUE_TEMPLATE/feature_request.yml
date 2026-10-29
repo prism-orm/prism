@@ -1,0 +1,26 @@
+name: Feature request
+description: Propose a feature or a change of behaviour
+labels: [enhancement]
+body:
+    - type: markdown
+      attributes:
+          value: |
+              Prism has a narrow scope on purpose. Out of scope for 1.x: a textual query language (DQL), entity inheritance, composite primary keys, Oracle and SQL Server, a second-level cache, mapping in XML or YAML.
+    - type: textarea
+      id: need
+      attributes:
+          label: The need
+          description: What you are trying to do, and why the current API does not cover it.
+      validations:
+          required: true
+    - type: textarea
+      id: proposal
+      attributes:
+          label: Proposal
+          description: The API you have in mind, with a short example.
+          render: php
+    - type: textarea
+      id: alternatives
+      attributes:
+          label: Alternatives
+          description: How you work around it today, or what other ORMs do.

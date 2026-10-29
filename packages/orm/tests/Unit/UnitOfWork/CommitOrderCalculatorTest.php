@@ -11,7 +11,7 @@ use Prism\Orm\UnitOfWork\CommitOrderCalculator;
 use Prism\Orm\UnitOfWork\Dependency;
 
 /**
- * Scénarios de référence du CommitOrderCalculator, écrits avant son implémentation (CLAUDE.md).
+ * Scénarios de référence du CommitOrderCalculator, écrits avant son implémentation.
  *
  * Une dépendance « from → to » signifie que from porte une FK vers to : to est inséré d'abord.
  *

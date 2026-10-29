@@ -1,6 +1,6 @@
 # Benchmarks
 
-Prism is measured against Doctrine ORM 3 on four scenarios: hydration, flush, the N+1 pattern and a long-running worker. Every figure is published, including those where Doctrine is faster. The code, the method and the raw results are in [`tools/bench/doctrine`](https://github.com/IMAMx39/prism/tree/main/tools/bench/doctrine) ([results](https://github.com/IMAMx39/prism/blob/main/tools/bench/doctrine/RESULTS.md)).
+Prism is measured against Doctrine ORM 3 on four scenarios: hydration, flush, the N+1 pattern and a long-running worker. Every figure is published, including those where Doctrine is faster. The code, the method and the raw results are in [`tools/bench/doctrine`](https://github.com/prism-orm/prism/tree/main/tools/bench/doctrine) ([results](https://github.com/prism-orm/prism/blob/main/tools/bench/doctrine/RESULTS.md)).
 
 ## Summary
 

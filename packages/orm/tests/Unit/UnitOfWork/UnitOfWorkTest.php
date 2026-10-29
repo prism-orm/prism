@@ -32,7 +32,7 @@ use Prism\Orm\UnitOfWork\EntityState;
 use Prism\Orm\UnitOfWork\UnitOfWork;
 
 /**
- * Scénarios de référence de l'UnitOfWork, écrits avant son implémentation (CLAUDE.md).
+ * Scénarios de référence de l'UnitOfWork, écrits avant son implémentation.
  *
  * Règles de comportement fixées ici, en complément de la roadmap :
  * - une opération qui laisse l'entité dans son état est sans effet ; seules les transitions

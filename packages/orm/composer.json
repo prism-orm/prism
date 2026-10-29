@@ -1,8 +1,14 @@
 {
     "name": "prism-orm/orm",
-    "description": "ORM Prism : mapping par attributs, UnitOfWork, batch fetching, QueryBuilder typé",
+    "description": "Prism ORM: attribute mapping, unit of work, batch fetching, typed query builder",
     "type": "library",
     "license": "MIT",
+    "homepage": "https://github.com/prism-orm/prism",
+    "support": {
+        "issues": "https://github.com/prism-orm/prism/issues",
+        "source": "https://github.com/prism-orm/prism/tree/main/packages/orm",
+        "security": "https://github.com/prism-orm/prism/security/policy"
+    },
     "require": {
         "php": ">=8.4",
         "prism-orm/dbal": "self.version",

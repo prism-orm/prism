@@ -22,7 +22,7 @@ use Prism\Dbal\Schema\Sequence;
 use Prism\Dbal\Schema\Table;
 
 /**
- * Scénarios de référence du Comparator, écrits avant son implémentation (CLAUDE.md).
+ * Scénarios de référence du Comparator, écrits avant son implémentation.
  * Chaque scénario vérifie aussi ce qui ne doit PAS apparaître dans le diff.
  */
 final class ComparatorTest extends TestCase

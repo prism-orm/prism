@@ -127,4 +127,7 @@ docs-dev: ## Le site en local avec rechargement : http://localhost:5173 (après 
 docs-build: ## Construit le site dans website/.vitepress/dist ; échoue sur un lien interne cassé
 	$(DC) run --rm node npm run build
 
+docs-publish: docs-build ## Publie le site sur GitHub Pages (branche gh-pages) depuis ce poste, sans GitHub Actions (ADR 0016) ; à blanc sans PUSH=1 : make docs-publish [PUSH=1]
+	PUSH='$(PUSH)' $(if $(REMOTE),REMOTE='$(REMOTE)') $(if $(ANY_BRANCH),ANY_BRANCH='$(ANY_BRANCH)') tools/pages/publish.sh
+
 ci: cs-check stan test ## Tout ce que la CI vérifie : à lancer avant de terminer une tâche

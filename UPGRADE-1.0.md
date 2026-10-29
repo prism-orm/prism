@@ -1,6 +1,6 @@
 # Upgrading to Prism 1.0
 
-Prism 1.0 freezes its public API: from 1.0 on, a minor or patch version does not break what is marked `@api` (see [ADR 0020](docs/adr/0020-api-policy-1-0.md)). Before that freeze, 1.0 trims the API to what an application writes, calls, implements or configures. This page lists every change that can break code written for 0.9.
+Prism 1.0 freezes its public API: from 1.0 on, a minor or patch version does not break what is marked `@api` (see [Public API and compatibility](CONTRIBUTING.md#public-api-and-compatibility)). Before that freeze, 1.0 trims the API to what an application writes, calls, implements or configures. This page lists every change that can break code written for 0.9.
 
 ## One sort order: `Prism\Dbal\Query\Order`
 

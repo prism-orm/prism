@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+    - name: Report a security vulnerability
+      url: https://github.com/prism-orm/prism/security/advisories/new
+      about: Report it privately, never in a public issue.
+    - name: Demo application
+      url: https://github.com/prism-orm/demo/issues
+      about: A problem in the demo itself goes to its own repository.

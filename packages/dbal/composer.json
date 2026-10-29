@@ -1,8 +1,14 @@
 {
     "name": "prism-orm/dbal",
-    "description": "Couche d'abstraction base de données de Prism (connexion, plateformes, types, schéma)",
+    "description": "Prism database abstraction layer: connection, platforms, types, schema",
     "type": "library",
     "license": "MIT",
+    "homepage": "https://github.com/prism-orm/prism",
+    "support": {
+        "issues": "https://github.com/prism-orm/prism/issues",
+        "source": "https://github.com/prism-orm/prism/tree/main/packages/dbal",
+        "security": "https://github.com/prism-orm/prism/security/policy"
+    },
     "require": {
         "php": ">=8.4",
         "ext-pdo": "*",

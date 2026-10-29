@@ -3,6 +3,12 @@
     "description": "Prism test tools for Symfony applications: factories, ResetDatabase, assertQueryCount()",
     "type": "library",
     "license": "MIT",
+    "homepage": "https://github.com/prism-orm/prism",
+    "support": {
+        "issues": "https://github.com/prism-orm/prism/issues",
+        "source": "https://github.com/prism-orm/prism/tree/main/packages/test-pack",
+        "security": "https://github.com/prism-orm/prism/security/policy"
+    },
     "require": {
         "php": ">=8.4",
         "phpunit/phpunit": "^11.5 || ^12.0",
