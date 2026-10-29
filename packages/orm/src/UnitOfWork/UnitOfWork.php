@@ -559,18 +559,20 @@ final class UnitOfWork implements TenantSwitchListener, FlushContext
      *
      * @template T of object
      *
-     * @param ClassMetadata<T>           $metadata
-     * @param list<array<string, mixed>> $rows     lignes telles que la base les renvoie
-     * @param bool                       $batch    false : pas de cohorte, chaque relation se
-     *                                             charge seule (RG-04.13)
-     * @param list<string>               $fetched  relations chargées par une jointure, que la
-     *                                             fin de cohorte ne charge pas (RG-05.5)
+     * @param ClassMetadata<T>                    $metadata
+     * @param iterable<int, array<string, mixed>> $rows     lignes telles que la base les renvoie,
+     *                                                      lues une à une si possible
+     * @param bool                                $batch    false : pas de cohorte, chaque relation
+     *                                                      se charge seule (RG-04.13)
+     * @param list<string>                        $fetched  relations chargées par une jointure,
+     *                                                      que la fin de cohorte ne charge pas
+     *                                                      (RG-05.5)
      *
      * @return list<T>
      *
      * @internal le QueryBuilder typé y passe ses lignes
      */
-    public function hydrate(ClassMetadata $metadata, array $rows, bool $batch = true, array $fetched = [], bool $vectors = false): array
+    public function hydrate(ClassMetadata $metadata, iterable $rows, bool $batch = true, array $fetched = [], bool $vectors = false): array
     {
         $cohort = $batch ? new Cohort() : null;
         $fresh = [];

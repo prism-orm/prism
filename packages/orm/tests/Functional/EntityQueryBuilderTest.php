@@ -9,8 +9,10 @@ use Prism\Dbal\Tests\Support\TestDatabase;
 use Prism\Dbal\Tests\Support\TestLogger;
 use Prism\Orm\EntityManager;
 use Prism\Orm\EntityManagerInterface;
+use Prism\Orm\Event\PostLoadEvent;
 use Prism\Orm\Exception\NonUniqueResultException;
 use Prism\Orm\Query\Condition;
+use Prism\Orm\Tests\Support\TestDispatcher;
 use Prism\Orm\Tests\Unit\Query\Metamodel\Fixtures\AllTypes;
 use Prism\Orm\Tests\Unit\Query\Metamodel\Fixtures\AllTypes_;
 use Prism\Orm\Tests\Unit\Query\Metamodel\Fixtures\Priority;
@@ -152,5 +154,26 @@ final class EntityQueryBuilderTest extends MappingSchemaTestCase
         // les commandes ; les 9 nouveaux clients en un lot, et leurs comptes (côté inverse) ; puis le
         // client de la commande connue avant, qui appartient à sa propre cohorte, et son compte
         self::assertCount(5, $selects);
+    }
+
+    // les lignes sont lues une à une pendant l'hydratation : un listener PostLoad interroge la base
+    // au milieu de la lecture, y compris par une autre requête typée
+    public function testAPostLoadListenerQueriesWhileRowsAreRead(): void
+    {
+        $events = new TestDispatcher();
+        $em = new EntityManager($this->connection, events: $events);
+        $seen = [];
+        $events->listen(PostLoadEvent::class, static function (PostLoadEvent $event) use ($em, &$seen): void {
+            if ($event->entity instanceof AllTypes) {
+                $o = AllTypes_::as('o');
+                $seen[] = [$event->entity->id, \count($em->query($o)->where($o->bool->eq(true))->getResult())];
+            }
+        });
+        $t = AllTypes_::as('t');
+
+        self::assertSame([1, 2, 3], array_map(static fn (AllTypes $r): int => $r->id, $em->query($t)->orderBy($t->id->asc())->getResult()));
+        // la requête du listener hydrate elle-même l'entité 3 : son PostLoad passe avant celui de la 1
+        sort($seen);
+        self::assertSame([[1, 2], [2, 2], [3, 2]], $seen);
     }
 }

@@ -30,6 +30,7 @@ Phase 10b : stabilisation et gel de l'API publique (ADR 0020). Les ruptures avec
 - `Connection::executeStatement()` garde la requête préparée d'un INSERT, UPDATE ou DELETE (64 au plus) et la réexécute : un flush de 1 000 UPDATE ne prépare plus qu'une requête.
 - Le flush ne recalcule plus les changements d'une entité après `PreUpdate` quand aucun callback, listener ni dispatcher n'a reçu l'événement.
 - L'hydrateur garde, par classe, sa réflexion et ses types de colonnes.
+- `findBy()`, `findAll()` et le QueryBuilder typé sans jointure lisent les lignes une à une pendant l'hydratation, au lieu de les charger toutes d'abord : le pic de mémoire d'un `findAll()` de 10 000 entités baisse de 15 à 18 %, et l'écart avec Doctrine passe d'environ 37 à 15 %.
 
 ## [0.9.0] — 2026-10-28
 

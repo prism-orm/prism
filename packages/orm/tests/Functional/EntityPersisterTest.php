@@ -130,7 +130,7 @@ final class EntityPersisterTest extends MappingSchemaTestCase
             $persister->insert($this->articleRow($title, $price, $status));
         }
 
-        $titles = static fn (array $rows): array => array_column($rows, 'title');
+        $titles = static fn (iterable $rows): array => array_column(iterator_to_array($rows, false), 'title');
 
         self::assertSame(['D', 'C', 'B'], $titles($persister->loadBy(['status' => FixtureStatus::Paid], ['title' => Order::Desc])));
         self::assertSame(['C'], $titles($persister->loadBy(['status' => 'paid'], ['title' => Order::Asc], 1, 1)));
@@ -158,7 +158,7 @@ final class EntityPersisterTest extends MappingSchemaTestCase
         $persister->insert(['group' => 'vip', 'payload' => $payload]);
         $persister->update(1, ['group' => 'gold']);
 
-        $row = $persister->loadBy(['group' => 'gold'])[0] ?? [];
+        $row = iterator_to_array($persister->loadBy(['group' => 'gold']), false)[0] ?? [];
         self::assertSame('gold', $row['group'] ?? null);
         self::assertSame($payload, $this->connection->convertToPhp($row['payload'] ?? null, 'binary'));
     }

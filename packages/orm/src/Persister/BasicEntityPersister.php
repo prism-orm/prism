@@ -170,18 +170,19 @@ final class BasicEntityPersister implements EntityPersister
      * @param array<string, mixed> $criteria
      * @param array<string, Order> $orderBy  champ → sens
      *
-     * @return list<array<string, mixed>>
+     * @return iterable<int, array<string, mixed>> lues une à une : les lignes brutes ne s'accumulent
+     *                                             pas pendant l'hydratation
      *
      * @throws MappingException champ inconnu
      */
-    public function loadBy(array $criteria, array $orderBy = [], ?int $limit = null, int $offset = 0, FilterOperation $operation = FilterOperation::Read): array
+    public function loadBy(array $criteria, array $orderBy = [], ?int $limit = null, int $offset = 0, FilterOperation $operation = FilterOperation::Read): iterable
     {
         $qb = $this->filtered($this->where($this->select(), $criteria), $operation);
         foreach ($orderBy as $field => $order) {
             $qb = $qb->addOrderBy($qb->column($this->field($field)->columnName), $order);
         }
 
-        return $qb->limit($limit)->offset($offset)->executeQuery()->fetchAllAssociative();
+        return $qb->limit($limit)->offset($offset)->executeQuery()->iterateAssociative();
     }
 
     /**

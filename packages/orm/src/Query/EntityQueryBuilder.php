@@ -722,12 +722,12 @@ final class EntityQueryBuilder
      */
     private function hydrate(QueryBuilder $qb, array $nodes): array
     {
-        $rows = $qb->executeQuery()->fetchAllAssociative();
         $uow = $this->em->getUnitOfWork();
         $root = $nodes[$this->root->alias];
         if (1 === \count($nodes)) {
+            // une ligne à la fois : les lignes brutes ne s'accumulent pas pendant l'hydratation
             $unique = [];
-            foreach ($uow->hydrate($root->metadata, $rows, $this->batch, vectors: $this->vectors) as $entity) {
+            foreach ($uow->hydrate($root->metadata, $qb->executeQuery()->iterateAssociative(), $this->batch, vectors: $this->vectors) as $entity) {
                 $unique[spl_object_id($entity)] ??= $entity;
             }
 
@@ -736,6 +736,7 @@ final class EntityQueryBuilder
         }
 
         // la ligne de chaque entité, une seule fois, et l'identifiant de chaque alias par ligne
+        $rows = $qb->executeQuery()->fetchAllAssociative();
         $ids = [];
         foreach ($rows as $i => $row) {
             foreach ($nodes as $alias => $node) {

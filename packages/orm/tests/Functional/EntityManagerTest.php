@@ -5,8 +5,10 @@ declare(strict_types=1);
 namespace Prism\Orm\Tests\Functional;
 
 use Prism\Dbal\LockMode;
+use Prism\Dbal\Query\Order;
 use Prism\Orm\EntityManager;
 use Prism\Orm\EntityManagerInterface;
+use Prism\Orm\Event\PostLoadEvent;
 use Prism\Orm\Exception\EntityNotFoundException;
 use Prism\Orm\Exception\OptimisticLockException;
 use Prism\Orm\Exception\TransactionRequiredException;
@@ -203,6 +205,32 @@ final class EntityManagerTest extends MappingSchemaTestCase
         $this->em->lock($document, LockMode::Optimistic, 1);
         $this->expectException(OptimisticLockException::class);
         $this->em->lock($document, LockMode::Optimistic, 2);
+    }
+
+    // les lignes sont lues une à une pendant l'hydratation : un listener PostLoad interroge la base
+    // au milieu de la lecture, y compris par une autre hydratation
+    public function testAPostLoadListenerQueriesWhileRowsAreRead(): void
+    {
+        $events = new TestDispatcher();
+        $em = new EntityManager($this->connection, events: $events);
+        foreach (['A', 'B', 'C'] as $title) {
+            $em->persist(self::document($title));
+        }
+        $em->persist(new Label('red'));
+        $em->persist(new Label('blue'));
+        $em->flush();
+        $em->clear();
+
+        $seen = [];
+        $events->listen(PostLoadEvent::class, function (PostLoadEvent $event) use ($em, &$seen): void {
+            if ($event->entity instanceof Document) {
+                $seen[] = [$event->entity->title, $this->rowsIn('document'), \count($em->getRepository(Label::class)->findAll())];
+            }
+        });
+        $titles = array_map(static fn (Document $d): string => $d->title, $em->getRepository(Document::class)->findBy([], ['title' => Order::Asc]));
+
+        self::assertSame(['A', 'B', 'C'], $titles);
+        self::assertSame([['A', 3, 2], ['B', 3, 2], ['C', 3, 2]], $seen);
     }
 
     // étape 7 : dispatcher, callbacks et listener d'entité branchés par l'EntityManager

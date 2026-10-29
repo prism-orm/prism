@@ -52,11 +52,12 @@ interface EntityPersister
      * @param array<string, mixed> $criteria
      * @param array<string, Order> $orderBy  champ → sens
      *
-     * @return list<array<string, mixed>>
+     * @return iterable<int, array<string, mixed>> lues une à une : les lignes brutes ne s'accumulent
+     *                                             pas pendant l'hydratation
      *
      * @throws MappingException champ inconnu
      */
-    public function loadBy(array $criteria, array $orderBy = [], ?int $limit = null, int $offset = 0, FilterOperation $operation = FilterOperation::Read): array;
+    public function loadBy(array $criteria, array $orderBy = [], ?int $limit = null, int $offset = 0, FilterOperation $operation = FilterOperation::Read): iterable;
 
     /**
      * Pagination sur clé : au plus $limit lignes d'identifiant strictement supérieur à $afterId

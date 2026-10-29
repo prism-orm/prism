@@ -12,15 +12,18 @@ declare(strict_types=1);
 
 require \dirname(__DIR__) . '/vendor/autoload.php';
 
+use Prism\Dbal\Query\Order;
 use PrismVsDoctrine\Doctrine;
 use PrismVsDoctrine\Prism;
 use PrismVsDoctrine\Setup;
 
 $orm = $argv[1] ?? '';
 $requests = (int) ($argv[2] ?? 10_000);
-[$em, $class] = match ($orm) {
-    'prism' => [Setup::prism(), Prism\PurchaseOrder::class],
-    'doctrine' => [Setup::doctrine(), Doctrine\PurchaseOrder::class],
+// trié par identifiant : sans tri, PostgreSQL rend en dernier une ligne modifiée, et chaque base
+// modifierait d'autres commandes
+[$em, $class, $byId] = match ($orm) {
+    'prism' => [Setup::prism(), Prism\PurchaseOrder::class, ['id' => Order::Asc]],
+    'doctrine' => [Setup::doctrine(), Doctrine\PurchaseOrder::class, ['id' => 'ASC']],
     default => throw new \InvalidArgumentException('Usage: php bin/worker.php prism|doctrine [requests]'),
 };
 
@@ -33,11 +36,11 @@ $start = hrtime(true);
 $atThousand = 0;
 for ($i = 1; $i <= $requests; ++$i) {
     $first = (($i * 20) % Setup::ORDERS) + 1;
-    $orders = $em->getRepository($class)->findBy(['id' => range($first, min($first + 19, Setup::ORDERS))]);
+    $orders = $em->getRepository($class)->findBy(['id' => range($first, min($first + 19, Setup::ORDERS))], $byId);
     foreach ($orders as $order) {
         \strlen($order->customer->name);
     }
-    $orders[0]->status = 0 === $i % 2 ? 'open' : 'sent';
+    $orders[0]->status = 'open' === $orders[0]->status ? 'sent' : 'open'; // un vrai UPDATE à chaque requête
     $em->flush();
     $em->clear();
     if (1_000 === $i) {

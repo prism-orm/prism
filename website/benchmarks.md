@@ -1,16 +1,16 @@
 # Benchmarks
 
-Prism is measured against Doctrine ORM 3 on four scenarios: hydration, flush, the N+1 pattern and memory in a long-running worker. Every figure is published, including those where Doctrine is faster. The code, the method and the raw results are in [`tools/bench/doctrine`](https://github.com/IMAMx39/prism/tree/main/tools/bench/doctrine) ([results](https://github.com/IMAMx39/prism/blob/main/tools/bench/doctrine/RESULTS.md)).
+Prism is measured against Doctrine ORM 3 on four scenarios: hydration, flush, the N+1 pattern and a long-running worker. Every figure is published, including those where Doctrine is faster. The code, the method and the raw results are in [`tools/bench/doctrine`](https://github.com/IMAMx39/prism/tree/main/tools/bench/doctrine) ([results](https://github.com/IMAMx39/prism/blob/main/tools/bench/doctrine/RESULTS.md)).
 
 ## Summary
 
 | Scenario | Result |
 | --- | --- |
-| N+1: 100 orders, their customer and their lines | Prism 4.6 to 6.1 times faster than Doctrine by default, 3 queries instead of 168; on par with a join written by hand |
-| Flush of 1,000 UPDATE | Equal under MySQL, Prism 21 % faster under PostgreSQL |
-| Flush of 1,000 INSERT | Doctrine 17 % faster under MySQL, Prism 12 % faster under PostgreSQL |
-| Hydration of 10,000 entities | Doctrine 10 to 14 % faster, with about 37 % less memory |
-| Worker, 10,000 requests | No memory growth on either side; Doctrine 24 % faster under MySQL, equal under PostgreSQL |
+| N+1: 100 orders, their customer and their lines | Prism 4.4 to 5.6 times faster than Doctrine by default, 3 queries instead of 168; on par with a join written by hand |
+| Flush of 1,000 UPDATE | Prism 5 % faster under MySQL, 17 % under PostgreSQL |
+| Flush of 1,000 INSERT | Doctrine 15 % faster under MySQL, equal under PostgreSQL |
+| Hydration of 10,000 entities | Doctrine 6 to 10 % faster, with about 15 % less memory |
+| Worker, one write per request | Doctrine 1.9 times faster under MySQL, Prism 1.4 times faster under PostgreSQL; no memory growth on either side |
 
 ## Method
 
@@ -32,9 +32,9 @@ make bench-doctrine
 
 | | MySQL | PostgreSQL | Queries |
 | --- | --- | --- | --- |
-| Prism, default | 21.9 | 18.6 | 3 |
-| Doctrine, default | 100.5 | 114.1 | 168 |
-| Doctrine, hand-written join | 21.3 | 20.0 | 1 |
+| Prism, default | 21.9 | 18.3 | 3 |
+| Doctrine, default | 97.0 | 103.1 | 168 |
+| Doctrine, hand-written join | 21.9 | 18.6 | 1 |
 
 Prism loads the lazy relations of all the orders in one query per relation: see [Avoiding N+1 queries](/guide/n-plus-one). Doctrine reaches the same time once the join is written by hand.
 
@@ -44,8 +44,8 @@ One `flush()` of 1,000 new entities, then one `flush()` after changing a field o
 
 | | MySQL Prism | MySQL Doctrine | PostgreSQL Prism | PostgreSQL Doctrine |
 | --- | --- | --- | --- | --- |
-| 1,000 INSERT | 156.8 | 133.5 | 177.1 | 201.1 |
-| 1,000 UPDATE | 127.4 | 127.9 | 105.4 | 133.5 |
+| 1,000 INSERT | 156.7 | 136.3 | 186.4 | 193.0 |
+| 1,000 UPDATE | 127.2 | 133.4 | 104.6 | 125.9 |
 
 ## Hydration
 
@@ -53,21 +53,21 @@ One `flush()` of 1,000 new entities, then one `flush()` after changing a field o
 
 | | MySQL Prism | MySQL Doctrine | PostgreSQL Prism | PostgreSQL Doctrine |
 | --- | --- | --- | --- | --- |
-| Time | 166.1 ms | 150.7 ms | 124.1 ms | 108.6 ms |
-| Peak memory | 26.4 MB | 19.6 MB | 26.7 MB | 19.1 MB |
+| Time | 168.7 ms | 152.0 ms | 122.1 ms | 115.0 ms |
+| Peak memory | 22.5 MB | 19.6 MB | 22.1 MB | 19.1 MB |
 
-Doctrine is ahead here. For each entity, Prism's unit of work keeps the values read and a smaller snapshot of the identifier, the version and the foreign keys, where Doctrine keeps one array. Reducing this memory is planned before 1.0.
+Both ORMs read the rows one at a time. For each entity, Prism's unit of work keeps the values read and a smaller snapshot of the identifier, the version and the foreign keys, where Doctrine keeps one array.
 
-## Worker memory
+## Worker
 
-10,000 requests in one process, as in a FrankenPHP or Messenger worker: each one reads 20 orders and their customer, changes one, then calls `flush()` and `clear()`.
+10,000 requests in one process, as in a FrankenPHP or Messenger worker: each one reads 20 orders and their customer, changes the status of one, then calls `flush()` and `clear()`.
 
 | | MySQL Prism | MySQL Doctrine | PostgreSQL Prism | PostgreSQL Doctrine |
 | --- | --- | --- | --- | --- |
-| Throughput | 294 req/s | 365 req/s | 312 req/s | 312 req/s |
-| Memory after 1,000 requests | 1.95 MB | 1.88 MB | 1.90 MB | 1.84 MB |
+| Throughput | 184 req/s | 345 req/s | 381 req/s | 264 req/s |
+| Memory after 1,000 requests | 1.95 MB | 1.88 MB | 1.91 MB | 1.84 MB |
 | Growth up to 10,000 | 0 KB | 0 KB | 0 KB | 0 KB |
 
-Neither ORM keeps anything from one request to the next.
+Neither ORM keeps anything from one request to the next. Under MySQL, Doctrine is ahead in this scenario; both ORMs send the same statements to the server, and the cause is being investigated before 1.0.
 
-These figures date from 2026-10-28. They are measured again before 1.0, then at each minor version.
+These figures date from 2026-10-29. They are measured again before 1.0, then at each minor version.
