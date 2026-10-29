@@ -9,6 +9,8 @@ composer require prism-orm/bundle
 composer require --dev symfony/maker-bundle prism-orm/test-pack
 ```
 
+Until 1.0.0 is released, these commands install 0.9; to try the release candidate, see [Installation](/guide/installation).
+
 Flex registers the bundle in `config/bundles.php`; without Flex, add `Prism\Bundle\PrismBundle::class => ['all' => true]` there yourself. No configuration file is needed to start: Prism reads `DATABASE_URL` and maps `src/Entity/`.
 
 The URL follows Symfony's format, and `serverVersion` is required:

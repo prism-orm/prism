@@ -2,6 +2,18 @@
 
 Prism needs PHP 8.4 or later with the PDO driver of your database (`pdo_mysql`, `pdo_pgsql` or `pdo_sqlite`). The supported database versions are listed in the [requirements](/guide/introduction#requirements).
 
+::: tip Trying the release candidate
+Until 1.0.0 is released, `composer require prism-orm/bundle` installs the last stable version, 0.9. To try `1.0.0-RC1`, let Composer accept release candidates, then require the 1.x versions:
+
+```bash
+composer config minimum-stability RC
+composer config prefer-stable true
+composer require prism-orm/bundle:^1.0
+```
+
+`prism-orm/bundle:^1.0@RC` alone is not enough: Composer applies `@RC` to the packages you require, not to `prism-orm/orm` and the other packages the bundle depends on. With `prefer-stable`, Composer still picks a stable version as soon as there is one.
+:::
+
 ## In a Symfony application
 
 Prism replaces Doctrine in a Symfony 7.4 or 8 application:
