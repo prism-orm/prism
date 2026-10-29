@@ -29,7 +29,7 @@ It is built for business applications: ERPs, B2B software, back offices. These a
 | | Supported | Tested in CI |
 | --- | --- | --- |
 | PHP | 8.4 and later | 8.4, 8.5 |
-| MySQL | 8.0 and later | 8.4 |
+| MySQL | 8.0 and later | 8.4, 9.7 |
 | MariaDB | 11.8 and later | 11.8 |
 | PostgreSQL | 15 and later | 16 |
 | SQLite | 3.40 and later, for development and tests | |

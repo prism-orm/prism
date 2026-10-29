@@ -33,10 +33,12 @@ jobs:
             fail-fast: false
             matrix:
                 php: ['8.4', '8.5']
-                db: [mysql, mariadb, pgsql, sqlite]
+                db: [mysql, mysql97, mariadb, pgsql, sqlite]
                 include:
                     - db: mysql
                       url: 'mysql://root:root@127.0.0.1:3306/prism_test?serverVersion=8.4'
+                    - db: mysql97
+                      url: 'mysql://root:root@127.0.0.1:3308/prism_test?serverVersion=9.7'
                     - db: mariadb
                       url: 'mysql://root:root@127.0.0.1:3307/prism_test?serverVersion=11.8.0-MariaDB'
                     - db: pgsql
@@ -52,6 +54,15 @@ jobs:
                     MYSQL_USER: prism
                     MYSQL_PASSWORD: prism
                 ports: ['3306:3306']
+                options: --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot" --health-interval=5s --health-retries=20
+            mysql97:
+                image: mysql:9.7
+                env:
+                    MYSQL_ROOT_PASSWORD: root
+                    MYSQL_DATABASE: prism_test
+                    MYSQL_USER: prism
+                    MYSQL_PASSWORD: prism
+                ports: ['3308:3306']
                 options: --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot" --health-interval=5s --health-retries=20
             mariadb:
                 image: mariadb:11.8
