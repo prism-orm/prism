@@ -9,7 +9,7 @@ composer require prism-orm/bundle
 composer require --dev symfony/maker-bundle prism-orm/test-pack
 ```
 
-With Flex and the Prism recipe, the bundle is registered, `config/packages/prism.yaml`, `src/Entity/` and `migrations/` are created, and `DATABASE_URL` is added to `.env`. Without the recipe, add `Prism\Bundle\PrismBundle::class => ['all' => true]` to `config/bundles.php`: without a `prism.yaml`, Prism reads `DATABASE_URL` and maps `src/Entity/`.
+Flex registers the bundle in `config/bundles.php`; without Flex, add `Prism\Bundle\PrismBundle::class => ['all' => true]` there yourself. No configuration file is needed to start: Prism reads `DATABASE_URL` and maps `src/Entity/`.
 
 The URL follows Symfony's format, and `serverVersion` is required:
 
@@ -71,7 +71,7 @@ The mapping itself is described in [Mapping entities](/guide/mapping).
 
 ```bash
 bin/console make:migration            # or db:migrations:diff
-bin/console db:migrations:lint        # dangerous operations (19 rules)
+bin/console db:migrations:lint        # dangerous operations (22 rules)
 bin/console db:migrations:migrate
 ```
 

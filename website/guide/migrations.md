@@ -119,7 +119,7 @@ It catches, among others:
 - an index built without `CONCURRENTLY` on a non-empty PostgreSQL table (`L09`), DDL on a MySQL table of more than a million rows (`L10`);
 - data loss: a non-empty table or column dropped, a column shrunk or retyped (`L11` to `L14`).
 
-The command reference lists [all 19 rules](/bundle/commands). A rule that you accept for one migration is silenced with an attribute and a reason:
+The command reference lists [all 22 rules](/bundle/commands#db-migrations-lint). A rule that you accept for one migration is silenced with an attribute and a reason:
 
 ```php
 <?php
