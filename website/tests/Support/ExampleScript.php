@@ -141,11 +141,11 @@ final class ExampleScript
             }
         }
 
-        // la démo, et le metamodel de ses entités (App\Entity\Order_)
-        foreach (array_keys(SourceClasses::in($root . '/demo/src')) as $demoClass) {
-            $imports[SourceClasses::shortName($demoClass)] = $demoClass;
-            if (str_starts_with($demoClass, 'App\\Entity\\')) {
-                $imports[SourceClasses::shortName($demoClass) . '_'] = $demoClass . '_';
+        // l'application d'exemple (ADR 0023), et le metamodel de ses entités (App\Entity\Order_)
+        foreach (array_keys(SourceClasses::in($root . '/website/tests/App')) as $appClass) {
+            $imports[SourceClasses::shortName($appClass)] = $appClass;
+            if (str_starts_with($appClass, 'App\\Entity\\')) {
+                $imports[SourceClasses::shortName($appClass) . '_'] = $appClass . '_';
             }
         }
 

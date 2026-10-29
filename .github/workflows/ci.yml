@@ -111,34 +111,6 @@ jobs:
               env:
                   DATABASE_URL: 'mysql://root:root@127.0.0.1:3306/prism_test?serverVersion=8.4'
 
-    # phase 7, étape 9 : la démo ERP et ses tests (Prism seul, paquets du monorepo)
-    demo:
-        name: Démo ERP
-        runs-on: ubuntu-latest
-        services:
-            mysql:
-                image: mysql:8.4
-                env:
-                    MYSQL_ROOT_PASSWORD: root
-                    MYSQL_DATABASE: prism_demo_test
-                ports: ['3306:3306']
-                options: --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot" --health-interval=5s --health-retries=20
-        defaults:
-            run:
-                working-directory: demo
-        steps:
-            - uses: actions/checkout@v4
-            - uses: shivammathur/setup-php@v2
-              with:
-                  php-version: '8.4'
-                  extensions: pdo_mysql
-                  coverage: none
-                  tools: composer
-            - run: composer install --no-interaction --no-progress
-            - run: vendor/bin/phpunit
-              env:
-                  DATABASE_URL: 'mysql://root:root@127.0.0.1:3306/prism_demo_test?serverVersion=8.4'
-
     # phase 7, étape 8 : une vraie application, sa recette, puis make:entity → migration → migrate
     compat:
         name: Compat · Symfony ${{ matrix.symfony }} · ${{ matrix.app }}

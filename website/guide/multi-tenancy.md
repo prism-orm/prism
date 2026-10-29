@@ -2,7 +2,7 @@
 
 A B2B application often serves many customer companies, the *tenants*, from one database. Every query must then be limited to the current tenant, and forgetting it once leaks one customer's data to another. Prism makes this filter automatic and impossible to forget: it fails closed.
 
-The examples run on the demo application, whose tenants are two companies, Acme and Globex. Acme is the current tenant.
+The examples run on a small example ERP, whose tenants are two companies, Acme and Globex. Acme is the current tenant.
 
 ## Tenanted entities
 

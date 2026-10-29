@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace Prism\Website\Tests\Functional;
 
-use App\Command\SeedCommand;
 use App\Entity\Company;
+use App\ExampleData;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Prism\Dbal\Connection;
@@ -26,13 +26,10 @@ use Prism\Website\Tests\Support\CodeBlock;
 use Prism\Website\Tests\Support\DocPages;
 use Prism\Website\Tests\Support\ExampleRuntime;
 use Prism\Website\Tests\Support\ExampleScript;
-use Symfony\Component\Console\Input\ArrayInput;
-use Symfony\Component\Console\Output\NullOutput;
-use Symfony\Component\Console\Style\SymfonyStyle;
 
 /**
  * RG-10.3 : chaque bloc PHP des pages du site s'exécute sur la base de test, sur les 4 bases,
- * dans son propre processus, sur les données de la démo ERP (app:seed, 2 sociétés). Une page
+ * dans son propre processus, sur les données de l'application d'exemple (website/tests/App, ExampleData, 2 sociétés). Une page
  * « examples: sequence » exécute ses blocs à la suite, dans un seul processus. Un bloc marqué
  * no-run n'est que vérifié en syntaxe (CodeBlocksTest).
  */
@@ -76,7 +73,7 @@ final class ExamplesTest extends TestCase
 
         $tenants = new StackTenantContext();
         $em = new EntityManager($connection, new MetadataFactory($driver, types: $connection->getTypeRegistry()), tenantContext: $tenants);
-        new SeedCommand($em, $tenants)(new SymfonyStyle(new ArrayInput([]), new NullOutput()), customers: 5, orders: 30);
+        new ExampleData($em, $tenants)->fill(customers: 5, orders: 30);
         self::$acme = (int) $em->getRepository(Company::class)->findOneBy(['slug' => 'acme'])?->id;
         $connection->close();
     }

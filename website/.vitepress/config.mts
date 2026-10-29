@@ -13,7 +13,6 @@ export default defineConfig({
         '**/tests/**',
         '**/README.md',
         'benchmarks/**',
-        'demo/**',
         'docker/**',
         'docs/**',
         'recipes/**',
@@ -119,7 +118,7 @@ export default defineConfig({
         },
         server: {
             // la racine du monorepo est servie : ne surveiller que les sources des pages
-            watch: { ignored: ['**/vendor/**', '**/var/**', '**/demo/**', '**/tests/**'] },
+            watch: { ignored: ['**/vendor/**', '**/var/**', '**/tests/**'] },
         },
     },
 })
