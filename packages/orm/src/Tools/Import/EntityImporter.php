@@ -66,8 +66,8 @@ final class EntityImporter
         $classes = [];
         foreach ($schema->getTables() as $table) {
             $reason = match (true) {
-                null === $table->primaryKey => 'it has no primary key: an entity needs exactly one identifier (RG-02.4).',
-                \count($table->primaryKey) > 1 => 'its primary key is composite: an entity has exactly one identifier in 1.0 (RG-02.4).',
+                null === $table->primaryKey => 'it has no primary key: an entity needs exactly one identifier.',
+                \count($table->primaryKey) > 1 => 'its primary key is composite: an entity has exactly one identifier in 1.0.',
                 default => null,
             };
             if (null !== $reason) {

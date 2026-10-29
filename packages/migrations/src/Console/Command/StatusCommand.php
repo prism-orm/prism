@@ -55,7 +55,7 @@ final class StatusCommand extends Command
             ['Pending' => (string) \count($in(MigrationState::Pending))],
         );
         foreach ($in(MigrationState::Modified) as $migration) {
-            $io->warning(\sprintf('%s was modified after it was executed: migrate will refuse to run (RG-06.4).', $migration->version));
+            $io->warning(\sprintf('%s was modified after it was executed: migrate will refuse to run.', $migration->version));
         }
         foreach ($in(MigrationState::Missing) as $migration) {
             $io->warning(\sprintf('%s is recorded as executed, but its file is missing.', $migration->version));

@@ -49,7 +49,7 @@ final class MigrationFinderTest extends TestCase
         touch($this->dir . '/AddPaidAt.php');
 
         $this->expectException(MigrationException::class);
-        $this->expectExceptionMessage('is not named VersionYYYYMMDDHHMMSS.php, or VersionYYYYMMDDHHMMSSData.php for a data migration (RG-06.1).');
+        $this->expectExceptionMessage('is not named VersionYYYYMMDDHHMMSS.php, or VersionYYYYMMDDHHMMSSData.php for a data migration.');
 
         new MigrationFinder($this->dir, 'App')->find();
     }

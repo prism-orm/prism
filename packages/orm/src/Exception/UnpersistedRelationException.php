@@ -22,6 +22,6 @@ final class UnpersistedRelationException extends \LogicException implements OrmE
      */
     public static function through(object $entity, string $path): self
     {
-        return new self(\sprintf('A new entity of class %s was found through %s, which does not cascade persist. Persist it explicitly, or add cascade: [Cascade::Persist] to the relation (RG-04.2).', $entity::class, $path), $entity);
+        return new self(\sprintf('A new entity of class %s was found through %s, which does not cascade persist. Persist it explicitly, or add cascade: [Cascade::Persist] to the relation.', $entity::class, $path), $entity);
     }
 }

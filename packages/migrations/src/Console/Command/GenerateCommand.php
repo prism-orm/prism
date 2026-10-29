@@ -39,7 +39,7 @@ final class GenerateCommand extends Command
     protected function configure(): void
     {
         $this
-            ->addOption('data', null, InputOption::VALUE_NONE, 'Create a data migration (VersionYYYYMMDDHHMMSSData), run with the EntityManager after the schema (RG-06.8)')
+            ->addOption('data', null, InputOption::VALUE_NONE, 'Create a data migration (VersionYYYYMMDDHHMMSSData), run with the EntityManager after the schema')
             ->addOption('for', null, InputOption::VALUE_REQUIRED, 'With --data: the schema migration it follows (VersionYYYYMMDDHHMMSS); a new version otherwise');
     }
 

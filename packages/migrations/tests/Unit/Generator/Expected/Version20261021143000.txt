@@ -23,7 +23,7 @@ final class Version20261021143000 extends AbstractMigration
 
     public function up(MigrationBuilder $m): void
     {
-        // RG-06.3 : client.mail is dropped and client.email added, both string: if it is a rename, use renameColumn().
+        // client.mail is dropped and client.email added, both string: if it is a rename, use renameColumn().
         $m->renameTable('bill', 'invoice_old');
         $m->renameSequence('bill_id_seq', 'invoice_old_id_seq');
         $m->createSequence(new Sequence('invoice_id_seq', start: 10, increment: 5));

@@ -94,7 +94,7 @@ final class FilterCollectionTest extends TestCase
         $filters->add('tenant', self::filter('amount', 1), locked: true);
 
         $this->expectException(InvalidArgumentException::class);
-        $this->expectExceptionMessage('The "tenant" filter cannot be disabled; use TenantContext::runAsSystem() for an explicit cross-tenant operation (ADR 0014).');
+        $this->expectExceptionMessage('The "tenant" filter cannot be disabled; use TenantContext::runAsSystem() for an explicit cross-tenant operation.');
 
         $filters->disable('tenant');
     }

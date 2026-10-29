@@ -15,6 +15,7 @@ Phase 10b : stabilisation et gel de l'API publique (ADR 0020). Les ruptures avec
 
 ### Corrigé
 
+- Messages, aides de configuration et code généré : plus de renvoi aux règles et décisions internes (« RG-06.7 », « ADR 0014 »), illisibles hors du projet ; l'en-tête des fichiers du metamodel généré est en anglais.
 - Audit : un vecteur paresseux remplacé sans avoir été lu est journalisé avec son ancienne valeur, lue en base avant l'UPDATE, au lieu de `null`.
 - `db:import` et `db:migrations:diff` écrivent leur commentaire d'en-tête en anglais.
 - Docblocks de `#[Index(where:)]`, `#[UniqueConstraint(where:)]` et `Fetch::ExtraLazy` alignés sur le code ; message de refus de `#[UniqueConstraint(where:)]` à jour.

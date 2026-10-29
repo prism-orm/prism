@@ -134,7 +134,7 @@ final class MigrationLinter
             if ($migration instanceof AbstractMigration) {
                 $schema = $this->migration($version, $migration, $schema, $mapped);
             } elseif (!$migration->isReversible()) {
-                $this->find($version, 'L19', Severity::Warning, 'It has no revert(): it cannot be reverted (RG-06.7).');
+                $this->find($version, 'L19', Severity::Warning, 'It has no revert(): it cannot be reverted.');
             }
             $this->findings = [...\array_slice($this->findings, 0, $before), ...array_map(
                 static fn (Finding $f): Finding => isset($ignored[$f->code]) ? new Finding($f->version, $f->code, $f->severity, $f->message, $ignored[$f->code]) : $f,
@@ -171,10 +171,10 @@ final class MigrationLinter
 
         $ddl = array_filter($builder->operations(), static fn (Operation\Operation $o): bool => $o instanceof Operation\SchemaOperation);
         if ($platform instanceof AbstractMySqlPlatform && \count($ddl) > 1) {
-            $this->find($version, 'L17', Severity::Warning, \sprintf('It runs %d schema operations without a transaction on %s: if one fails, the ones before it stay applied (RG-06.6). Split it, or keep it small.', \count($ddl), $platform->getName()));
+            $this->find($version, 'L17', Severity::Warning, \sprintf('It runs %d schema operations without a transaction on %s: if one fails, the ones before it stay applied. Split it, or keep it small.', \count($ddl), $platform->getName()));
         }
         if (AbstractMigration::class === new \ReflectionMethod($migration, 'down')->getDeclaringClass()->getName()) {
-            $this->find($version, 'L19', Severity::Warning, 'It has no down(): it cannot be reverted (RG-06.7).');
+            $this->find($version, 'L19', Severity::Warning, 'It has no down(): it cannot be reverted.');
         }
 
         return $schema;
@@ -205,7 +205,7 @@ final class MigrationLinter
         }
         if ($o instanceof Operation\DropColumn) {
             if (null !== $mapped && $mapped->hasTable($o->table) && $mapped->getTable($o->table)->hasColumn($o->column)) {
-                $this->find($version, 'L03', Severity::Error, \sprintf('%s.%s is dropped but an entity still maps it: remove the field from the entity first (RG-06.5).', $o->table, $o->column));
+                $this->find($version, 'L03', Severity::Error, \sprintf('%s.%s is dropped but an entity still maps it: remove the field from the entity first.', $o->table, $o->column));
             }
             if ($rows($o->table)) {
                 $this->find($version, 'L12', Severity::Warning, \sprintf('%s.%s is dropped from a table with rows: its data is lost.', $o->table, $o->column));
@@ -239,7 +239,7 @@ final class MigrationLinter
                 $this->find($version, 'L07', Severity::Error, \sprintf('The unique index on %s (%s) cannot be created: the column(s) already hold duplicates.', $o->table, implode(', ', $o->columns)));
             }
             if ($platform->supportsConcurrentIndexCreation() && !$o->concurrently && $rows($o->table)) {
-                $this->find($version, 'L09', Severity::Warning, \sprintf('The index on %s (%s) blocks writes while it is built on %s: pass concurrently: true (RG-06.5).', $o->table, implode(', ', $o->columns), $platform->getName()));
+                $this->find($version, 'L09', Severity::Warning, \sprintf('The index on %s (%s) blocks writes while it is built on %s: pass concurrently: true.', $o->table, implode(', ', $o->columns), $platform->getName()));
             }
             // SQLite ne crée pas d'index vectoriel : rien à construire
             if (IndexKind::Vector === $o->kind && null !== $platform->getCanonicalIndex($o->index()) && $rows($o->table)) {
@@ -288,7 +288,7 @@ final class MigrationLinter
         }
         $largest = $this->inspector->largestGroup($real, $realColumn);
         if ($largest > $this->largeTenant && $this->inspector->hasMoreRowsThan($real, $largest)) {
-            $this->find($version, 'L21', Severity::Warning, \sprintf('%s is #[Tenanted] and one of its tenants has %d rows among others: on %s, a nearest() filtered by that tenant often falls back to an exact search over its rows, whose cost grows with them (RG-09.11, ADR 0017). Keep tenant_id indexed, size innodb_buffer_pool_size to hold the vectors, or prefer PostgreSQL, whose iterative index scan keeps the index.', $table, $largest, $this->connection->getPlatform()->getName()));
+            $this->find($version, 'L21', Severity::Warning, \sprintf('%s is #[Tenanted] and one of its tenants has %d rows among others: on %s, a nearest() filtered by that tenant often falls back to an exact search over its rows, whose cost grows with them. Keep tenant_id indexed, size innodb_buffer_pool_size to hold the vectors, or prefer PostgreSQL, whose iterative index scan keeps the index.', $table, $largest, $this->connection->getPlatform()->getName()));
         }
     }
 

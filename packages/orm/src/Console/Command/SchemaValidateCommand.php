@@ -56,7 +56,7 @@ final class SchemaValidateCommand extends Command
             $warnings = [];
         }
         if ([] !== $warnings) {
-            $io->warning(\sprintf('%d mapping warning%s (RG-04.6).', \count($warnings), 1 === \count($warnings) ? '' : 's'));
+            $io->warning(\sprintf('%d mapping warning%s.', \count($warnings), 1 === \count($warnings) ? '' : 's'));
             $io->listing($warnings);
         }
 

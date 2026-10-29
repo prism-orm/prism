@@ -45,7 +45,7 @@ final class MigrationOutput
     {
         $outside = array_filter($migrations, static fn (ExecutedMigration $m): bool => !$m->transactional);
         if ([] !== $outside) {
-            $io->warning(\sprintf('%d migration(s) will run without a transaction: if one fails, the statements before the failure stay applied and the database is left half-migrated (RG-06.6).', \count($outside)));
+            $io->warning(\sprintf('%d migration(s) will run without a transaction: if one fails, the statements before the failure stay applied and the database is left half-migrated.', \count($outside)));
         }
     }
 

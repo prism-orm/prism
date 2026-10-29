@@ -56,7 +56,7 @@ final class DriverManagerTest extends TestCase
     public static function unsupportedVersions(): iterable
     {
         yield 'mysql 5.7' => ['mysql://u@db/erp?serverVersion=5.7.44', 'MySQL 5.7.44 is not supported: Prism requires MySQL 8.0.0'];
-        yield 'mariadb 11.4 (ADR 0003)' => ['mariadb://u@db/erp?serverVersion=11.4.2', 'MariaDB 11.4.2 is not supported: Prism requires MariaDB 11.8.0'];
+        yield 'mariadb 11.4' => ['mariadb://u@db/erp?serverVersion=11.4.2', 'MariaDB 11.4.2 is not supported: Prism requires MariaDB 11.8.0'];
         yield 'postgresql 14' => ['postgresql://u@db/erp?serverVersion=14', 'PostgreSQL 14.0.0 is not supported: Prism requires PostgreSQL 15.0.0'];
         yield 'sqlite 3.39' => ['sqlite:///:memory:?serverVersion=3.39.0', 'SQLite 3.39.0 is not supported: Prism requires SQLite 3.40.0'];
         yield 'unparsable' => ['mysql://u@db/erp?serverVersion=latest', 'Cannot read the MySQL server version from "latest"'];

@@ -14,6 +14,6 @@ final class CyclicDependencyException extends \LogicException implements OrmExce
 {
     public static function forCycle(string $cycle): self
     {
-        return new self(\sprintf('Cannot order the INSERTs of this flush: %s is a cycle of non-nullable foreign keys. Make one of these relations nullable (RG-04.4).', $cycle));
+        return new self(\sprintf('Cannot order the INSERTs of this flush: %s is a cycle of non-nullable foreign keys. Make one of these relations nullable.', $cycle));
     }
 }

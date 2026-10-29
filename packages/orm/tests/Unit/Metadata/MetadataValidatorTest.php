@@ -269,7 +269,7 @@ final class MetadataValidatorTest extends TestCase
                 self::manyToMany(UntypedCollections::class, 'nullable', Tag::class, joinTable: 'pivot_nullable'),
                 self::manyToMany(UntypedCollections::class, 'typed', Tag::class, joinTable: 'pivot_typed'),
             ]), self::meta(Tag::class, 'tag')],
-            array_map(static fn (string $field): string => UntypedCollections::class . '::$' . $field . ': a collection relation must be typed Prism\\Orm\\Collection\\Collection (not array, iterable or nullable), initialized with new ArrayCollection() in the constructor (ADR 0007).', ['iterable', 'array', 'nullable']),
+            array_map(static fn (string $field): string => UntypedCollections::class . '::$' . $field . ': a collection relation must be typed Prism\\Orm\\Collection\\Collection (not array, iterable or nullable), initialized with new ArrayCollection() in the constructor.', ['iterable', 'array', 'nullable']),
         ];
         // colonne du tenant (RG-08.1, ADR 0014)
         yield '28a unsupported tenant type' => [
@@ -372,7 +372,7 @@ final class MetadataValidatorTest extends TestCase
         $warnings = array_values(array_filter($found, static fn (MappingError $e): bool => MappingSeverity::Warning === $e->severity));
         self::assertSame([], $errors);
         // RG-04.6 : Invoice::$lines (cascade remove, orphanRemoval) et InvoiceLine::$invoice (onDelete CASCADE)
-        self::assertSame([Invoice::class . '::$lines: cascade: remove repeats onDelete: CASCADE of ' . InvoiceLine::class . '::$invoice: the database already deletes these rows, without events. Keep one of them (RG-04.6).'], array_map(static fn (MappingError $e): string => (string) $e, $warnings));
+        self::assertSame([Invoice::class . '::$lines: cascade: remove repeats onDelete: CASCADE of ' . InvoiceLine::class . '::$invoice: the database already deletes these rows, without events. Keep one of them.'], array_map(static fn (MappingError $e): string => (string) $e, $warnings));
 
         // l'avertissement RG-04.6 reste, il ne bloque pas
         new MetadataValidator()->assertValid($metadata);
@@ -394,13 +394,13 @@ final class MetadataValidatorTest extends TestCase
         yield 'valid on MariaDB' => [[$vector], [$index], $mariaDb, []];
         yield 'valid on SQLite' => [[$vector], [$index], new SqlitePlatform('3.46'), []];
         yield 'no dimensions' => [[new FieldMapping('embedding', 'embedding', 'vector')], [], null, [
-            Client::class . "::\$embedding: a vector field needs its dimensions: #[Column(type: 'vector', dimensions: …)] (RG-09.1).",
+            Client::class . "::\$embedding: a vector field needs its dimensions: #[Column(type: 'vector', dimensions: …)].",
         ]];
         yield 'MySQL' => [[$vector], [], new MySqlPlatform('8.4'), [
             Client::class . '::$embedding: MySQL does not support the vector type: it has neither a vector distance nor a vector index. Use MariaDB 11.8+ or PostgreSQL with pgvector 0.8+.',
         ]];
         yield 'inner product on MariaDB' => [[$vector], [new IndexMapping(['embedding'], kind: IndexKind::Vector, distance: Distance::InnerProduct)], $mariaDb, [
-            Client::class . '::$embedding: MariaDB has no inner product distance; use Distance::Cosine or Distance::Euclidean (RG-09.3).',
+            Client::class . '::$embedding: MariaDB has no inner product distance; use Distance::Cosine or Distance::Euclidean.',
         ]];
         yield 'inner product on PostgreSQL' => [[$vector], [new IndexMapping(['embedding'], kind: IndexKind::Vector, distance: Distance::InnerProduct)], new PostgreSqlPlatform('16'), []];
         yield 'nullable indexed vector on MariaDB' => [[new FieldMapping('embedding', 'embedding', 'vector', nullable: true, length: 3)], [$index], $mariaDb, [
@@ -526,11 +526,11 @@ final class MetadataValidatorTest extends TestCase
         $warnings = self::warnings(...);
 
         $redundant = [self::meta(Invoice::class, 'invoice', [], [$lines(false, true)]), $line(OnDelete::Cascade)];
-        self::assertSame([Invoice::class . '::$lines: cascade: remove repeats onDelete: CASCADE of ' . InvoiceLine::class . '::$invoice: the database already deletes these rows, without events. Keep one of them (RG-04.6).'], $warnings($redundant));
+        self::assertSame([Invoice::class . '::$lines: cascade: remove repeats onDelete: CASCADE of ' . InvoiceLine::class . '::$invoice: the database already deletes these rows, without events. Keep one of them.'], $warnings($redundant));
         new MetadataValidator()->assertValid($redundant);
 
         $contradictory = [self::meta(Invoice::class, 'invoice', [], [$lines(true, false)]), $line(OnDelete::SetNull)];
-        self::assertSame([Invoice::class . '::$lines: orphanRemoval contradicts onDelete: SET NULL of ' . InvoiceLine::class . '::$invoice: the ORM deletes the rows the database would keep. Keep one of them (RG-04.6).'], $warnings($contradictory));
+        self::assertSame([Invoice::class . '::$lines: orphanRemoval contradicts onDelete: SET NULL of ' . InvoiceLine::class . '::$invoice: the ORM deletes the rows the database would keep. Keep one of them.'], $warnings($contradictory));
 
         self::assertSame([], $warnings([self::meta(Invoice::class, 'invoice', [], [$lines(false, true)]), $line(OnDelete::Restrict)]), 'cascade: remove alone is fine');
     }

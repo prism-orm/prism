@@ -372,7 +372,7 @@ final class MetadataValidator
             $field = $association->fieldName;
 
             if ($association->isCollection() && !self::isTypedCollection($class->className, $field)) {
-                $this->error($class->className, $field, \sprintf('a collection relation must be typed %s (not array, iterable or nullable), initialized with new ArrayCollection() in the constructor (ADR 0007).', Collection::class));
+                $this->error($class->className, $field, \sprintf('a collection relation must be typed %s (not array, iterable or nullable), initialized with new ArrayCollection() in the constructor.', Collection::class));
             }
 
             if (OnDelete::SetNull === $association->onDelete && $association->isToOne() && $association->isOwningSide() && !$association->nullable) {
@@ -495,7 +495,7 @@ final class MetadataValidator
                 continue;
             }
             if (null === $field->length) {
-                $this->error($class->className, $field->fieldName, 'a vector field needs its dimensions: #[Column(type: \'vector\', dimensions: …)] (RG-09.1).');
+                $this->error($class->className, $field->fieldName, 'a vector field needs its dimensions: #[Column(type: \'vector\', dimensions: …)].');
             }
             if (null !== $this->platform && !$this->platform->supportsVectors()) {
                 $this->error($class->className, $field->fieldName, \sprintf('%s does not support the vector type: it has neither a vector distance nor a vector index. Use MariaDB 11.8+ or PostgreSQL with pgvector 0.8+.', $this->platform->getName()));
@@ -509,7 +509,7 @@ final class MetadataValidator
         foreach ($vectorIndexes as $index) {
             $field = $class->getField($index->fields[0]);
             if ($this->platform instanceof MariaDbPlatform && Distance::InnerProduct === $index->distance) {
-                $this->error($class->className, $field->fieldName, 'MariaDB has no inner product distance; use Distance::Cosine or Distance::Euclidean (RG-09.3).');
+                $this->error($class->className, $field->fieldName, 'MariaDB has no inner product distance; use Distance::Cosine or Distance::Euclidean.');
             }
             if ($this->platform instanceof MariaDbPlatform && $field->nullable) {
                 $this->error($class->className, $field->fieldName, 'MariaDB only indexes NOT NULL vector columns; make the field non-nullable.');
@@ -679,10 +679,10 @@ final class MetadataValidator
         $other = $target->className . '::$' . $owning->fieldName;
 
         if (OnDelete::Cascade === $owning->onDelete && ($association->orphanRemoval || \in_array(Cascade::Remove, $association->cascade, true))) {
-            $this->warning($class->className, $association->fieldName, \sprintf('cascade: remove repeats onDelete: CASCADE of %s: the database already deletes these rows, without events. Keep one of them (RG-04.6).', $other));
+            $this->warning($class->className, $association->fieldName, \sprintf('cascade: remove repeats onDelete: CASCADE of %s: the database already deletes these rows, without events. Keep one of them.', $other));
         }
         if (OnDelete::SetNull === $owning->onDelete && $association->orphanRemoval) {
-            $this->warning($class->className, $association->fieldName, \sprintf('orphanRemoval contradicts onDelete: SET NULL of %s: the ORM deletes the rows the database would keep. Keep one of them (RG-04.6).', $other));
+            $this->warning($class->className, $association->fieldName, \sprintf('orphanRemoval contradicts onDelete: SET NULL of %s: the ORM deletes the rows the database would keep. Keep one of them.', $other));
         }
     }
 }

@@ -85,7 +85,7 @@ final class UnitOfWorkSoftDeleteTest extends TestCase
         $this->uow->commit();
 
         self::assertCount(1, $this->storage->operations('DELETE'));
-        self::assertSame(EntityState::New, $this->uow->getEntityState($page), 'forgotten, as after any DELETE (RG-03.2)');
+        self::assertSame(EntityState::New, $this->uow->getEntityState($page), 'forgotten, as after any DELETE');
     }
 
     public function testRestore(): void

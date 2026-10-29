@@ -65,7 +65,7 @@ When a column disappears and another one of the same type appears in the same ta
 ```php no-run
 public function up(MigrationBuilder $m): void
 {
-    // RG-06.3 : customer.name is dropped and customer.full_name added, both string: if it is a rename, replace the dropColumn() and addColumn() below with $m->renameColumn('customer', 'name', 'full_name') to keep the data.
+    // customer.name is dropped and customer.full_name added, both string: if it is a rename, replace the dropColumn() and addColumn() below with $m->renameColumn('customer', 'name', 'full_name') to keep the data.
     $m->addColumn('customer', new Column('full_name', 'string', length: 120));
     $m->dropColumn('customer', 'name');
 }

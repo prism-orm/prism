@@ -192,7 +192,7 @@ final class UnitOfWorkRelationsTest extends TestCase
             $this->uow->commit();
             self::fail('Expected UnpersistedRelationException.');
         } catch (UnpersistedRelationException $e) {
-            self::assertSame('A new entity of class ' . Customer::class . ' was found through ' . Customer::class . '::$referrer, which does not cascade persist. Persist it explicitly, or add cascade: [Cascade::Persist] to the relation (RG-04.2).', $e->getMessage());
+            self::assertSame('A new entity of class ' . Customer::class . ' was found through ' . Customer::class . '::$referrer, which does not cascade persist. Persist it explicitly, or add cascade: [Cascade::Persist] to the relation.', $e->getMessage());
             self::assertSame($customer->referrer, $e->entity);
         }
         self::assertSame(0, $this->storage->transactions);

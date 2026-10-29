@@ -32,7 +32,7 @@ final class LazyVectorTest extends MappingSchemaTestCase
     protected function setUp(): void
     {
         if (null !== TestDatabase::url() && !TestDatabase::connection()->getPlatform()->supportsVectors()) {
-            self::markTestSkipped('MySQL has no vector type (ADR 0017).');
+            self::markTestSkipped('MySQL has no vector type.');
         }
         parent::setUp();
         $this->logger = new TestLogger();

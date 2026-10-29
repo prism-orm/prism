@@ -249,7 +249,7 @@ final class ImportTest extends TestCase
         // RG-06.10 : jamais remplacé sans --force
         file_put_contents($dir . '/Customer.php', '<?php // edited');
         self::assertSame(Command::SUCCESS, $tester->execute($options));
-        self::assertStringContainsString('already exist and were kept (RG-06.10)', $display());
+        self::assertStringContainsString('already exist and were kept', $display());
         self::assertSame('<?php // edited', file_get_contents($dir . '/Customer.php'));
         self::assertSame(Command::SUCCESS, $tester->execute([...$options, '--force' => true]));
         self::assertStringContainsString('final class Customer', (string) file_get_contents($dir . '/Customer.php'));

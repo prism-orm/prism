@@ -15,7 +15,7 @@ final class MigrationException extends \RuntimeException implements MigrationsEx
 {
     public static function invalidFileName(string $file): self
     {
-        return new self(\sprintf('The migration file %s is not named VersionYYYYMMDDHHMMSS.php, or VersionYYYYMMDDHHMMSSData.php for a data migration (RG-06.1).', $file));
+        return new self(\sprintf('The migration file %s is not named VersionYYYYMMDDHHMMSS.php, or VersionYYYYMMDDHHMMSSData.php for a data migration.', $file));
     }
 
     public static function classNotFound(string $file, string $class): self

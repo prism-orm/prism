@@ -72,8 +72,8 @@ final class EntityImporterTest extends TestCase
         $result = self::import();
 
         self::assertSame([
-            'shop_log' => 'it has no primary key: an entity needs exactly one identifier (RG-02.4).',
-            'shop_pair' => 'its primary key is composite: an entity has exactly one identifier in 1.0 (RG-02.4).',
+            'shop_log' => 'it has no primary key: an entity needs exactly one identifier.',
+            'shop_pair' => 'its primary key is composite: an entity has exactly one identifier in 1.0.',
         ], $result->skipped);
         self::assertSame(['shop_list.FK_LIST_PAIR' => 'a, b → shop_pair: it is composite; the column stays a scalar property.'], $result->foreignKeys);
         // une colonne de jointure sans index (Prism en ajoute un), et le défaut d'une colonne de jointure

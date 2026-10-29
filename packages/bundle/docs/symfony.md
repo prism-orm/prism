@@ -313,4 +313,3 @@ final class OrderFactory extends Factory
 
 - A custom type converts its values, but cannot declare its column yet (`db:schema:create`).
 - An entity manager accepts an entity of another entity manager and queries it in its own database. The controller argument resolver, `#[UniqueEntity]` and the test pack pick the right one.
-- Vector and hybrid search arrive in Prism 0.9.

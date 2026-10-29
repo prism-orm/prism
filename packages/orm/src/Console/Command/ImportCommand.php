@@ -92,7 +92,7 @@ final class ImportCommand extends Command
                 ++$written;
             }
             if ([] !== $existing) {
-                $io->warning(\sprintf("%d file(s) already exist and were kept (RG-06.10); pass --force to replace them:\n%s", \count($existing), implode("\n", $existing)));
+                $io->warning(\sprintf("%d file(s) already exist and were kept; pass --force to replace them:\n%s", \count($existing), implode("\n", $existing)));
             }
             $io->writeln(\sprintf(' %d entit%s written to %s.', $written, 1 === $written ? 'y' : 'ies', $dir));
         }

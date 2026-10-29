@@ -67,6 +67,6 @@ final class InvalidArgumentException extends \InvalidArgumentException implement
 
     public static function lockedFilter(string $name): self
     {
-        return new self(\sprintf('The "%s" filter cannot be disabled; use TenantContext::runAsSystem() for an explicit cross-tenant operation (ADR 0014).', $name));
+        return new self(\sprintf('The "%s" filter cannot be disabled; use TenantContext::runAsSystem() for an explicit cross-tenant operation.', $name));
     }
 }
