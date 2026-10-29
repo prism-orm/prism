@@ -20,7 +20,7 @@ use Symfony\Component\Console\Style\SymfonyStyle;
  *
  *     db:query:sql "SELECT * FROM invoice WHERE status = :status" --param status=paid
  *
- * @api
+ * @internal
  */
 #[AsCommand(name: 'db:query:sql', description: 'Run a raw SQL query')]
 final class QuerySqlCommand extends Command

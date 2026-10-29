@@ -10,7 +10,7 @@ use Prism\Orm\Exception\MappingException;
  * Une instance par classe de listener, construite sans argument au premier usage, ou
  * enregistrée d'avance par register() (listener avec dépendances, hors Symfony).
  *
- * @api
+ * @internal
  */
 final class DefaultEntityListenerResolver implements EntityListenerResolver
 {

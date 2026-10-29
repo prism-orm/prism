@@ -14,6 +14,9 @@ namespace Prism\Orm\Mapping;
 #[\Attribute(\Attribute::TARGET_METHOD)]
 final class PreRemove implements LifecycleCallbackAttribute
 {
+    /**
+     * @internal lu par l'AttributeDriver
+     */
     public function getEvent(): LifecycleEvent
     {
         return LifecycleEvent::PreRemove;

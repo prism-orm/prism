@@ -18,7 +18,7 @@ use Symfony\Component\Console\Style\SymfonyStyle;
  * Synchronise la base avec le mapping, sans migrations (dev). RG-02.9 : sans --force, rien
  * n'est exécuté ; --complete est nécessaire pour supprimer les tables non mappées.
  *
- * @api
+ * @internal
  */
 #[AsCommand(name: 'db:schema:update', description: 'Bring the database schema in line with the mapping')]
 final class SchemaUpdateCommand extends Command

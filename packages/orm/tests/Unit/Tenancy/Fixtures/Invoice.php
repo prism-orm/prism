@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Prism\Orm\Tests\Unit\Tenancy\Fixtures;
 
+use Prism\Dbal\Query\Order;
 use Prism\Orm\Collection\ArrayCollection;
 use Prism\Orm\Collection\Collection;
 use Prism\Orm\Mapping as Prism;
@@ -20,7 +21,7 @@ final class Invoice
 
     /** @var Collection<int, Line> */
     #[Prism\OneToMany(targetEntity: Line::class, mappedBy: 'invoice')]
-    #[Prism\OrderBy(['label' => Prism\Order::Asc])]
+    #[Prism\OrderBy(['label' => Order::Asc])]
     public Collection $lines;
 
     /** @var Collection<int, Tag> */

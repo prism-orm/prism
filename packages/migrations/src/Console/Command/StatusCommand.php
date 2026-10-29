@@ -20,7 +20,7 @@ use Symfony\Component\Console\Style\SymfonyStyle;
  * Où en est la base : version courante, dernière disponible, migrations en attente, et celles
  * modifiées après exécution (RG-06.4) ou sans fichier.
  *
- * @api
+ * @internal
  */
 #[AsCommand(name: 'db:migrations:status', description: 'Show where the database stands in the migrations')]
 final class StatusCommand extends Command

@@ -9,7 +9,7 @@ use Prism\Dbal\Exception\ConversionException;
 /**
  * UUID sous forme canonique en minuscules (8-4-4-4-12), sans dépendance externe.
  *
- * @api
+ * @internal
  */
 final class UuidType extends Type
 {

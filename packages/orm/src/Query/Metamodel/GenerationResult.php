@@ -7,7 +7,7 @@ namespace Prism\Orm\Query\Metamodel;
 /**
  * Fichiers d'une génération du metamodel, chemins relatifs au dossier de génération.
  *
- * @api
+ * @internal
  */
 final class GenerationResult
 {

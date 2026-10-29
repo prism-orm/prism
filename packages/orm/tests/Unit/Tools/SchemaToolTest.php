@@ -229,7 +229,7 @@ final class SchemaToolTest extends TestCase
         $metadata = new ClassMetadata(Inferred::class, 'inferred', new IdMapping('id'), [new FieldMapping('id', 'id', 'integer'), new FieldMapping('name', 'name', 'string')], indexes: [new IndexMapping(['name'], true, null, 'deleted_at IS NULL')]);
 
         $this->expectException(MappingException::class);
-        $this->expectExceptionMessage('the unique constraint on "name" has a "where" condition; partial indexes arrive with phase 8 (RG-08.15).');
+        $this->expectExceptionMessage('the unique constraint on "name" has a "where" condition, which is not supported yet');
 
         new SchemaTool(new PostgreSqlPlatform('16'))->fromMetadata([$metadata]);
     }

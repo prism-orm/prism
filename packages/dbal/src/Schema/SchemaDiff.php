@@ -7,7 +7,7 @@ namespace Prism\Dbal\Schema;
 /**
  * Passage d'un schéma à un autre ; les tables modifiées ne contiennent que des TableDiff non vides.
  *
- * @api
+ * @internal
  */
 final class SchemaDiff
 {

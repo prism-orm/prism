@@ -9,7 +9,7 @@ use Prism\Dbal\Exception\ConversionException;
 /**
  * Chaîne courte (VARCHAR) ; la longueur est portée par la colonne.
  *
- * @api
+ * @internal
  */
 final class StringType extends Type
 {

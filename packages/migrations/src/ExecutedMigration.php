@@ -7,7 +7,7 @@ namespace Prism\Migrations;
 /**
  * Une migration exécutée (ou simulée par --dry-run), avec le SQL de la plateforme.
  *
- * @api
+ * @internal
  */
 final class ExecutedMigration
 {

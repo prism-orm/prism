@@ -18,7 +18,7 @@ use Prism\Dbal\Schema\TableDiff;
 /**
  * Socle commun MySQL / MariaDB ; les divergences (VECTOR, JSON, index) vivent dans les sous-classes.
  *
- * @api
+ * @internal
  */
 abstract class AbstractMySqlPlatform extends AbstractPlatform
 {
@@ -33,7 +33,7 @@ abstract class AbstractMySqlPlatform extends AbstractPlatform
 
     /**
      * Le backslash est un caractère d'échappement avec le sql_mode par défaut : il est doublé.
-     * Un serveur en NO_BACKSLASH_ESCAPES n'est pas encore géré (voir docs/BACKLOG.md).
+     * Un serveur en NO_BACKSLASH_ESCAPES n'est pas encore géré.
      */
     public function quoteStringLiteral(string $value): string
     {

@@ -24,7 +24,7 @@ use Prism\Orm\Vector\EmbeddingProviderRegistry;
  * colonnes en double, cohérence des deux côtés d'une relation (RG-02.8), types connus,
  * stratégies d'identifiant (RG-02.4). Toutes les erreurs sont rapportées en une fois.
  *
- * @api
+ * @internal
  */
 final class MetadataValidator
 {

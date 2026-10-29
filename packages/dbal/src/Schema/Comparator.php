@@ -16,7 +16,7 @@ use Prism\Dbal\Platform\AbstractPlatform;
  * - Aucun renommage n'est deviné : il apparaît en suppression + ajout (RG-01.9).
  * - L'ordre des tables, colonnes, index et clés étrangères est ignoré.
  *
- * @api
+ * @internal
  */
 final class Comparator
 {

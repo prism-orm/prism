@@ -119,6 +119,9 @@ final class InMemoryPersister implements EntityPersister
         return $row;
     }
 
+    /**
+     * @return list<array<string, mixed>>
+     */
     public function loadBy(array $criteria, array $orderBy = [], ?int $limit = null, int $offset = 0, FilterOperation $operation = FilterOperation::Read): array
     {
         self::assertOrder($orderBy);

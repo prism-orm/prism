@@ -1,8 +1,14 @@
 {
     "name": "prism-orm/phpstan",
-    "description": "Extension PHPStan pour Prism (QueryBuilder typé, findBy, repositories)",
+    "description": "PHPStan extension for Prism ORM: typed query builder, findBy(), repositories",
     "type": "phpstan-extension",
     "license": "MIT",
+    "homepage": "https://github.com/prism-orm/prism",
+    "support": {
+        "issues": "https://github.com/prism-orm/prism/issues",
+        "source": "https://github.com/prism-orm/prism/tree/main/packages/phpstan",
+        "security": "https://github.com/prism-orm/prism/security/policy"
+    },
     "require": {
         "php": ">=8.4",
         "phpstan/phpstan": "^2.1",

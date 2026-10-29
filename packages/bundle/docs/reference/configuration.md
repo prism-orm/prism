@@ -131,7 +131,7 @@ The id of a `TenantLoader` service that turns the identifier read by the resolve
 
 ## Embeddings
 
-The providers and the computation of the `#[EmbeddedVector]` fields. See [Embeddings](../symfony.md#embeddings).
+The providers and the computation of the `#[EmbeddedVector]` fields. See [Embeddings](/bundle/symfony#embeddings).
 
 ### `prism.embeddings.scheduler`
 

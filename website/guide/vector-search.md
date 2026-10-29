@@ -9,9 +9,13 @@ Store embeddings next to your business data, index them, and search them from th
 | SQLite | text, distances computed in PHP | none: for tests and development | scored in PHP |
 | MySQL | refused: Community has neither a vector distance nor a vector index | | |
 
+::: warning Vectors do not work with MySQL
+MySQL Community can store a `VECTOR` column, but it cannot compute a distance or index it: `DISTANCE()` is reserved for HeatWave and MySQL AI. Prism refuses a `vector` field on MySQL when the mapping is validated, so the error shows at startup, not in production. Use MariaDB 11.8+ or PostgreSQL with pgvector; the rest of Prism works on MySQL.
+:::
+
 Prism creates the `vector` extension of PostgreSQL with the schema, and refuses a pgvector older than 0.8.
 
-The examples of this page are not run by the documentation tests, which also run on MySQL: the [demo application](https://github.com/IMAMx39/prism/tree/main/demo) and Prism's functional tests run the same code on MariaDB, PostgreSQL and SQLite.
+The examples of this page are not run by the documentation tests, which also run on MySQL: the [demo application](https://github.com/prism-orm/demo) and Prism's functional tests run the same code on MariaDB, PostgreSQL and SQLite.
 
 ## A vector field
 
@@ -149,9 +153,9 @@ The demo searches the Prism documentation: 324 sections, `nomic-embed-text:v1.5`
 
 | Search | Recall@10 | MRR@10 |
 | --- | --- | --- |
-| `hybridSearch()` | **0.922** | 0.776 |
+| `hybridSearch()` | **0.922** | 0.777 |
 | vector only | 0.903 | **0.807** |
-| full text only | 0.711 | 0.530 |
+| full text only | 0.711 | 0.529 |
 
 The hybrid search finds more of the relevant sections in its first ten results; the vector search alone more often puts the best one first. The corpus is small: these figures compare the three rankings with each other, they are not a public benchmark.
 

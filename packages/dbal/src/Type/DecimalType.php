@@ -9,7 +9,7 @@ use Prism\Dbal\Exception\ConversionException;
 /**
  * Nombre décimal exact (DECIMAL / NUMERIC), toujours rendu en string (RG-01.5, montants ERP).
  *
- * @api
+ * @internal
  */
 final class DecimalType extends Type
 {

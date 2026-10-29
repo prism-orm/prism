@@ -10,6 +10,8 @@ For the events of one entity class, [lifecycle callbacks](/guide/mapping#lifecyc
 
 All events are in `Prism\Orm\Event`, except `NPlusOneDetected`, in `Prism\Orm\Debug`. Their properties are `readonly`.
 
+The `unitOfWork` property of an event is a `Prism\Orm\UnitOfWork\FlushContext`: what a listener may see and do during a flush. It lists the entities to insert, update and delete (`getScheduledInsertions()`, `getScheduledUpdates()`, `getScheduledDeletions()`), tells whether anything would be written (`hasPendingChanges()`), gives the state of an entity (`contains()`, `getEntityState()`), and accepts `persist()` and `remove()` from `PreFlushEvent` or `OnFlushEvent`, which this same flush then writes. The rest of the unit of work is internal to Prism.
+
 ## Flush
 
 A flush publishes `PreFlushEvent` and `OnFlushEvent` before its transaction, `PrePersistEvent` and `PreUpdateEvent` for each entity inside it, then after the commit `PostPersistEvent`, `PostUpdateEvent`, `PostRemoveEvent` and `AuditRecordedEvent`, and `PostFlushEvent` last. If the flush fails, nothing is published after the rollback. Calling `flush()` from a listener throws `ReentrantFlushException`.
@@ -20,15 +22,15 @@ At the start of `flush()`, before any change is computed: an entity persisted or
 
 | Property | Type | |
 | --- | --- | --- |
-| `unitOfWork` | `UnitOfWork` | |
+| `unitOfWork` | `FlushContext` | |
 
 ### `OnFlushEvent`
 
-The changes are computed, before the transaction starts. `UnitOfWork::getScheduled*()` lists them; a change made here is included.
+The changes are computed, before the transaction starts. `FlushContext::getScheduled*()` lists them; a change made here is included.
 
 | Property | Type | |
 | --- | --- | --- |
-| `unitOfWork` | `UnitOfWork` | |
+| `unitOfWork` | `FlushContext` | |
 
 ### `PrePersistEvent`
 
@@ -37,7 +39,7 @@ Before the `INSERT` of an entity, in the transaction of the flush; a change to t
 | Property | Type | |
 | --- | --- | --- |
 | `entity` | `object` | The entity |
-| `unitOfWork` | `UnitOfWork` | |
+| `unitOfWork` | `FlushContext` | |
 
 ### `PreUpdateEvent`
 
@@ -47,7 +49,7 @@ Before the `UPDATE` of an entity; a change to the entity is included, and only t
 | --- | --- | --- |
 | `entity` | `object` | The entity |
 | `changeSet` | `array<string, array{mixed, mixed}>` | Field → [old value, new value] |
-| `unitOfWork` | `UnitOfWork` | |
+| `unitOfWork` | `FlushContext` | |
 
 ### `PostPersistEvent`
 
@@ -56,7 +58,7 @@ After the commit of the flush that inserted the entity, never inside its transac
 | Property | Type | |
 | --- | --- | --- |
 | `entity` | `object` | The entity, with its generated identifier |
-| `unitOfWork` | `UnitOfWork` | |
+| `unitOfWork` | `FlushContext` | |
 
 ### `PostUpdateEvent`
 
@@ -65,7 +67,7 @@ After the commit of the flush that updated the entity.
 | Property | Type | |
 | --- | --- | --- |
 | `entity` | `object` | The entity |
-| `unitOfWork` | `UnitOfWork` | |
+| `unitOfWork` | `FlushContext` | |
 
 ### `PostRemoveEvent`
 
@@ -74,7 +76,7 @@ After the commit of the flush that deleted the entity.
 | Property | Type | |
 | --- | --- | --- |
 | `entity` | `object` | The entity |
-| `unitOfWork` | `UnitOfWork` | |
+| `unitOfWork` | `FlushContext` | |
 
 ### `AuditRecordedEvent`
 
@@ -90,7 +92,7 @@ After the commit and the other `Post*` events; never after a failure.
 
 | Property | Type | |
 | --- | --- | --- |
-| `unitOfWork` | `UnitOfWork` | |
+| `unitOfWork` | `FlushContext` | |
 
 ### `InverseSideChangedEvent`
 
@@ -102,7 +104,7 @@ At flush, a collection on the inverse side of a relation changed without its own
 | `field` | `string` | The collection property |
 | `element` | `object` | The element added or removed |
 | `added` | `bool` | `true` if added, `false` if removed |
-| `unitOfWork` | `UnitOfWork` | |
+| `unitOfWork` | `FlushContext` | |
 
 ## Entities
 
@@ -113,7 +115,7 @@ When `remove()` is called, before the entity is scheduled for deletion.
 | Property | Type | |
 | --- | --- | --- |
 | `entity` | `object` | The entity |
-| `unitOfWork` | `UnitOfWork` | |
+| `unitOfWork` | `FlushContext` | |
 
 ### `PostLoadEvent`
 
@@ -122,7 +124,7 @@ After an entity is loaded from the database: `find()`, `findBy()`, `iterate()`, 
 | Property | Type | |
 | --- | --- | --- |
 | `entity` | `object` | The entity |
-| `unitOfWork` | `UnitOfWork` | |
+| `unitOfWork` | `FlushContext` | |
 
 ### `OnClearEvent`
 
@@ -130,7 +132,7 @@ After `clear()`: every entity is detached.
 
 | Property | Type | |
 | --- | --- | --- |
-| `unitOfWork` | `UnitOfWork` | |
+| `unitOfWork` | `FlushContext` | |
 
 ## Diagnostics
 
@@ -143,7 +145,7 @@ A batch load: one query for a whole cohort. Published only when the batch holds 
 | `entityClass` | `class-string` | Without `association`: the class of the entities loaded together. With it: the class of the owners |
 | `association` | `?string` | `null` for referenced entities loaded together; otherwise the relation loaded for the owners (a collection, or the inverse side of a `OneToOne`) |
 | `count` | `int` | The number of entities, or of owners |
-| `unitOfWork` | `UnitOfWork` | |
+| `unitOfWork` | `FlushContext` | |
 
 ### `NPlusOneDetected`
 

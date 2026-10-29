@@ -13,6 +13,9 @@ use Prism\Orm\Mapping\OnDelete;
  */
 final class JoinTableMapping
 {
+    /**
+     * @internal construite par Prism (AttributeDriver, MetadataValidator) ; lisible, pas à construire (ADR 0020)
+     */
     public function __construct(
         public readonly string $name,
         public readonly string $joinColumn,

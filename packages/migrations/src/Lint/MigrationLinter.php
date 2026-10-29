@@ -51,7 +51,7 @@ use Prism\Orm\Tools\SchemaTool;
  * | L20 | avertissement | index vectoriel créé sur une table non vide (ADR 0017) |
  * | L21 | avertissement | index vectoriel sur une table #[Tenanted] dont un tenant, parmi d'autres, dépasse le seuil, sous MariaDB (RG-09.11) |
  *
- * @api
+ * @internal
  */
 final class MigrationLinter
 {

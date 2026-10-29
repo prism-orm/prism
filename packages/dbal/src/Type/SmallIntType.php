@@ -9,7 +9,7 @@ use Prism\Dbal\ParameterType;
 /**
  * Entier 16 bits (SMALLINT).
  *
- * @api
+ * @internal
  */
 final class SmallIntType extends Type
 {

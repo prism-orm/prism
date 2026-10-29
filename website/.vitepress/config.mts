@@ -31,7 +31,10 @@ export default defineConfig({
     description: 'A modern PHP ORM for business applications and AI.',
     lang: 'en-US',
     cleanUrls: true,
-    head: [['link', { rel: 'icon', type: 'image/svg+xml', href: '/logo.svg' }]],
+    // GitHub Pages, site du projet : https://prism-orm.github.io/prism/ (ADR 0016)
+    base: '/prism/',
+    // head n'est pas préfixé par base, contrairement aux liens des pages
+    head: [['link', { rel: 'icon', type: 'image/svg+xml', href: '/prism/logo.svg' }]],
 
     themeConfig: {
         logo: '/logo.svg',
@@ -48,6 +51,7 @@ export default defineConfig({
                     { text: 'Installation', link: '/guide/installation' },
                     { text: 'Your first entity', link: '/guide/getting-started' },
                     { text: 'Coming from Doctrine', link: '/guide/from-doctrine' },
+                    { text: 'Benchmarks', link: '/benchmarks' },
                 ],
             },
             {
@@ -96,9 +100,9 @@ export default defineConfig({
         ],
         search: { provider: 'local' },
         outline: { level: [2, 3] },
-        socialLinks: [{ icon: 'github', link: 'https://github.com/IMAMx39/prism' }],
+        socialLinks: [{ icon: 'github', link: 'https://github.com/prism-orm/prism' }],
         editLink: {
-            pattern: ({ filePath }) => `https://github.com/IMAMx39/prism/edit/main/${filePath}`,
+            pattern: ({ filePath }) => `https://github.com/prism-orm/prism/edit/main/${filePath}`,
             text: 'Edit this page',
         },
         footer: {

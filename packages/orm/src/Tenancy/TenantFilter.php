@@ -17,7 +17,7 @@ use Prism\Orm\Metadata\ClassMetadata;
  * MissingTenantException (RG-08.4) ; en mode système, aucun filtre (RG-08.5). Verrouillé dans
  * la FilterCollection : il ne se désactive pas.
  *
- * @api
+ * @internal
  */
 final class TenantFilter implements EntityFilter
 {

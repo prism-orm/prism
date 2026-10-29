@@ -1,0 +1,13 @@
+{
+    "$schema": "./vendor/phpbench/phpbench/phpbench.schema.json",
+    "runner.bootstrap": "vendor/autoload.php",
+    "runner.path": "src/Bench",
+    "runner.retry_threshold": 5,
+    "storage.xml_storage_path": "var/phpbench",
+    "runner.php_config": {
+        "opcache.enable_cli": 1,
+        "opcache.jit": "off",
+        "pcov.enabled": 0,
+        "memory_limit": "1G"
+    }
+}

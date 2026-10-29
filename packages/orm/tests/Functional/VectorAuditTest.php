@@ -51,4 +51,21 @@ final class VectorAuditTest extends MappingSchemaTestCase
         self::assertSame(['[0.5,-1.0,2.0]', '[1.0,0.0,0.0]'], $entries[1]->changes['embedding']);
         self::assertSame(['[1.0,0.0,0.0]', null], $entries[2]->changes['embedding']);
     }
+
+    // un vecteur paresseux remplacé sans avoir été lu : son ancienne valeur est lue en base pour le journal
+    public function testUnreadLazyVectorIsJournaledWithItsOldValue(): void
+    {
+        $em = new EntityManager($this->connection);
+        $em->persist($passage = new AuditedPassage(new Vector([0.5, -1.0, 2.0])));
+        $em->flush();
+        $em->clear();
+
+        $read = $em->find(AuditedPassage::class, $passage->id);
+        self::assertNotNull($read);
+        $read->embedding = new Vector([1.0, 0.0, 0.0]);
+        $em->flush();
+
+        $entries = new AuditReader($em)->history(AuditedPassage::class, $passage->id);
+        self::assertSame(['[0.5,-1.0,2.0]', '[1.0,0.0,0.0]'], $entries[1]->changes['embedding']);
+    }
 }

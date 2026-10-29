@@ -18,7 +18,7 @@ use Prism\Dbal\Schema\VectorDistance;
 /**
  * Tests et dev uniquement (périmètre 1.0).
  *
- * @api
+ * @internal
  */
 final class SqlitePlatform extends AbstractPlatform
 {

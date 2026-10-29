@@ -18,7 +18,7 @@ use Symfony\Component\Console\Style\SymfonyStyle;
 /**
  * Supprime les tables et séquences du mapping (et seulement elles). Destructrice : --force.
  *
- * @api
+ * @internal
  */
 #[AsCommand(name: 'db:schema:drop', description: 'Drop the tables and sequences of the mapping')]
 final class SchemaDropCommand extends Command

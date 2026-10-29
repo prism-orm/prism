@@ -7,7 +7,7 @@ namespace Prism\Dbal\Schema;
 /**
  * Colonne présente des deux côtés, dont au moins une propriété a changé.
  *
- * @api
+ * @internal
  */
 final class ColumnDiff
 {

@@ -18,7 +18,7 @@ use Symfony\Component\Console\Style\SymfonyStyle;
 /**
  * Par champ #[EmbeddedVector] : lignes à jour, lignes périmées, et lignes par modèle (ADR 0018).
  *
- * @api
+ * @internal
  */
 #[AsCommand(name: 'db:embeddings:status', description: 'Count the up-to-date and stale #[EmbeddedVector] vectors')]
 final class EmbeddingsStatusCommand extends Command

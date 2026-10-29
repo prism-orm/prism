@@ -17,7 +17,7 @@ hero:
           link: /guide/introduction
         - theme: alt
           text: GitHub
-          link: https://github.com/IMAMx39/prism
+          link: https://github.com/prism-orm/prism
 
 features:
     - icon: ⚡

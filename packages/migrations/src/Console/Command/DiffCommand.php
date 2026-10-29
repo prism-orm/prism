@@ -25,7 +25,7 @@ use Symfony\Component\Console\Style\SymfonyStyle;
  * Comme db:schema:update, les tables non mappées sont ignorées sans --complete ; celles que
  * Prism gère (prism_) le sont toujours.
  *
- * @api
+ * @internal
  */
 #[AsCommand(name: 'db:migrations:diff', description: 'Generate a migration from the difference between the entities and the database')]
 final class DiffCommand extends Command

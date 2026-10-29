@@ -4,11 +4,11 @@ declare(strict_types=1);
 
 namespace Prism\Orm\Metadata;
 
+use Prism\Dbal\Query\Order;
 use Prism\Orm\Exception\MappingException;
 use Prism\Orm\Mapping\Cascade;
 use Prism\Orm\Mapping\Fetch;
 use Prism\Orm\Mapping\OnDelete;
-use Prism\Orm\Mapping\Order;
 
 /**
  * Relation vers une autre entité. Seul le côté propriétaire est persisté (RG-04.1) : celui qui
@@ -23,6 +23,8 @@ final class AssociationMapping
      * @param class-string         $targetEntity
      * @param list<Cascade>        $cascade
      * @param array<string, Order> $orderBy
+     *
+     * @internal construite par Prism (AttributeDriver, MetadataValidator) ; lisible, pas à construire (ADR 0020)
      */
     public function __construct(
         public readonly string $sourceEntity,

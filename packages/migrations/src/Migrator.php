@@ -20,7 +20,7 @@ use Prism\Orm\EntityManagerInterface;
  * transaction quand la plateforme sait annuler son DDL ; sinon elle tourne sans, et le compte
  * rendu le signale (RG-06.6).
  *
- * @api
+ * @internal
  */
 final class Migrator
 {

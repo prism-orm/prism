@@ -21,7 +21,7 @@ use Symfony\Component\Console\Style\SymfonyStyle;
  * clés étrangères ; un fichier existant n'est jamais remplacé sans --force. Les tables que Prism
  * gère (prism_) et celles des migrations Doctrine sont écartées par défaut.
  *
- * @api
+ * @internal
  */
 #[AsCommand(name: 'db:import', description: 'Generate the entities of an existing database')]
 final class ImportCommand extends Command

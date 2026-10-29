@@ -223,7 +223,7 @@ The order of a `OneToMany` or `ManyToMany` collection, applied in SQL and kept b
 
 | Parameter | Default | Description |
 | --- | --- | --- |
-| `fields` | | Field → `Order::Asc` or `Order::Desc` (the `Prism\Orm\Mapping\Order` enum): `['position' => Prism\Order::Asc]` |
+| `fields` | | Field → `Order::Asc` or `Order::Desc`, of `Prism\Dbal\Query\Order`, the enum `findBy()` and the query builder take too: `['position' => Order::Asc]` |
 
 ## Lifecycle
 

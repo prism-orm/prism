@@ -16,7 +16,7 @@ use Prism\Orm\Metadata\ClassMetadata;
  * (restore), une référence aussi (ghost, ToOne, refresh) ; ->withDeleted() les réintègre à une
  * requête, getFilters()->disable('soft_delete') à tout l'EntityManager (ADR 0015).
  *
- * @api
+ * @internal
  */
 final class SoftDeleteFilter implements EntityFilter
 {

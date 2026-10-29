@@ -13,6 +13,9 @@ use Prism\Orm\UnitOfWork\EntityState;
  */
 final class InvalidEntityStateException extends \LogicException implements OrmException
 {
+    /**
+     * @internal levée par l'UnitOfWork
+     */
     public static function transition(object $entity, EntityState $state, string $operation, string $hint): self
     {
         return new self(\sprintf('Cannot %s a %s entity of class %s: %s', $operation, strtoupper($state->name), $entity::class, $hint));

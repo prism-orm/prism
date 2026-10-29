@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Prism\Migrations\Lint;
 
 /**
- * @api
+ * @internal
  */
 final class LintResult
 {

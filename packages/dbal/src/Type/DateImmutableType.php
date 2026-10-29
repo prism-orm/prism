@@ -7,7 +7,7 @@ namespace Prism\Dbal\Type;
 /**
  * Date seule, à minuit. Une date n'a pas de fuseau : elle n'est jamais convertie.
  *
- * @api
+ * @internal
  */
 final class DateImmutableType extends Type
 {

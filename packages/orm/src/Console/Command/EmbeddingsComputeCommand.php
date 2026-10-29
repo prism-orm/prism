@@ -21,7 +21,7 @@ use Symfony\Component\Console\Style\SymfonyStyle;
  * seule ; --all recalcule aussi les vecteurs à jour (changement de fournisseur sans migration).
  * Lancée par bin/prism ou le bundle, elle voit tous les tenants (mode système).
  *
- * @api
+ * @internal
  */
 #[AsCommand(name: 'db:embeddings:compute', description: 'Compute the stale #[EmbeddedVector] vectors')]
 final class EmbeddingsComputeCommand extends Command

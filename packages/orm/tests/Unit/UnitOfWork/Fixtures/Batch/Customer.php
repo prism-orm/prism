@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Prism\Orm\Tests\Unit\UnitOfWork\Fixtures\Batch;
 
+use Prism\Dbal\Query\Order as Sort;
 use Prism\Orm\Collection\ArrayCollection;
 use Prism\Orm\Collection\Collection;
 use Prism\Orm\Mapping as Prism;
@@ -20,7 +21,7 @@ final class Customer
 
     /** @var Collection<int, Order> */
     #[Prism\OneToMany(targetEntity: Order::class, mappedBy: 'customer')]
-    #[Prism\OrderBy(['reference' => Prism\Order::Desc])]
+    #[Prism\OrderBy(['reference' => Sort::Desc])]
     public Collection $orders;
 
     /** @var Collection<int, Group> */

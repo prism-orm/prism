@@ -22,7 +22,7 @@ use Symfony\Component\Console\Style\SymfonyStyle;
 /**
  * Exécute une seule migration, dans un sens ; confirmation en prod (RG-06.9).
  *
- * @api
+ * @internal
  */
 #[AsCommand(name: 'db:migrations:execute', description: 'Run a single migration up or down')]
 final class ExecuteCommand extends Command

@@ -1,8 +1,14 @@
 {
     "name": "prism-orm/bundle",
-    "description": "Intégration Symfony de Prism",
+    "description": "Symfony integration for Prism ORM: configuration, profiler, Messenger, security, multi-tenancy",
     "type": "symfony-bundle",
     "license": "MIT",
+    "homepage": "https://github.com/prism-orm/prism",
+    "support": {
+        "issues": "https://github.com/prism-orm/prism/issues",
+        "source": "https://github.com/prism-orm/prism/tree/main/packages/bundle",
+        "security": "https://github.com/prism-orm/prism/security/policy"
+    },
     "require": {
         "php": ">=8.4",
         "prism-orm/migrations": "self.version",

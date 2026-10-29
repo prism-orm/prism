@@ -18,6 +18,8 @@ final class IndexMapping
 {
     /**
      * @param list<string> $fields
+     *
+     * @internal construite par Prism (AttributeDriver, MetadataValidator) ; lisible, pas à construire (ADR 0020)
      */
     public function __construct(
         public readonly array $fields,

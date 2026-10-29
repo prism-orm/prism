@@ -1,0 +1,45 @@
+name: Bug report
+description: Something in Prism does not work as documented
+labels: [bug]
+body:
+    - type: markdown
+      attributes:
+          value: |
+              Thank you for the report. For a security problem, do not open an issue: see the security policy.
+    - type: dropdown
+      id: package
+      attributes:
+          label: Package
+          options: [prism-orm/dbal, prism-orm/orm, prism-orm/migrations, prism-orm/bundle, prism-orm/phpstan, prism-orm/test-pack, prism-orm/embedding-openai, Documentation, Not sure]
+      validations:
+          required: true
+    - type: input
+      id: version
+      attributes:
+          label: Prism version
+          description: From `composer show prism-orm/orm`.
+          placeholder: 1.0.0
+      validations:
+          required: true
+    - type: input
+      id: environment
+      attributes:
+          label: PHP version and database
+          placeholder: PHP 8.4.12, PostgreSQL 16 with pgvector 0.8
+      validations:
+          required: true
+    - type: textarea
+      id: description
+      attributes:
+          label: What happens
+          description: What you did, what you expected, and what happened instead. Include the full exception message.
+      validations:
+          required: true
+    - type: textarea
+      id: reproduce
+      attributes:
+          label: How to reproduce
+          description: The smallest entity and code that show the problem, or a failing test.
+          render: php
+      validations:
+          required: true

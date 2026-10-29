@@ -17,7 +17,7 @@ use Prism\Dbal\Platform\AbstractPlatform;
  *
  * La dimension n'est pas connue ici : l'ORM la vérifie avec la classe et le champ (RG-09.1).
  *
- * @api
+ * @internal
  */
 final class VectorType extends Type
 {

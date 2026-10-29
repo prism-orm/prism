@@ -18,6 +18,8 @@ final readonly class EmbeddingMapping
 
     /**
      * @param list<string> $source champs texte concaténés, dans l'ordre
+     *
+     * @internal construite par Prism (AttributeDriver, MetadataValidator) ; lisible, pas à construire (ADR 0020)
      */
     public function __construct(
         public string $field,

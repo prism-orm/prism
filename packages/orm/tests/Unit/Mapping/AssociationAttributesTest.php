@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Prism\Orm\Tests\Unit\Mapping;
 
 use PHPUnit\Framework\TestCase;
+use Prism\Dbal\Query\Order;
 use Prism\Orm\Exception\MappingException;
 use Prism\Orm\Mapping\Cascade;
 use Prism\Orm\Mapping\Fetch;
@@ -14,7 +15,6 @@ use Prism\Orm\Mapping\ManyToOne;
 use Prism\Orm\Mapping\OnDelete;
 use Prism\Orm\Mapping\OneToMany;
 use Prism\Orm\Mapping\OneToOne;
-use Prism\Orm\Mapping\Order;
 use Prism\Orm\Mapping\OrderBy;
 
 final class AssociationAttributesTest extends TestCase

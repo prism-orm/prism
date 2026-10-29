@@ -12,7 +12,7 @@ URL_sqlite  := sqlite:///:memory:
 DATABASES := mysql mariadb pgsql sqlite
 
 .DEFAULT_GOAL := help
-.PHONY: help up down build install shell test test-unit test-db test-all-db stan cs cs-check infection bench bench-tenancy bench-vector bench-baseline bench-compare coverage compat test-symfony demo-install demo-test embeddings-snapshot worker-test docs-install docs-dev docs-build ci
+.PHONY: help up down build install shell test test-unit test-db test-all-db stan cs cs-check infection bench bench-tenancy bench-vector bench-doctrine bench-baseline bench-compare coverage compat test-symfony demo-install demo-test embeddings-snapshot split worker-test docs-install docs-dev docs-build ci
 
 help: ## Affiche cette aide
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
@@ -70,6 +70,19 @@ bench-vector: ## Critère de la phase 9 : nearest() < 50 ms (p95) sur 100 000 ve
 		$(RUN) env DATABASE_URL="$$url" ROWS=$(or $(ROWS),100000) KEEP=$(KEEP) php -d memory_limit=1G -d opcache.enable_cli=1 tools/bench/vector-nearest.php || exit 1; \
 	done
 
+bench-doctrine: ## Prism face à Doctrine ORM 3 (ADR 0021) : hydratation, flush, N+1, mémoire en worker, sur MySQL et PostgreSQL : make bench-doctrine [DB=mysql|pgsql] [REQUESTS=10000]
+	$(RUN) sh -c 'cd tools/bench/doctrine && composer install --quiet --no-interaction'
+	@for db in $(if $(filter command line,$(origin DB)),$(DB),mysql pgsql); do \
+		url=$$( [ $$db = pgsql ] && echo '$(URL_pgsql)' || echo '$(URL_mysql)' ); \
+		echo "=== $$db"; \
+		$(RUN) env DATABASE_URL="$$url" sh -c 'cd tools/bench/doctrine && php bin/database.php create \
+			&& vendor/bin/phpbench run --report=aggregate --progress=none \
+			&& php -d opcache.enable_cli=1 -d pcov.enabled=0 bin/queries.php \
+			&& php -d opcache.enable_cli=1 -d pcov.enabled=0 -d memory_limit=1G bin/worker.php prism $(or $(REQUESTS),10000) \
+			&& php -d opcache.enable_cli=1 -d pcov.enabled=0 -d memory_limit=1G bin/worker.php doctrine $(or $(REQUESTS),10000); \
+			status=$$?; php bin/database.php drop; exit $$status' || exit 1; \
+	done
+
 bench-baseline: ## Enregistre la référence de bench-compare (avant une modification de l'UoW ou de l'hydratation)
 	$(RUN) env DATABASE_URL='$(URL_$(DB))' vendor/bin/phpbench run --report=aggregate --tag=baseline $(if $(FILTER),--filter=$(FILTER))
 
@@ -97,6 +110,9 @@ embeddings-snapshot: ## Les vecteurs de la démo RAG (demo/data), par un Ollama 
 	@test -n "$(OLLAMA_URL)" || { echo 'OLLAMA_URL est requis : make embeddings-snapshot OLLAMA_URL=http://<hôte>:11434/v1'; exit 2; }
 	$(DC) run --rm -e EMBEDDING_BASE_URL=$(OLLAMA_URL) php sh -c 'cd demo && bin/console app:docs:snapshot'
 
+split: ## Publie packages/* vers les dépôts prism-orm/* depuis ce poste, sans GitHub Actions (ADR 0004) ; à blanc sans PUSH=1 : make split [TAG="v0.8.0 v0.9.0"] [PUSH=1] [FORCE=1]
+	TAG='$(TAG)' PUSH='$(PUSH)' FORCE='$(FORCE)' $(if $(REMOTE),REMOTE='$(REMOTE)') tools/split/split.sh
+
 worker-test: ## La démo en worker FrankenPHP, 10 000 requêtes, mémoire mesurée : make worker-test [N=10000] (après make demo-install)
 	$(DC) --profile demo up -d --build --wait frankenphp
 	$(RUN) php tools/worker/load.php http://frankenphp $(or $(N),10000)
@@ -110,5 +126,8 @@ docs-dev: ## Le site en local avec rechargement : http://localhost:5173 (après 
 
 docs-build: ## Construit le site dans website/.vitepress/dist ; échoue sur un lien interne cassé
 	$(DC) run --rm node npm run build
+
+docs-publish: docs-build ## Publie le site sur GitHub Pages (branche gh-pages) depuis ce poste, sans GitHub Actions (ADR 0016) ; à blanc sans PUSH=1 : make docs-publish [PUSH=1]
+	PUSH='$(PUSH)' $(if $(REMOTE),REMOTE='$(REMOTE)') $(if $(ANY_BRANCH),ANY_BRANCH='$(ANY_BRANCH)') tools/pages/publish.sh
 
 ci: cs-check stan test ## Tout ce que la CI vérifie : à lancer avant de terminer une tâche

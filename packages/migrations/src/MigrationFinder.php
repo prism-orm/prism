@@ -12,7 +12,7 @@ use Prism\Migrations\Exception\MigrationException;
  * version : ordre chronologique (RG-06.1), les données après le schéma de la même version
  * (RG-06.8).
  *
- * @api
+ * @internal
  */
 final class MigrationFinder
 {

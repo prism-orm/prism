@@ -45,6 +45,9 @@ final class ClassMetadata
     /** @var array<string, EmbeddingMapping> champs #[EmbeddedVector], par nom (ADR 0018) */
     private readonly array $embeddings;
 
+    /** @var list<FieldMapping>|null champs paresseux, calculés au premier appel (lu pour chaque ligne hydratée) */
+    private ?array $lazyFields = null;
+
     /**
      * @param class-string<T>                                                    $className
      * @param list<FieldMapping>                                                 $fields
@@ -58,6 +61,8 @@ final class ClassMetadata
      * @param array<class-string, array<value-of<LifecycleEvent>, list<string>>> $entityListenerCallbacks
      *                                                                                                    méthodes de chaque listener d'entité, par événement
      * @param list<EmbeddingMapping>                                             $embeddings
+     *
+     * @internal construite par Prism (AttributeDriver, MetadataValidator) ; lisible, pas à construire (ADR 0020)
      */
     public function __construct(
         public readonly string $className,
@@ -247,6 +252,8 @@ final class ClassMetadata
 
     /**
      * @return list<string>
+     *
+     * @internal lu par le LifecycleDispatcher
      */
     public function getLifecycleCallbacks(LifecycleEvent $event): array
     {
@@ -257,6 +264,8 @@ final class ClassMetadata
      * Méthodes des listeners d'entité pour cet événement, dans l'ordre de #[EntityListeners].
      *
      * @return list<array{class-string, string}> listener et méthode
+     *
+     * @internal lu par le LifecycleDispatcher
      */
     public function getEntityListenerCallbacks(LifecycleEvent $event): array
     {
@@ -354,7 +363,7 @@ final class ClassMetadata
      */
     public function getLazyFields(): array
     {
-        return array_values(array_filter($this->fields, static fn (FieldMapping $f): bool => $f->lazy));
+        return $this->lazyFields ??= array_values(array_filter($this->fields, static fn (FieldMapping $f): bool => $f->lazy));
     }
 
     /**

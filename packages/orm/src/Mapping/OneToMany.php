@@ -10,7 +10,8 @@ namespace Prism\Orm\Mapping;
  * - targetEntity et mappedBy : obligatoires (le type Collection ne porte pas la cible) ;
  * - orphanRemoval : supprime au flush l'élément retiré de la collection (RG-04.5) ;
  * - indexBy : indexe la collection par un champ de la cible ($lines['SKU-42']) ;
- * - Fetch::ExtraLazy : count() et contains() sans charger la collection.
+ * - Fetch::ExtraLazy : count() par une requête COUNT, sans charger la collection ; les autres
+ *   méthodes la chargent.
  *
  * @api
  */

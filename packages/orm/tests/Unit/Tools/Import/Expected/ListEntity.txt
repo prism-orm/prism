@@ -6,7 +6,7 @@ namespace App\Entity;
 
 use Prism\Orm\Mapping as Prism;
 
-// Importé par db:import depuis la table shop_list : à relire.
+// Imported by db:import from the table shop_list: review it.
 // clé étrangère FK_LIST_PAIR gardée en colonne : a, b → shop_pair: it is composite; the column stays a scalar property.
 #[Prism\Entity]
 #[Prism\Table('shop_list')]

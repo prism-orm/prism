@@ -21,7 +21,7 @@ use Symfony\Component\Console\Style\SymfonyStyle;
  * entité (#[Auditable(retention:)]), ou que --older-than pour celles qui n'en ont pas. Seule voie
  * de suppression d'une ligne d'audit ; rien sans --force.
  *
- * @api
+ * @internal
  */
 #[AsCommand(name: 'db:audit:purge', description: 'Delete the audit log rows older than the retention of their entity')]
 final class AuditPurgeCommand extends Command

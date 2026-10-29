@@ -7,7 +7,7 @@ namespace Prism\Orm\Tools\Import;
 /**
  * Ce que db:import tire d'une base (RG-06.10).
  *
- * @api
+ * @internal
  */
 final class ImportResult
 {

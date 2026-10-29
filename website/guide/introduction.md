@@ -54,6 +54,6 @@ Some features are deliberately out of scope for the first stable version: a text
 
 ## Project status
 
-Prism is in its `0.x` series, one minor version per milestone, toward a 1.0 release. Until then, the public API may still change between minor versions; a change is announced by a deprecation one minor version before the removal. What changed in each version is listed in the [changelog](https://github.com/IMAMx39/prism/blob/main/CHANGELOG.md).
+Prism is in its `0.x` series, one minor version per milestone, toward a 1.0 release. Until then, the public API may still change between minor versions; a change is announced by a deprecation one minor version before the removal. What changed in each version is listed in the [changelog](https://github.com/prism-orm/prism/blob/main/CHANGELOG.md).
 
 Every example on this site is executed in CI against the four supported databases, on the data of Prism's demo application: a small ERP with two companies (Acme and Globex), their customers, orders, invoices, and a shared product catalog.

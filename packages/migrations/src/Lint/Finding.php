@@ -7,7 +7,7 @@ namespace Prism\Migrations\Lint;
 /**
  * Un cas dangereux trouvé dans une migration en attente (RG-06.5).
  *
- * @api
+ * @internal
  */
 final class Finding
 {
