@@ -17,6 +17,8 @@ Prism keeps the ideas of Doctrine ORM (attribute mapping, an entity manager, a u
 
 ## Install
 
+> **Trying the release candidate.** Until 1.0.0 is released, Composer installs the last stable version, 0.9. To get `1.0.0-RC1`, run `composer config minimum-stability RC` and `composer config prefer-stable true` first, then require `prism-orm/bundle:^1.0` (or `prism-orm/orm:^1.0`). A `@RC` flag on the package alone does not reach the packages it depends on.
+
 In a Symfony application:
 
 ```bash
