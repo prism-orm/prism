@@ -65,7 +65,7 @@ When a column disappears and another one of the same type appears in the same ta
 ```php no-run
 public function up(MigrationBuilder $m): void
 {
-    // RG-06.3 : customer.name is dropped and customer.full_name added, both string: if it is a rename, replace the dropColumn() and addColumn() below with $m->renameColumn('customer', 'name', 'full_name') to keep the data.
+    // customer.name is dropped and customer.full_name added, both string: if it is a rename, replace the dropColumn() and addColumn() below with $m->renameColumn('customer', 'name', 'full_name') to keep the data.
     $m->addColumn('customer', new Column('full_name', 'string', length: 120));
     $m->dropColumn('customer', 'name');
 }
@@ -119,7 +119,7 @@ It catches, among others:
 - an index built without `CONCURRENTLY` on a non-empty PostgreSQL table (`L09`), DDL on a MySQL table of more than a million rows (`L10`);
 - data loss: a non-empty table or column dropped, a column shrunk or retyped (`L11` to `L14`).
 
-The command reference lists [all 19 rules](/bundle/commands). A rule that you accept for one migration is silenced with an attribute and a reason:
+The command reference lists [all 22 rules](/bundle/commands#db-migrations-lint). A rule that you accept for one migration is silenced with an attribute and a reason:
 
 ```php
 <?php

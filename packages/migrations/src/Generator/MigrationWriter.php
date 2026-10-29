@@ -31,7 +31,7 @@ final class MigrationWriter
 
         $up = array_map(fn (Operation\Operation $o): string => $this->operation($o), $migration->up);
         foreach (array_reverse($migration->warnings) as $warning) {
-            array_unshift($up, '// RG-06.3 : ' . $warning);
+            array_unshift($up, '// ' . $warning);
         }
         if ($migration->isReversible()) {
             $down = array_map(fn (Operation\Operation $o): string => $this->operation($o), $migration->down);

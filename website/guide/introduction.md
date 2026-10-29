@@ -29,7 +29,7 @@ It is built for business applications: ERPs, B2B software, back offices. These a
 | | Supported | Tested in CI |
 | --- | --- | --- |
 | PHP | 8.4 and later | 8.4, 8.5 |
-| MySQL | 8.0 and later | 8.4 |
+| MySQL | 8.0 and later | 8.4, 9.7 |
 | MariaDB | 11.8 and later | 11.8 |
 | PostgreSQL | 15 and later | 16 |
 | SQLite | 3.40 and later, for development and tests | |
@@ -51,9 +51,10 @@ Some features are deliberately out of scope for the first stable version: a text
 | `prism-orm/bundle` | Symfony integration |
 | `prism-orm/phpstan` | PHPStan extension |
 | `prism-orm/test-pack` | Testing tools for applications: factories, `ResetDatabase`, `assertQueryCount()` |
+| `prism-orm/embedding-openai` | Embedding provider for OpenAI-compatible `/v1/embeddings` APIs: OpenAI, Mistral, Ollama… |
 
 ## Project status
 
-Prism is in its `0.x` series, one minor version per milestone, toward a 1.0 release. Until then, the public API may still change between minor versions; a change is announced by a deprecation one minor version before the removal. What changed in each version is listed in the [changelog](https://github.com/prism-orm/prism/blob/main/CHANGELOG.md).
+Prism is heading to 1.0, and its public API is frozen: what is marked `@api` does not break in a 1.x version. A change goes through a deprecation in a minor version first, and the removal waits for the next major version. The first release candidate is `1.0.0-RC1`; the changes from 0.9 are listed in the [upgrade guide](https://github.com/prism-orm/prism/blob/main/UPGRADE-1.0.md). What changed in each version is listed in the [changelog](https://github.com/prism-orm/prism/blob/main/CHANGELOG.md).
 
 Every example on this site is executed in CI against the four supported databases, on the data of a small example ERP, the same domain as the [demo application](https://github.com/prism-orm/demo): two companies (Acme and Globex), their customers, orders, invoices, and a shared product catalog.

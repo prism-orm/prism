@@ -179,7 +179,7 @@ final class AttributeDriver implements MetadataDriver
             return null;
         }
         if ($tenanted->strictForeignKeys) {
-            throw MappingException::invalidMetadata($class->getName(), '#[Tenanted(strictForeignKeys: true)] is not supported in 1.0: it needs composite foreign keys on (tenant_id, id). Remove it; relations between tenants are refused at flush (RG-08.6).');
+            throw MappingException::invalidMetadata($class->getName(), '#[Tenanted(strictForeignKeys: true)] is not supported in 1.0: it needs composite foreign keys on (tenant_id, id). Remove it; relations between tenants are refused at flush.');
         }
         $column = $tenanted->column ?? $this->naming->propertyToColumnName('tenantId');
         $field = array_find($fields, static fn (FieldMapping $f): bool => 0 === strcasecmp($f->columnName, $column));

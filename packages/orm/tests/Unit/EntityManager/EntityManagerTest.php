@@ -35,7 +35,7 @@ final class EntityManagerTest extends TestCase
     public function testRepositoryClassMustExtendEntityRepository(): void
     {
         $this->expectException(MappingException::class);
-        $this->expectExceptionMessage('its repository class ArrayObject must extend ' . EntityRepository::class . ' (ADR 0006).');
+        $this->expectExceptionMessage('its repository class ArrayObject must extend ' . EntityRepository::class . '.');
 
         self::em()->getRepository(WrongRepositoryEntity::class);
     }

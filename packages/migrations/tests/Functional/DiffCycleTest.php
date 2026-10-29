@@ -184,7 +184,7 @@ final class DiffCycleTest extends TestCase
         self::assertSame('ada@example.com', $this->connection->executeQuery('SELECT mail FROM df_client')->fetchOne());
     }
 
-    // RG-06.3 : sans question possible, drop + add et un avertissement ; down() irréversible (RG-06.7)
+    // sans question possible, drop + add et un avertissement ; down() irréversible (RG-06.7)
     // ADR 0015 : un index partiel et la table du journal d'audit passent par diff → migrate → diff vide
     public function testPartialUniqueIndexAndAuditLog(): void
     {
@@ -213,7 +213,7 @@ final class DiffCycleTest extends TestCase
         self::assertStringContainsString('df_client.mail is dropped and df_client.email added, both string', $display);
         self::assertStringContainsString('Its down() is not generated: it drops df_client.mail, whose data', $display);
         $generated = $this->lastFile();
-        self::assertStringContainsString('// RG-06.3 : The table df_invoice is no longer mapped', $generated);
+        self::assertStringContainsString('// The table df_invoice is no longer mapped', $generated);
         self::assertStringNotContainsString("\$m->dropTable('df_invoice');", $generated, 'an unmapped table is kept without --complete');
         self::assertStringContainsString('throw IrreversibleMigrationException::forVersion(', $generated);
     }

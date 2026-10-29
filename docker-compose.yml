@@ -7,6 +7,7 @@ services:
             COMPOSER_CACHE_DIR: /app/var/composer
         depends_on:
             mysql: { condition: service_healthy }
+            mysql97: { condition: service_healthy }
             mariadb: { condition: service_healthy }
             postgres: { condition: service_healthy }
 
@@ -29,6 +30,21 @@ services:
             MYSQL_USER: prism
             MYSQL_PASSWORD: prism
         ports: ["${PRISM_MYSQL_PORT:-3306}:3306"]
+        tmpfs: [/var/lib/mysql]
+        healthcheck:
+            test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-proot"]
+            interval: 3s
+            retries: 30
+
+    # MySQL 9.7 LTS, la suivante de la 8.4 : tout sauf le type vector, refusé comme sous 8.4 (ADR 0017)
+    mysql97:
+        image: mysql:9.7
+        environment:
+            MYSQL_ROOT_PASSWORD: root
+            MYSQL_DATABASE: prism_test
+            MYSQL_USER: prism
+            MYSQL_PASSWORD: prism
+        ports: ["${PRISM_MYSQL97_PORT:-3308}:3306"]
         tmpfs: [/var/lib/mysql]
         healthcheck:
             test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-proot"]

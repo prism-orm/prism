@@ -277,7 +277,7 @@ final class TenantIsolationTest extends MappingSchemaTestCase
     {
         $f9 = $this->em->find(Invoice::class, $this->ids['A.f9']);
         self::assertNotNull($f9);
-        self::assertNotNull($f9->client, 'a ghost: its identifier is read without loading (RG-04.7)');
+        self::assertNotNull($f9->client, 'a ghost: its identifier is read without loading');
 
         $this->expectException(EntityNotFoundException::class);
         $this->expectExceptionMessage(\sprintf('No %s entity found for id %d.', Client::class, $this->ids['B.client']));

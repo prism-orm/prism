@@ -146,7 +146,7 @@ final class VectorTest extends SchemaTestCase
         $this->skipWithoutVectors();
         $platform = $this->connection->getPlatform();
         if (VectorDistance::InnerProduct === $distance && 'MariaDB' === $platform->getName()) {
-            self::markTestSkipped('MariaDB has no inner product distance (RG-09.3).');
+            self::markTestSkipped('MariaDB has no inner product distance.');
         }
         $this->create(new Schema([self::table()]));
         $this->insert(1, [3.0, 0.0, 0.0]);
@@ -169,7 +169,7 @@ final class VectorTest extends SchemaTestCase
     private function skipWithoutVectors(): void
     {
         if (!$this->connection->getPlatform()->supportsVectors()) {
-            self::markTestSkipped('MySQL has no vector type (ADR 0017).');
+            self::markTestSkipped('MySQL has no vector type.');
         }
     }
 }

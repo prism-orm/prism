@@ -196,7 +196,7 @@ final class UnitOfWorkCascadeTest extends TestCase
             self::fail('Expected OrphanReattachedException.');
         } catch (\LogicException $e) {
             self::assertInstanceOf(OrphanReattachedException::class, $e);
-            self::assertSame(\sprintf('The %s entity removed from %s::$photos (orphanRemoval) is deleted by this flush; it cannot be attached to another %s in the same flush. Flush the removal first, or move it without orphanRemoval (RG-04.5).', Photo::class, Album::class, Album::class), $e->getMessage());
+            self::assertSame(\sprintf('The %s entity removed from %s::$photos (orphanRemoval) is deleted by this flush; it cannot be attached to another %s in the same flush. Flush the removal first, or move it without orphanRemoval.', Photo::class, Album::class, Album::class), $e->getMessage());
             self::assertSame($photo, $e->entity);
         }
         self::assertSame([], $this->writes());
@@ -287,7 +287,7 @@ final class UnitOfWorkCascadeTest extends TestCase
         self::assertInstanceOf(InverseSideChangedEvent::class, $removed);
         self::assertSame([$first, 'tracks', $other, true], [$added->owner, $added->field, $added->element, $added->added]);
         self::assertSame([$first, 'tracks', $own, false], [$removed->owner, $removed->field, $removed->element, $removed->added]);
-        self::assertSame([], $this->writes(), 'nothing is written (RG-04.1)');
+        self::assertSame([], $this->writes(), 'nothing is written');
     }
 
     public function testConsistentChangeOfBothSidesIsNotReported(): void

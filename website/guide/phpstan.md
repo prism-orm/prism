@@ -21,7 +21,7 @@ In Symfony, the metamodel of each entity manager is in `var/cache/<env>/prism/me
 
 ## What it reports
 
-Given this code, with the demo's `Customer` entity and a `CustomerRevenue` DTO whose constructor takes `string $customer, int $invoices, string $total, ?\DateTimeImmutable $lastInvoice`:
+Given this code, with the `Customer` entity of the example ERP and a `CustomerRevenue` DTO whose constructor takes `string $customer, int $invoices, string $total, ?\DateTimeImmutable $lastInvoice`:
 
 ```php no-run
 $this->em->getRepository(Customer::class)->findBy(['emial' => 'a@b.c']);

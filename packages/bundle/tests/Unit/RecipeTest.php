@@ -46,7 +46,7 @@ final class RecipeTest extends TestCase
         $env = self::manifest()['env'];
 
         self::assertArrayHasKey('DATABASE_URL', $env);
-        self::assertStringContainsString('serverVersion=', $env['DATABASE_URL'], 'Prism needs it (RG-00.2)');
+        self::assertStringContainsString('serverVersion=', $env['DATABASE_URL'], 'Prism needs it');
         // la recette et la configuration sans prism.yaml lisent la même variable
         self::assertStringContainsString("url: '" . PrismConfiguration::DEFAULT_URL . "'", (string) file_get_contents(self::RECIPE . '/config/packages/prism.yaml'));
     }

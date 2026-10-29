@@ -12,7 +12,7 @@ Out of scope for 1.x, so not accepted as pull requests: a textual query language
 
 ## Set up
 
-You need Docker and `make`. Everything runs in containers: PHP 8.4, MySQL 8.4, MariaDB 11.8, PostgreSQL 16 with pgvector.
+You need Docker and `make`. Everything runs in containers: PHP 8.4, MySQL 8.4 and 9.7, MariaDB 11.8, PostgreSQL 16 with pgvector.
 
 ```bash
 git clone https://github.com/prism-orm/prism && cd prism
@@ -26,7 +26,7 @@ make ci         # style, PHPStan and tests on the 4 databases
 
 ```bash
 make test-unit                  # unit tests, no database
-make test-db DB=pgsql           # functional tests on one database: mysql, mariadb, pgsql or sqlite
+make test-db DB=pgsql           # functional tests on one database: mysql, mysql97, mariadb, pgsql or sqlite
 make stan                       # PHPStan, level max
 make cs                         # fix the code style
 make infection FILTER=packages/orm/src/UnitOfWork/UnitOfWork.php   # mutation testing of one class

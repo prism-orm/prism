@@ -55,7 +55,7 @@ final class GenerateCommandTest extends TestCase
         self::assertSame(0, $status, implode("\n", $output));
         $migrations = new MigrationFinder($this->dir, 'App\\Migrations\\Generated')->find();
         self::assertSame(['Version20261021143005'], array_keys($migrations), 'loadable as a migration');
-        self::assertStringContainsString('sans down(), la migration est irréversible', (string) file_get_contents($file), 'irreversible until its down() is written (RG-06.7)');
+        self::assertStringContainsString('sans down(), la migration est irréversible', (string) file_get_contents($file), 'irreversible until its down() is written');
     }
 
     // RG-06.8

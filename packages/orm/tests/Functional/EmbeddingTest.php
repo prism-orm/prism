@@ -52,7 +52,7 @@ final class EmbeddingTest extends MappingSchemaTestCase
     protected function setUp(): void
     {
         if (null !== TestDatabase::url() && !TestDatabase::connection()->getPlatform()->supportsVectors()) {
-            self::markTestSkipped('MySQL has no vector type (ADR 0017).');
+            self::markTestSkipped('MySQL has no vector type.');
         }
         parent::setUp();
         $this->metadataFactory = new MetadataFactory(new AttributeDriver([__DIR__ . '/VectorFixtures']), types: $this->connection->getTypeRegistry());

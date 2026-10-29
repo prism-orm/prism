@@ -91,7 +91,7 @@ final class DiffCommand extends Command
             $io->warning($warning);
         }
         if (!$migration->isReversible()) {
-            $io->note(\sprintf('Its down() is not generated: %s (RG-06.7).', implode('; ', $migration->irreversible)));
+            $io->note(\sprintf('Its down() is not generated: %s.', implode('; ', $migration->irreversible)));
         }
         $io->success(\sprintf('Migration %s generated with %d operation(s): %s. Review it, then run db:migrations:migrate.', $version, \count($migration->up), $file));
 

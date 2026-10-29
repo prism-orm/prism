@@ -43,7 +43,7 @@ final class MigrateCommand extends Command
         $this
             ->addArgument('version', InputArgument::OPTIONAL, 'The version to migrate to (VersionYYYYMMDDHHMMSS), or 0 to revert every migration')
             ->addOption('dry-run', null, InputOption::VALUE_NONE, 'Print the SQL of each migration without executing it')
-            ->addOption('allow-modified', null, InputOption::VALUE_NONE, 'Run even if an executed migration was modified since (RG-06.4)');
+            ->addOption('allow-modified', null, InputOption::VALUE_NONE, 'Run even if an executed migration was modified since');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int

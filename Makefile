@@ -5,11 +5,12 @@ RUN := $(DC) run --rm php
 
 # root sous MySQL/MariaDB : la suite crée et détruit sa propre base (RG-00.1)
 URL_mysql   := mysql://root:root@mysql:3306/prism_test?serverVersion=8.4
+URL_mysql97 := mysql://root:root@mysql97:3306/prism_test?serverVersion=9.7
 URL_mariadb := mysql://root:root@mariadb:3306/prism_test?serverVersion=11.8.0-MariaDB
 URL_pgsql   := postgresql://prism:prism@postgres:5432/prism_test?serverVersion=16
 URL_sqlite  := sqlite:///:memory:
 
-DATABASES := mysql mariadb pgsql sqlite
+DATABASES := mysql mysql97 mariadb pgsql sqlite
 
 .DEFAULT_GOAL := help
 .PHONY: help up down build install shell test test-unit test-db test-all-db stan cs cs-check infection bench bench-tenancy bench-vector bench-doctrine bench-baseline bench-compare coverage compat test-symfony split docs-install docs-dev docs-build docs-publish ci
@@ -21,7 +22,7 @@ build: ## Construit l'image PHP
 	$(DC) build php
 
 up: ## Démarre les bases de données
-	$(DC) up -d --wait mysql mariadb postgres
+	$(DC) up -d --wait mysql mysql97 mariadb postgres
 
 down: ## Arrête et supprime les conteneurs
 	$(DC) down --remove-orphans
@@ -37,10 +38,10 @@ test: test-unit test-all-db ## Tous les tests, toutes les bases
 test-unit: ## Tests unitaires (sans base)
 	$(RUN) vendor/bin/phpunit --testsuite unit
 
-test-db: ## Tests fonctionnels sur une base : make test-db DB=mysql|mariadb|pgsql|sqlite
+test-db: ## Tests fonctionnels sur une base : make test-db DB=mysql|mysql97|mariadb|pgsql|sqlite
 	$(RUN) env DATABASE_URL='$(URL_$(DB))' vendor/bin/phpunit --testsuite functional
 
-test-all-db: ## Tests fonctionnels sur les 4 bases
+test-all-db: ## Tests fonctionnels sur toutes les bases (MySQL 8.4 et 9.7, MariaDB, PostgreSQL, SQLite)
 	@for db in $(DATABASES); do printf "\n>>> %s\n" $$db; $(MAKE) --no-print-directory test-db DB=$$db || exit 1; done
 
 coverage: ## Couverture HTML dans var/coverage

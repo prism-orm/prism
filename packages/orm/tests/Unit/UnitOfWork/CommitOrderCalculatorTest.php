@@ -183,7 +183,7 @@ final class CommitOrderCalculatorTest extends TestCase
     public function testCycleWithoutNullableForeignKeyIsRefused(): void
     {
         $this->expectException(CyclicDependencyException::class);
-        $this->expectExceptionMessage('Cannot order the INSERTs of this flush: Order -[customer]-> Customer -[firstOrder]-> Order is a cycle of non-nullable foreign keys. Make one of these relations nullable (RG-04.4).');
+        $this->expectExceptionMessage('Cannot order the INSERTs of this flush: Order -[customer]-> Customer -[firstOrder]-> Order is a cycle of non-nullable foreign keys. Make one of these relations nullable.');
 
         self::sort(['Order', 'Customer'], [['Order', 'Customer', 'customer', false], ['Customer', 'Order', 'firstOrder', false]]);
     }

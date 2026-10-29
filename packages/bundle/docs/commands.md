@@ -219,8 +219,7 @@ $ vendor/bin/prism db:migrations:diff --no-interaction
            replace the dropColumn() and addColumn() below with $m->renameColumn('customer', 'name',
            'full_name') to keep the data.
 
- ! [NOTE] Its down() is not generated: it drops customer.name, whose data cannot be restored
- !        (RG-06.7).
+ ! [NOTE] Its down() is not generated: it drops customer.name, whose data cannot be restored.
 
  [OK] Migration Version20261021205005 generated with 3 operation(s):
       migrations/Version20261021205005.php. Review it, then run db:migrations:migrate.
@@ -238,7 +237,7 @@ final class Version20261021205005 extends AbstractMigration
 
     public function up(MigrationBuilder $m): void
     {
-        // RG-06.3 : customer.name is dropped and customer.full_name added, both string: if it is a rename, replace the dropColumn() and addColumn() below with $m->renameColumn('customer', 'name', 'full_name') to keep the data.
+        // customer.name is dropped and customer.full_name added, both string: if it is a rename, replace the dropColumn() and addColumn() below with $m->renameColumn('customer', 'name', 'full_name') to keep the data.
         $m->addColumn('customer', new Column('full_name', 'string', length: 120));
         $m->dropColumn('customer', 'name');
         $m->addColumn('invoice', new Column('issued_at', 'datetime_immutable'));
@@ -274,7 +273,7 @@ $ vendor/bin/prism db:migrations:migrate --dry-run
       CREATE INDEX "idx_invoice_b335a48f" ON "invoice" ("customer_id");
 
  [WARNING] 1 migration(s) will run without a transaction: if one fails, the statements before the
-           failure stay applied and the database is left half-migrated (RG-06.6).
+           failure stay applied and the database is left half-migrated.
 
  [OK] Dry run: 1 migration(s) planned, nothing executed.
 

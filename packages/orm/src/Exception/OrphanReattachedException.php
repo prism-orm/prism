@@ -22,6 +22,6 @@ final class OrphanReattachedException extends \LogicException implements OrmExce
      */
     public static function reattached(object $orphan, string $parent, string $field): self
     {
-        return new self(\sprintf('The %s entity removed from %s::$%s (orphanRemoval) is deleted by this flush; it cannot be attached to another %s in the same flush. Flush the removal first, or move it without orphanRemoval (RG-04.5).', $orphan::class, $parent, $field, $parent), $orphan);
+        return new self(\sprintf('The %s entity removed from %s::$%s (orphanRemoval) is deleted by this flush; it cannot be attached to another %s in the same flush. Flush the removal first, or move it without orphanRemoval.', $orphan::class, $parent, $field, $parent), $orphan);
     }
 }

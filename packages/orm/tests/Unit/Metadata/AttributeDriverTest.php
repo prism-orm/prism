@@ -310,7 +310,7 @@ final class AttributeDriverTest extends TestCase
         // RG-09.6 : un ghost ne peut être qu'un Vector
         yield 'lazy list of floats' => [$ns . 'LazyArrayVector', 'LazyArrayVector::$embedding: lazy: true needs a property typed Prism\Orm\Vector\Vector; a "array" property is always loaded.'];
         yield 'Vector on a text column' => [$ns . 'VectorAsText', 'VectorAsText::$embedding: a Prism\Orm\Vector\Vector property maps a "vector" column, not "text".'];
-        yield 'tenant strict foreign keys' => [$ns . 'StrictTenantForeignKeys', 'StrictTenantForeignKeys: #[Tenanted(strictForeignKeys: true)] is not supported in 1.0: it needs composite foreign keys on (tenant_id, id). Remove it; relations between tenants are refused at flush (RG-08.6).'];
+        yield 'tenant strict foreign keys' => [$ns . 'StrictTenantForeignKeys', 'StrictTenantForeignKeys: #[Tenanted(strictForeignKeys: true)] is not supported in 1.0: it needs composite foreign keys on (tenant_id, id). Remove it; relations between tenants are refused at flush.'];
     }
 
     #[DataProvider('invalidEntities')]

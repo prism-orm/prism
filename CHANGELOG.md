@@ -2,9 +2,9 @@
 
 Toutes les évolutions notables de Prism, par version. Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) ; versions [SemVer](https://semver.org/lang/fr/), en `0.x` jusqu'à la 1.0 (RT-16). Les règles (RG-xx, RT-xx) et les décisions d'architecture (ADR) citées sont les notes de conception du mainteneur, référencées par leur numéro.
 
-## [Non publié] — 1.0.0
+## [1.0.0-RC1] — 2026-10-29
 
-Phase 10b : stabilisation et gel de l'API publique (ADR 0020). Les ruptures avec la 0.9 et leur remplacement sont dans [UPGRADE-1.0.md](UPGRADE-1.0.md).
+Première version candidate de la 1.0 (phase 10b) : API publique gelée (ADR 0020), dépôt public `prism-orm/prism`, benchmarks contre Doctrine ORM 3. Seuls des correctifs arrivent jusqu'à la 1.0.0, après au moins trois semaines d'usage réel. Les ruptures avec la 0.9 et leur remplacement sont dans [UPGRADE-1.0.md](UPGRADE-1.0.md).
 
 ### Modifié (ruptures)
 
@@ -15,12 +15,14 @@ Phase 10b : stabilisation et gel de l'API publique (ADR 0020). Les ruptures avec
 
 ### Corrigé
 
+- Messages, aides de configuration et code généré : plus de renvoi aux règles et décisions internes (« RG-06.7 », « ADR 0014 »), illisibles hors du projet ; l'en-tête des fichiers du metamodel généré est en anglais.
 - Audit : un vecteur paresseux remplacé sans avoir été lu est journalisé avec son ancienne valeur, lue en base avant l'UPDATE, au lieu de `null`.
 - `db:import` et `db:migrations:diff` écrivent leur commentaire d'en-tête en anglais.
 - Docblocks de `#[Index(where:)]`, `#[UniqueConstraint(where:)]` et `Fetch::ExtraLazy` alignés sur le code ; message de refus de `#[UniqueConstraint(where:)]` à jour.
 
 ### Ajouté
 
+- MySQL 9.7 LTS dans les tests et la CI, à côté de MySQL 8.4 : `make test-db DB=mysql97`. Le type `vector` y reste refusé, comme sous 8.4.
 - Dépôt public `prism-orm/prism` (ADR 0019) : `SECURITY.md`, `CONTRIBUTING.md`, modèles d'issues, README en anglais ; site publié sur GitHub Pages (`https://prism-orm.github.io/prism/`) par la CI ou par `make docs-publish`.
 - La démo quitte le monorepo pour son propre dépôt, `prism-orm/demo`, installé depuis Packagist (ADR 0023) ; les exemples du site s'exécutent sur une petite application d'exemple, `website/tests/App`, et `make demo-*`, `worker-test` et `embeddings-snapshot` partent avec la démo.
 - Test de la surface de l'API : chaque classe porte `@api` ou `@internal`, et aucune signature `@api` n'expose une classe `@internal`.

@@ -194,7 +194,7 @@ final class MigrationLinterTest extends TestCase
         })], new FakeInspector(['dt_customer']));
 
         self::assertSame([Severity::Error, Severity::Warning], array_map(static fn (Finding $f): Severity => $f->severity, $result->findings));
-        self::assertSame('dt_customer.full_name is dropped but an entity still maps it: remove the field from the entity first (RG-06.5).', $result->findings[0]->message);
+        self::assertSame('dt_customer.full_name is dropped but an entity still maps it: remove the field from the entity first.', $result->findings[0]->message);
         self::assertSame(['Version20261021100000'], $result->versions);
     }
 
@@ -212,7 +212,7 @@ final class MigrationLinterTest extends TestCase
         ], new FakeInspector());
 
         self::assertSame(['L19', 'L19'], self::codes($result));
-        self::assertSame('It has no revert(): it cannot be reverted (RG-06.7).', $result->findings[1]->message);
+        self::assertSame('It has no revert(): it cannot be reverted.', $result->findings[1]->message);
     }
 
     public function testRenamesAreFollowedToTheRealTable(): void

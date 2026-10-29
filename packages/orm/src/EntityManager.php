@@ -167,7 +167,7 @@ final class EntityManager implements EntityManagerInterface
             $metadata = $this->metadata->getMetadataFor($class);
             $repositoryClass = $metadata->repositoryClass ?? EntityRepository::class;
             if (!is_a($repositoryClass, EntityRepository::class, true)) {
-                throw MappingException::invalidMetadata($class, \sprintf('its repository class %s must extend %s (ADR 0006).', $repositoryClass, EntityRepository::class));
+                throw MappingException::invalidMetadata($class, \sprintf('its repository class %s must extend %s.', $repositoryClass, EntityRepository::class));
             }
             $this->repositories[$class] = new $repositoryClass($this, $metadata);
         }
