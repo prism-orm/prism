@@ -8,8 +8,10 @@ Until 1.0.0 is released, `composer require prism-orm/bundle` installs the last s
 ```bash
 composer config minimum-stability RC
 composer config prefer-stable true
-composer require prism-orm/bundle:^1.0
+composer require "prism-orm/bundle:^1.0"
 ```
+
+Keep the quotes: the Windows command prompt removes the `^` from an unquoted argument, and Composer then looks for exactly 1.0.0.
 
 `prism-orm/bundle:^1.0@RC` alone is not enough: Composer applies `@RC` to the packages you require, not to `prism-orm/orm` and the other packages the bundle depends on. With `prefer-stable`, Composer still picks a stable version as soon as there is one.
 :::
