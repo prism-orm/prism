@@ -140,8 +140,8 @@ final class MySqlIntrospector extends AbstractIntrospector
             preg_match_all('/VECTOR\s+(?:KEY|INDEX)\s+(?:`((?:[^`]|``)+)`|([A-Za-z0-9_$]+))?\s*\([^)]*\)([^,\r\n]*)/i', $create, $matches, \PREG_SET_ORDER | \PREG_UNMATCHED_AS_NULL);
             foreach ($matches as $m) {
                 $options = $m[3];
-                $mValue = 1 === preg_match('/(?:^|\s)`?M`?\s*=\s*(\d+)(?=\s|,|$)/i', $options, $mMatch) ? (int) $mMatch[1] : null;
-                $distanceValue = 1 === preg_match('/(?:^|\s)`?DISTANCE`?\s*=\s*(cosine|euclidean)(?=\s|,|$)/i', $options, $distanceMatch) ? strtolower($distanceMatch[1]) : null;
+                $mValue = 1 === preg_match('/(?:^|\s)`?M`?\s*=\s*[\'"]?(\d+)[\'"]?(?=\s|,|$)/i', $options, $mMatch) ? (int) $mMatch[1] : null;
+                $distanceValue = 1 === preg_match('/(?:^|\s)`?DISTANCE`?\s*=\s*[\'"]?(cosine|euclidean)[\'"]?(?=\s|,|$)/i', $options, $distanceMatch) ? strtolower($distanceMatch[1]) : null;
                 // sans DISTANCE, celle par défaut de MariaDB (mhnsw_default_distance)
                 $name = $m[1] ?? $m[2] ?? '';
                 $this->vectorIndexes[strtolower(str_replace('``', '`', $name))] = [$mValue, 'cosine' === $distanceValue ? VectorDistance::Cosine : VectorDistance::Euclidean];
