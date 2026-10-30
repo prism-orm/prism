@@ -77,7 +77,11 @@ final class SearchIndexTest extends SchemaTestCase
         ))[0];
 
         self::assertSame(['embedding'], $vector->columns);
-        self::assertSame(VectorDistance::Cosine, $vector->distance);
+        self::assertSame(
+            VectorDistance::Cosine,
+            $vector->distance,
+            print_r($this->connection->executeQuery('SHOW CREATE TABLE ' . $this->connection->getPlatform()->quoteIdentifier('search_doc'))->fetchAssociative(), true),
+        );
         self::assertSame(8, $vector->m);
         // MariaDB ne garde pas ef_construction
         self::assertSame('MariaDB' === $this->connection->getPlatform()->getName() ? null : 32, $vector->efConstruction);
