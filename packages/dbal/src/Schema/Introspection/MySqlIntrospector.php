@@ -137,16 +137,18 @@ final class MySqlIntrospector extends AbstractIntrospector
         if (null === $this->vectorIndexes) {
             $this->vectorIndexes = [];
             $create = self::string($this->connection->executeQuery($this->platform->getShowCreateTableSql($table))->fetchAssociative()['Create Table'] ?? '');
-            preg_match_all('/^\s*VECTOR (?:KEY|INDEX) `((?:[^`]|``)+)` \([^)]*\)([^\r\n]*)/mi', $create, $matches, \PREG_SET_ORDER);
+            preg_match_all('/VECTOR\s+(?:KEY|INDEX)\s+(?:`((?:[^`]|``)+)`|([A-Za-z0-9_$]+))?\s*\([^)]*\)([^,\r\n]*)/i', $create, $matches, \PREG_SET_ORDER | \PREG_UNMATCHED_AS_NULL);
             foreach ($matches as $m) {
-                $options = $m[2];
+                $options = $m[3];
                 $mValue = 1 === preg_match('/(?:^|\s)`?M`?\s*=\s*(\d+)(?=\s|,|$)/i', $options, $mMatch) ? (int) $mMatch[1] : null;
                 $distanceValue = 1 === preg_match('/(?:^|\s)`?DISTANCE`?\s*=\s*(cosine|euclidean)(?=\s|,|$)/i', $options, $distanceMatch) ? strtolower($distanceMatch[1]) : null;
                 // sans DISTANCE, celle par défaut de MariaDB (mhnsw_default_distance)
-                $this->vectorIndexes[strtolower(str_replace('``', '`', $m[1]))] = [$mValue, 'cosine' === $distanceValue ? VectorDistance::Cosine : VectorDistance::Euclidean];
+                $name = $m[1] ?? $m[2] ?? '';
+                $this->vectorIndexes[strtolower(str_replace('``', '`', $name))] = [$mValue, 'cosine' === $distanceValue ? VectorDistance::Cosine : VectorDistance::Euclidean];
             }
         }
-        [$m, $distance] = $this->vectorIndexes[strtolower($index->name)] ?? [null, VectorDistance::Euclidean];
+        $options = $this->vectorIndexes[strtolower($index->name)] ?? (1 === \count($this->vectorIndexes) ? array_values($this->vectorIndexes)[0] : null);
+        [$m, $distance] = $options ?? [null, VectorDistance::Euclidean];
 
         return new Index($index->name, $index->columns, kind: IndexKind::Vector, distance: $distance, m: $m);
     }
