@@ -55,6 +55,8 @@ final class Customer
 
 `remove()` on a soft-deletable entity does not delete the row: it writes the date into `deletedAt`. Deleted rows then disappear from every read.
 
+Remove cascades keep that behavior: soft-deletable children receive the same deletion timestamp and are restored with their parent when their timestamp still matches. Children that are not soft-deletable are left untouched rather than physically deleted. A hard delete still applies ordinary remove cascades.
+
 ```php
 $customers = $em->getRepository(Customer::class);
 $customer = $customers->findOneBy(['email' => 'customer3@acme.example.test']);

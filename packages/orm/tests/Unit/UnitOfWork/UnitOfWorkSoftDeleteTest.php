@@ -14,6 +14,8 @@ use Prism\Orm\Metadata\Driver\AttributeDriver;
 use Prism\Orm\Metadata\MetadataFactory;
 use Prism\Orm\Tests\Support\FrozenClock;
 use Prism\Orm\Tests\Support\InMemoryStorage;
+use Prism\Orm\Tests\Unit\UnitOfWork\Fixtures\Behavior\Archive;
+use Prism\Orm\Tests\Unit\UnitOfWork\Fixtures\Behavior\ArchiveNote;
 use Prism\Orm\Tests\Unit\UnitOfWork\Fixtures\Behavior\Link;
 use Prism\Orm\Tests\Unit\UnitOfWork\Fixtures\Behavior\Memo;
 use Prism\Orm\Tests\Unit\UnitOfWork\Fixtures\Behavior\Page;
@@ -114,7 +116,7 @@ final class UnitOfWorkSoftDeleteTest extends TestCase
         self::assertCount($updates, $this->storage->operations('UPDATE'));
     }
 
-    // les cascades d'une suppression s'appliquent : l'enfant soft-deletable l'est aussi
+    // les enfants soft-deletable partagent l'horodatage et sont restaurés avec leur parent
     public function testCascadeRemove(): void
     {
         $page = new Page('home');
@@ -127,7 +129,36 @@ final class UnitOfWorkSoftDeleteTest extends TestCase
         $this->uow->commit();
 
         self::assertNotNull($link->deletedAt);
+        self::assertSame($page->deletedAt, $link->deletedAt);
         self::assertSame([], $this->storage->operations('DELETE'));
+
+        $this->uow->restore($page);
+        $this->uow->commit();
+
+        self::assertNull($page->deletedAt);
+        self::assertNull($link->deletedAt);
+        self::assertSame([], $this->storage->operations('DELETE'));
+    }
+
+    public function testSoftDeleteDoesNotPhysicallyDeleteNonSoftDeletableChildren(): void
+    {
+        $archive = new Archive();
+        $archive->notes->add($note = new ArchiveNote($archive, 'keep me'));
+        $this->uow->persist($archive);
+        $this->uow->persist($note);
+        $this->uow->commit();
+
+        $this->uow->remove($archive);
+        $this->uow->commit();
+
+        self::assertSame([], $this->storage->operations('DELETE'));
+        self::assertSame(EntityState::Managed, $this->uow->getEntityState($note));
+        self::assertSame('keep me', $this->storage->row('archive_note', (int) $note->id)['text']);
+
+        $this->uow->restore($archive);
+        $this->uow->commit();
+
+        self::assertSame('keep me', $this->storage->row('archive_note', (int) $note->id)['text']);
     }
 
     public function testRestoreNeedsASoftDeletableManagedEntity(): void

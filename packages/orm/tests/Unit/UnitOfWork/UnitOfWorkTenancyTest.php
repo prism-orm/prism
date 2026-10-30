@@ -326,6 +326,19 @@ final class UnitOfWorkTenancyTest extends TestCase
         self::assertTrue($this->context->runAs(7, fn (): bool => $this->uow->contains($client)));
     }
 
+    public function testSwitchPreservesNonTenantedEntities(): void
+    {
+        $this->storage->seed('tenant_currency', 'id', ['id' => 1, 'code' => 'EUR']);
+        $currency = $this->uow->find(Currency::class, 1);
+        self::assertNotNull($currency);
+        $this->insert(new Client('Ada'));
+
+        $stillManagedInOtherTenant = $this->context->runAs(8, fn (): bool => $this->uow->contains($currency));
+
+        self::assertTrue($stillManagedInOtherTenant);
+        self::assertSame($currency, $this->uow->find(Currency::class, 1));
+    }
+
     // à l'entrée : refusé, rien n'est perdu
     public function testSwitchWithPendingChangesIsRefused(): void
     {

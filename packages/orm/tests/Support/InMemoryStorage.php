@@ -42,6 +42,11 @@ final class InMemoryStorage implements PersisterProvider
         return new InMemoryPersister($this, $metadata);
     }
 
+    public function withoutFilter(string $name, \Closure $operation): mixed
+    {
+        return $operation();
+    }
+
     public function isTransactionActive(): bool
     {
         return $this->inTransaction;
