@@ -19,6 +19,17 @@ interface PersisterProvider
     public function getPersister(ClassMetadata $metadata): EntityPersister;
 
     /**
+     * Run an internal operation without applying a named filter.
+     *
+     * @template T
+     *
+     * @param \Closure(): T $operation
+     *
+     * @return T
+     */
+    public function withoutFilter(string $name, \Closure $operation): mixed;
+
+    /**
      * Identifiant généré avant l'INSERT (séquence, UUID v7), en valeur de la base ; null si la
      * base l'attribue (IDENTITY) ou si l'application l'assigne.
      *

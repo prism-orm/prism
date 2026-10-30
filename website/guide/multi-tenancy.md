@@ -88,7 +88,7 @@ $allOrders = $tenants->runAsSystem(fn () => $em->getRepository(Order::class)->co
 
 In system mode, reads see every tenant, but a row still never changes tenant, and a relation between two tenants is still refused. Writes made in system mode are flagged in the [audit log](/guide/audit).
 
-**Each change of tenant clears the entity manager**, so that no entity crosses from one tenant to another: entities loaded before a `runAs()` are detached after it, and must be loaded again. If changes are waiting to be flushed, the switch is refused with `TenantSwitchException`: flush before entering, and before leaving.
+**Each change of tenant detaches tenant-owned entities**, so that no entity crosses from one tenant to another. Non-tenant and shared (`global: true`) entities remain managed. If changes are waiting to be flushed, the switch is refused with `TenantSwitchException` on entry; unflushed changes are discarded when leaving a tenant scope.
 
 ## Shared rows
 

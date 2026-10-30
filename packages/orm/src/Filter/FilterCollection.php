@@ -87,6 +87,34 @@ final class FilterCollection
         };
     }
 
+    /**
+     * Run an internal operation without applying a filter, preserving its previous state.
+     *
+     * @internal
+     *
+     * @template T
+     *
+     * @param \Closure(): T $operation
+     *
+     * @return T
+     */
+    public function without(string $name, \Closure $operation): mixed
+    {
+        $this->assertKnown($name);
+        if (isset($this->locked[$name])) {
+            throw InvalidArgumentException::lockedFilter($name);
+        }
+        $wasDisabled = isset($this->disabled[$name]);
+        $this->disabled[$name] = true;
+        try {
+            return $operation();
+        } finally {
+            if (!$wasDisabled) {
+                unset($this->disabled[$name]);
+            }
+        }
+    }
+
     private function assertKnown(string $name): void
     {
         if (!isset($this->filters[$name])) {

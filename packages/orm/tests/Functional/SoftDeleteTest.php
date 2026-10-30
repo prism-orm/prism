@@ -105,6 +105,32 @@ final class SoftDeleteTest extends MappingSchemaTestCase
         self::assertCount(1, $this->em->query($p)->withDeleted()->getResult());
     }
 
+    public function testRestoreRestoresSoftDeletedCascadeChildrenAfterReload(): void
+    {
+        $page = new Page('home');
+        $link = new Link($page, 'https://example.com');
+        $this->em->persist($page);
+        $this->em->persist($link);
+        $this->em->flush();
+        $this->em->remove($page);
+        $this->em->flush();
+        $pageId = $page->id;
+        $linkId = $link->id;
+        self::assertNotNull($pageId);
+        self::assertNotNull($linkId);
+        $this->em->clear();
+
+        $p = Page_::as('p');
+        $deleted = $this->em->query($p)->withDeleted()->where($p->id->eq($pageId))->getOneOrNull();
+        self::assertNotNull($deleted);
+        $this->em->restore($deleted);
+        $this->em->flush();
+        $this->em->clear();
+
+        self::assertNotNull($this->em->find(Page::class, $pageId));
+        self::assertNotNull($this->em->find(Link::class, $linkId));
+    }
+
     // RG-08.15 : le slug se répète parmi les pages supprimées, jamais parmi les autres
     public function testUniquenessWithSoftDelete(): void
     {

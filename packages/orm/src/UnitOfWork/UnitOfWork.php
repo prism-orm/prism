@@ -12,6 +12,7 @@ use Prism\Dbal\Type\TypeRegistry;
 use Prism\Orm\Audit\AuditLog;
 use Prism\Orm\Audit\AuditWriter;
 use Prism\Orm\Behavior\ActorProvider;
+use Prism\Orm\Behavior\SoftDeleteFilter;
 use Prism\Orm\Behavior\SystemClock;
 use Prism\Orm\Collection\Collection;
 use Prism\Orm\Collection\PersistentCollection;
@@ -324,21 +325,22 @@ final class UnitOfWork implements TenantSwitchListener, FlushContext
     /**
      * RG-08.14 : la suppression d'une entité #[SoftDeletable] est l'UPDATE de son champ de
      * suppression au flush (PreRemove ici, PostUpdate après le flush) ; une entité déjà supprimée
-     * reste telle quelle. Les cascades s'appliquent comme à une suppression (ADR 0015).
+     * reste telle quelle. La suppression en cascade reste logique pour les enfants #[SoftDeletable].
      *
      * @param ClassMetadata<object> $metadata
      */
-    private function softRemove(ClassMetadata $metadata, object $entity, string $field): void
+    private function softRemove(ClassMetadata $metadata, object $entity, string $field, ?\DateTimeImmutable $deletedAt = null): void
     {
         if (null !== $this->read($entity, $metadata->className, $field)) {
             return;
         }
         $oid = spl_object_id($entity);
         $this->lifecycle->lifecycle($metadata, LifecycleEvent::PreRemove, $entity, fn (): PreRemoveEvent => new PreRemoveEvent($entity, $this));
-        $this->property($metadata->className, $field)->setValue($entity, $this->now());
+        $deletedAt ??= $this->now();
+        $this->property($metadata->className, $field)->setValue($entity, $deletedAt);
         $this->softDeleted[$oid] = true;
         unset($this->restored[$oid]);
-        $this->cascadeRemove($entity);
+        $this->cascadeSoftRemove($entity, $deletedAt);
     }
 
     /**
@@ -360,10 +362,61 @@ final class UnitOfWork implements TenantSwitchListener, FlushContext
         if (null === $this->read($entity, $metadata->className, $field)) {
             return;
         }
+        $deletedAt = $this->read($entity, $metadata->className, $field);
+        if (!$deletedAt instanceof \DateTimeImmutable) {
+            throw new \LogicException('A #[SoftDeletable] entity must have a DateTimeImmutable deletion date before it can be restored.');
+        }
         $oid = spl_object_id($entity);
         $this->property($metadata->className, $field)->setValue($entity, null);
         $this->restored[$oid] = true;
         unset($this->softDeleted[$oid]);
+        $this->cascadeRestore($entity, $deletedAt);
+    }
+
+    /**
+     * A logical deletion must never turn into a physical deletion for a child.
+     */
+    private function cascadeSoftRemove(object $entity, \DateTimeImmutable $deletedAt): void
+    {
+        $metadata = $this->metadataOf($entity);
+        foreach ($metadata->getAssociations() as $association) {
+            if (!$association->orphanRemoval && !\in_array(Cascade::Remove, $association->cascade, true)) {
+                continue;
+            }
+            foreach ($this->related($entity, $metadata, $association, load: true) as $target) {
+                if (EntityState::Managed !== $this->getEntityState($target)) {
+                    continue;
+                }
+                $targetMetadata = $this->metadataOf($target);
+                if (null !== $field = $targetMetadata->behaviors->deletedAt) {
+                    $this->softRemove($targetMetadata, $target, $field, $deletedAt);
+                }
+            }
+        }
+    }
+
+    private function cascadeRestore(object $entity, \DateTimeImmutable $deletedAt): void
+    {
+        $metadata = $this->metadataOf($entity);
+        foreach ($metadata->getAssociations() as $association) {
+            if (!$association->orphanRemoval && !\in_array(Cascade::Remove, $association->cascade, true)) {
+                continue;
+            }
+            $targets = $this->persisters->withoutFilter(SoftDeleteFilter::NAME, fn (): array => $this->related($entity, $metadata, $association, load: true));
+            foreach ($targets as $target) {
+                if (EntityState::Managed !== $this->getEntityState($target)) {
+                    continue;
+                }
+                $targetMetadata = $this->metadataOf($target);
+                if (null === $field = $targetMetadata->behaviors->deletedAt) {
+                    continue;
+                }
+                $targetDeletedAt = $this->read($target, $targetMetadata->className, $field);
+                if ($targetDeletedAt instanceof \DateTimeImmutable && $targetDeletedAt->format('U.u') === $deletedAt->format('U.u')) {
+                    $this->restore($target);
+                }
+            }
+        }
     }
 
     /**
@@ -1051,7 +1104,12 @@ final class UnitOfWork implements TenantSwitchListener, FlushContext
 
             throw TenantSwitchException::discarded($from, $to);
         }
-        $this->clear();
+        foreach ($this->entities as $entity) {
+            $tenancy = $this->metadataOf($entity)->tenancy;
+            if (null !== $tenancy && !$tenancy->global) {
+                $this->forget($entity, detach: true);
+            }
+        }
     }
 
     /**

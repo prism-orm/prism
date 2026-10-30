@@ -52,6 +52,11 @@ final class DbalPersisterProvider implements PersisterProvider
         return $this->persisters[$metadata->className];
     }
 
+    public function withoutFilter(string $name, \Closure $operation): mixed
+    {
+        return $this->filters->without($name, $operation);
+    }
+
     public function nextId(ClassMetadata $metadata): int|string|null
     {
         $generator = $this->generators->getGenerator($metadata);

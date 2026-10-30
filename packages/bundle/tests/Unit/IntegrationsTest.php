@@ -19,8 +19,10 @@ use Symfony\Bundle\SecurityBundle\SecurityBundle;
 use Symfony\Component\Console\Tester\CommandTester;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigurator;
+use Symfony\Component\Messenger\Envelope;
 use Symfony\Component\Messenger\Exception\HandlerFailedException;
 use Symfony\Component\Messenger\MessageBusInterface;
+use Symfony\Component\Messenger\Stamp\ReceivedStamp;
 use Symfony\Component\Security\Core\Exception\UserNotFoundException;
 use Symfony\Component\Security\Core\User\PasswordUpgraderInterface;
 use Symfony\Component\Security\Core\User\UserProviderInterface;
@@ -197,17 +199,28 @@ final class IntegrationsTest extends TestCase
         $bus = $this->container->get('messenger.default_bus');
         \assert($bus instanceof MessageBusInterface);
 
-        $bus->dispatch(new Restock('R-1'));
+        $bus->dispatch(new Envelope(new Restock('R-1'), [new ReceivedStamp('test')]));
         self::assertFalse($this->em->getConnection()->isTransactionActive(), 'the open transaction is rolled back');
         self::assertSame([], $this->em->getUnitOfWork()->getScheduledInsertions(), 'the entity manager is cleared');
 
         try {
-            $bus->dispatch(new Restock('R-2', fail: true));
+            $bus->dispatch(new Envelope(new Restock('R-2', fail: true), [new ReceivedStamp('test')]));
             self::fail('Expected HandlerFailedException.');
         } catch (HandlerFailedException) {
         }
         self::assertFalse($this->em->getConnection()->isTransactionActive());
         self::assertSame([], $this->em->getUnitOfWork()->getScheduledInsertions());
+    }
+
+    public function testMessengerMiddlewareDoesNotResetAfterAnOrdinaryDispatch(): void
+    {
+        $bus = $this->container->get('messenger.default_bus');
+        \assert($bus instanceof MessageBusInterface);
+
+        $bus->dispatch(new Restock('R-1'));
+
+        self::assertTrue($this->em->getConnection()->isTransactionActive());
+        self::assertCount(1, $this->em->getUnitOfWork()->getScheduledInsertions());
     }
 
     /**
